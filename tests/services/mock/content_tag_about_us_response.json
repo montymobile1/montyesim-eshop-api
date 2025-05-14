@@ -1,0 +1,58 @@
+{
+    "message": "Success",
+    "code": "700_3_200",
+    "success": true,
+    "data": {
+        "item": {
+            "tag": "ABOUT_US",
+            "price": null,
+            "currencyCode": "",
+            "order": null,
+            "startDate": null,
+            "endDate": null,
+            "createdDate": 1741944926,
+            "isActive": true,
+            "version": 1,
+            "contentConfigs": [],
+            "children": [],
+            "contentDetails": [
+                {
+                    "name": "",
+                    "description": "<p>MontyeSIM provides the best connectivity you can ask for, whether you are a regular traveler, or just someone enjoying their vacation. You can now download up to 10 eSIM profiles using our app, with any compatible device, wherever you may be around the world! Get ready for the best SIMless experience, as you save yourself the trouble of swapping SIM cards. Just pick the best plans directly from the app and enjoy your visits to the fullest.</p><p><br></p><p>Monty UK Global limited, a company incorporated under the laws of England and Wales with registration number No.8632740 and VAT 169296852 having its registered office at Bridge House, 181 Queen Victoria Street, London EC4V 4EG, United Kingdom. Monty Mobile is a global fast growing telecommunication company offering innovative technology and communication solutions. We provide cutting-edge digital products and services for mobile network operators, enterprises, and service providers across different industries.</p><p>Our revolutionary Omni channel, messaging, and network monetization platforms, facilitate the international flow of communication globally, allowing service providers to offer an optimal customer experience while boosting their revenues through a broad variety of in-house developed state-of-the-art products. With its innovative solutions, professional customer service and a long-lasting thirst for improvement, Monty Mobile has grown into a key regional player in the telecommunications business, gathering under its portfolio many of the biggest mobile operators and service providers around the world. Travel eSIM: One of the most important things that travelers take into consideration each trip is how to avoid the high roaming rates. So they either turn mobile data off and depend only on Wi-Fi which is not always available or buy local SIM card at each destination they arrive to. But now Monty Travel eSIM is a better option they can choose. It is an international data eSIM profile, of which the traveler can download its app or visit its website to get the profile with no need to insert any physical SIM card and benefit from the most competitive roaming rates and avoid bill shock. The whole process is done via our smart system that looks to the least cost network according to the traveler destination and latches him/her to.</p>",
+                    "image": null,
+                    "music": null,
+                    "languageCode": "en"
+                }
+            ],
+            "contentCategory": {
+                "tag": "ABOUT_US",
+                "isActive": true,
+                "hasMultiple": false,
+                "contentCategoryDetails": [
+                    {
+                        "name": "About us",
+                        "description": "About us",
+                        "languageCode": "en"
+                    }
+                ],
+                "contents": [],
+                "allowMultipleSubscription": false,
+                "recordGuid": "71befc99-cb82-4eab-904d-0947ff0cc55b"
+            },
+            "contentType": {
+                "tag": "HTML",
+                "isActive": true,
+                "contentTypeDetails": [
+                    {
+                        "name": "HTML",
+                        "description": "HTML",
+                        "languageCode": "en"
+                    }
+                ],
+                "recordGuid": "8ed9fb8c-fd69-4fd3-ab8b-8a74bd2058b1"
+            },
+            "recordGuid": "3e56ab0f-f7d4-4566-8076-1263f1485759"
+        }
+    },
+    "version": "1"
+}
