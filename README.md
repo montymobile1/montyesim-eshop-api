@@ -176,13 +176,13 @@ All errors are logged using the configured logger and return standardized error 
 For production deployment, use:
 
 ```sh
-  uvicorn main:app --host 0.0.0.0 --port 8000
+  uvicorn main:esim_app --host 0.0.0.0 --port 8000
 ```
 
 Or use a process manager like **Gunicorn** with **Uvicorn**:
 
 ```sh
-  gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app
+  gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:esim_app
 ```
 
 ## Contributing
