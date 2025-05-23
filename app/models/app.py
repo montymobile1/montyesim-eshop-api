@@ -78,6 +78,25 @@ class TagModel(BaseModel):
                 raise ValueError("Invalid JSON format in bundle_data")
         return value
 
+class TagTranslationModel(BaseModel):
+    id: Optional[int] = Field(None, alias="id")
+    tag_id: Optional[str] = Field(None, alias="tag_id")
+    locale: Optional[str] = Field(None, alias="locale")
+    name: Optional[str] = Field(None, alias="name")
+    data: Optional[Dict[str, Any]] = Field(None, alias="data")
+    updated_at: Optional[str] = None
+    created_at: Optional[str] = None
+
+    @field_validator("data", mode="before")
+    @classmethod
+    def parse_data(cls, value):
+        if isinstance(value, str):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                raise ValueError("Invalid JSON format in bundle_data")
+        return value
+
 
 class BundleTagModel(BaseModel):
     id: Optional[int] = Field(None, alias="id")

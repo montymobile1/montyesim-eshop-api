@@ -6,15 +6,15 @@ import stripe
 from loguru import logger
 
 from app.config.config import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, \
-    esim_hub_service_instance
-from app.config.db import DatabaseTables
-from app.exceptions import BadRequestException, CustomException
+    esim_hub_service_instance, generate_otp, dcb_service_instance
+from app.config.db import DatabaseTables, PaymentTypeEnum
+from app.exceptions import BadRequestException, CustomException, DCBException
 from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
 from app.repo.bundle_repo import BundleRepo
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
-    ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest
+    ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest, VerifyOtpRequestDto
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
 from app.schemas.promotion import PromotionValidationRequest
@@ -36,14 +36,16 @@ class UserBundleService:
         self.__user_wallet_service = UserWalletService()
         self.__promotion_service = PromotionService()
         self.__bundle_service = BundleService()
+        self.__dcb_service = dcb_service_instance()
 
-    async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str) -> Response[
-                                                                                                                   PaymentIntentResponse] | \
-                                                                                                               Response[
-                                                                                                                   bool]:
+    async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
+                     locale: str) -> Response[
+                                         PaymentIntentResponse] | \
+                                     Response[
+                                         bool]:
         # bundle = await self.__esim_hub_service.get_bundle_by_id(assign_request.bundle_code)
         bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_request.bundle_code,
-                                                                 currency_name=x_currency)
+                                                                 currency_name=x_currency, locale=locale)
         bundle = bundle_response.data
 
         if not bundle.is_stockable:
@@ -77,8 +79,12 @@ class UserBundleService:
             "searched_countries": assign_request.related_search.model_dump_json(),
             "anonymous_user_id": user.anonymous_user_id
         })
-        if str(assign_request.payment_type).lower() == "wallet":
+        payment_type = assign_request.payment_type
+        if payment_type == PaymentTypeEnum.WALLET:
             return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order)
+        elif payment_type == PaymentTypeEnum.DCB:
+            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
+
         payment_intent = create_payment_intent(user_bundle_order=order, user_email=user.email,
                                                metadata={
                                                    "order_id": order.id,
@@ -119,6 +125,12 @@ class UserBundleService:
             "bundle_data": bundle.model_dump_json(),
             "searched_countries": None,
         })
+        payment_type = assign_top_up_request.payment_type
+        if payment_type == PaymentTypeEnum.WALLET:
+            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order)
+        elif payment_type == PaymentTypeEnum.DCB:
+            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
+
         payment_intent = create_payment_intent(user_bundle_order=order, user_email=user.email, metadata={
             "order_id": order.id,
             "user_id": order.user_id,
@@ -211,14 +223,35 @@ class UserBundleService:
             data={"bundle_data": bundle.model_dump()})
         return ResponseHelper.success_response()
 
-    async def get_topup_related_bundle(self, bundle_code: str, iccid: str, user: UserModel) -> Response[
+    async def update_bundle_name_by_iccid(self, iccid: str, bundle_label_request: UpdateBundleLabelRequest,
+                                          user: UserModel):
+        user_profile_bundle = self.__user_profile_bundle_repo.get_first_by(where={"user_id": user.id, "iccid": iccid})
+        if user_profile_bundle is None:
+            raise CustomException(code=400, name="DB Exception", details="Bundle Not Found")
+        bundle = BundleDTO.model_validate(user_profile_bundle.bundle_data)
+        bundle.label = bleach.clean(bundle_label_request.label)
+        self.__user_profile_bundle_repo.update_by(
+            where={"user_id": user.id, "iccid": iccid},
+            data={"bundle_data": bundle.model_dump()})
+        return ResponseHelper.success_response()
+
+    async def get_topup_related_bundle(self, bundle_code: str, iccid: str, user: UserModel, accept_language: str = "en",
+                                       currency_code: str = os.getenv("DEFAULT_CURRENCY")) -> Response[
         List[BundleDTO]]:
         profile = self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
         if not profile:
             raise BadRequestException(details="This ICCID is not linked to this user")
         bundles = await self.__esim_hub_service.get_topup_related_bundles(bundle_code=bundle_code,
                                                                           order_id=profile.esim_hub_order_id)
-        return ResponseHelper.success_data_response(bundles, len(bundles))
+        all_bundles = []
+        for bundle in bundles:
+            local_bundle = await self.__bundle_service.get_bundle(bundle_id=bundle.bundle_code,
+                                                                  currency_name=currency_code,
+                                                                  locale=accept_language)
+            logger.debug(f"local bundle {local_bundle.data}")
+            all_bundles.append(local_bundle.data)
+
+        return ResponseHelper.success_data_response(all_bundles, len(all_bundles))
 
     async def get_user_esim_by_order_id(self, order_id: str, user: UserModel) -> Response[EsimBundleResponse]:
         user_order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
@@ -239,7 +272,8 @@ class UserBundleService:
     async def get_order_history(self, user_id: str, page_index: int, page_size: int) -> Response[
         List[UserOrderHistoryResponse]]:
         user_orders = self.__user_order_repo.list(
-            where={"user_id": user_id, "payment_status": OrderStatusEnum.SUCCESS}, limit=page_size,
+            where={"user_id": user_id, "payment_status": OrderStatusEnum.SUCCESS,
+                   "order_status": OrderStatusEnum.SUCCESS}, limit=page_size,
             offset=((page_index - 1) * page_size))
         return ResponseHelper.success_data_response([DtoMapper.to_user_order_history(data) for data in user_orders],
                                                     len(user_orders))
@@ -262,8 +296,41 @@ class UserBundleService:
         except Exception as e:
             raise CustomException(code=400, name=f" Error While Canceling Order {order_id}", details=str(e))
 
+    async def resend_order_otp(self, user: UserModel, order_id: str) -> Response[None]:
+        order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
+        if not order:
+            raise BadRequestException(f"Order {order_id} not found")
+        await self.__dcb_service.resend_otp(msisdn=user.msisdn, transaction_id=order.id)
+        return ResponseHelper.success_response()
+
+    async def verify_order_otp(self, user: UserModel, request: VerifyOtpRequestDto) -> Response[None]:
+        logger.info(f"receiving verification otp request {request}")
+        user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=request.order_id)
+        if not user_order:
+            raise BadRequestException("Order not found")
+
+        bundle = BundleDTO.model_validate_json(user_order.bundle_data)
+
+        try:
+            await self.__dcb_service.verify_otp(msisdn=user.msisdn, order_id=user_order.id, otp=request.otp)
+            if user_order.order_type == UserOrderType.ASSIGN:
+                return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
+                                                              payment_status=OrderStatusEnum.SUCCESS, user=user)
+            elif user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
+                return await self.__bundle_service.top_up_bundle(bundle=bundle, user_id=user.id,
+                                                                 payment_status=OrderStatusEnum.SUCCESS,
+                                                                 user_order=user_order,
+                                                                 iccid=request.iccid, user=user)
+            else:
+                raise BadRequestException("Invalid Order Type")
+        except Exception as e:
+            logger.error("Failed to get content tag: {}".format(e))
+            if isinstance(e, DCBException):
+                raise e
+            raise BadRequestException(f"failed to verify otp: {e}")
+
     async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel) -> Response[
-        bool]:
+        PaymentIntentResponse]:
         wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user.id)
         if wallet.balance < bundle.price:
             raise BadRequestException("You don't have enough funds to pay")
@@ -271,7 +338,21 @@ class UserBundleService:
             await self.__user_wallet_service.add_wallet_transaction(amount=(bundle.price * -1), user_id=user.id,
                                                                     source="Assign_Bundle")
             await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                   payment_status=OrderStatusEnum.SUCCESS)
-            return ResponseHelper.success_data_response(True, 0)
+                                                   payment_status=OrderStatusEnum.SUCCESS, user=user)
+            response = PaymentIntentResponse(order_id=user_order.id)
+            return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
             raise CustomException(code=400, name="Error Creating Order", details=f"Error while creating order: {e}")
+
+    async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO) -> Response[
+        PaymentIntentResponse]:
+        otp = generate_otp()
+        self.__user_order_repo.update_by(where={"id": user_order.id}, data={"otp": otp})
+        msisdn = user.msisdn
+        logger.info(f"requesting new otp for msisdn: {msisdn}")
+        await self.__dcb_service.payment_request(user_msisdn=user.msisdn,
+                                                 merchant_msisdn="0992164444",
+                                                 order_id=user_order.id, amount=bundle.price)
+
+        response = PaymentIntentResponse(order_id=user_order.id)
+        return ResponseHelper.success_data_response(response, 0)

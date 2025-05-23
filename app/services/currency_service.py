@@ -11,21 +11,21 @@ class CurrencyService:
     def __init__(self):
         self.__currency_repo = CurrencyRepo()
 
-    def get_rate_by_currency(self, currency_name:str) -> float:
-        if currency_name == os.getenv("DEFAULT_CURRENCY"):
+    def get_rate_by_currency(self, currency_name: str) -> float:
+        if currency_name == os.getenv("SYSTEM_CURRENCY", "USD"):
             return 1.0
 
-        currency = self.__currency_repo.get_first_by(where={"name": currency_name})
+        currency = self.__currency_repo.get_first_by(
+            where={"name": currency_name, "default_currency": os.getenv("SYSTEM_CURRENCY", "USD")})
 
         if not currency:
             return 1.0
 
         return currency.rate
 
-    def get_all_currency(self)->Response[List[CurrencyDto]]:
+    def get_all_currency(self) -> Response[List[CurrencyDto]]:
         currency_list = self.__currency_repo.list(where={})
         currency_dto = []
         for currency in currency_list:
             currency_dto.append(DtoMapper.to_currency_dto(currency))
-        return ResponseHelper.success_data_response(currency_dto,len(currency_list))
-
+        return ResponseHelper.success_data_response(currency_dto, len(currency_list))

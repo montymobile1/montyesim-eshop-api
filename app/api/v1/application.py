@@ -19,55 +19,55 @@ router = APIRouter()
 
 @router.post("/device", response_model=Response, dependencies=[Depends(device_token)])
 async def add_device(device_request: DeviceRequest, request: Request, authorization: str = Header(None),
-                     accepted_language: str = Header("en"), x_device_id: str = Header(None)) -> Response:
+                     accept_language: str = Header("en"), x_device_id: str = Header(None)) -> Response:
     user: UserModel = get_user_from_token(authorization)
     return await service.add_device(user, x_device_id, device_request,request)
 
 
 @router.delete("/device", response_model=Response, dependencies=[Depends(bearer_token), Depends(device_token)])
 async def delete_device(delete_request: DeleteDeviceRequest, user: Annotated[UserModel, Depends(bearer_token)],
-                        accepted_language: str = Header("en"), x_device_id: str = Header(None)) -> Response:
+                        accept_language: str = Header("en"), x_device_id: str = Header(None)) -> Response:
     return await service.delete_device(user, delete_request)
 
 
 @router.get("/faq", response_model=Response[List[FaqResponse]],
             dependencies=[Depends(device_token)])
-async def faq(accepted_language: str = Header("en"), x_device_id: str = Header(None)):
-    return await service.faq(accepted_language)
+async def faq(accept_language: str = Header("en"), x_device_id: str = Header(None)):
+    return await service.faq(accept_language)
 
 
 @router.get("/about_us", response_model=Response[PageContentResponse], dependencies=[Depends(device_token)])
-async def about_us(accepted_language: str = Header("en"), x_device_id: str = Header(None)):
-    return await service.about_us(accepted_language)
+async def about_us(accept_language: str = Header("en"), x_device_id: str = Header(None)):
+    return await service.about_us(accept_language)
 
 
 @router.get("/privacy_policy", response_model=Response[PageContentResponse], dependencies=[Depends(device_token)])
-async def about_us(accepted_language: str = Header("en"), x_device_id: str = Header(None)):
-    return await service.privacy_policy(accepted_language)
+async def about_us(accept_language: str = Header("en"), x_device_id: str = Header(None)):
+    return await service.privacy_policy(accept_language)
 
 
 @router.post("/contact", response_model=Response, dependencies=[Depends(device_token)])
-async def contact(contact_us_request: ContactUsRequest, accepted_language: str = Header("en"),
+async def contact(contact_us_request: ContactUsRequest, accept_language: str = Header("en"),
                   x_device_id: str = Header(None)):
     return await service.contact_us(contact_us_request)
 
 
 @router.get("/terms-and-conditions", response_model=Response[PageContentResponse], dependencies=[Depends(device_token)])
-async def terms_and_conditions(accepted_language: str = Header("en"),
+async def terms_and_conditions(accept_language: str = Header("en"),
                                x_device_id: str = Header(None)):
-    return await service.terms_and_conditions(accepted_language)
+    return await service.terms_and_conditions(accept_language)
 
 
 @router.get("/user-guide", response_model=Response, dependencies=[Depends(device_token)])
-async def user_guide(accepted_language: str = Header("en"),
+async def user_guide(accept_language: str = Header("en"),
                      x_device_id: str = Header(None)):
     return await service.user_guide()
 
 
 @router.get("/configurations", response_model=Response[List[GlobalConfiguration]], dependencies=[Depends(device_token)])
-async def configurations(accepted_language: str = Header("en")):
+async def configurations(accept_language: str = Header("en")):
     return await service.configurations()
 
 @router.get("/currency", response_model=Response[List[CurrencyDto]], dependencies=[Depends(device_token)])
-async def configurations(accepted_language: str = Header("en")):
+async def configurations(accept_language: str = Header("en")):
     return currency_service.get_all_currency()

@@ -19,6 +19,12 @@ class UserOrderType(StrEnum):
     WALLET_TOP_UP = "Wallet_Top_Up"
 
 
+class PaymentTypeEnum(StrEnum):
+    CARD = "Card"
+    WALLET = "Wallet"
+    DCB = "DCB"
+
+
 class PromotionStatusEnum(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
@@ -53,6 +59,7 @@ class Beneficiary(IntEnum):
     REFERRER = 1
     BOTH = 2
 
+
 class ConfigKeysEnum(StrEnum):
     APP_CACHE_KEY = "APP_CACHE_KEY"
 
@@ -78,6 +85,7 @@ class DatabaseTables(StrEnum):
 
     TABLE_BUNDLE = "bundle"
     TABLE_TAG = "tag"
+    TABLE_TAG_TRANSLATION = "tag_translation"
     TABLE_BUNDLE_TAG = "bundle_tag"
     TABLE_TAG_GROUP = "tag_group"
 

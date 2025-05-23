@@ -55,3 +55,10 @@ class UserNotificationResponse(BaseModel):
 class GlobalConfiguration(BaseModel):
     key: str
     value: str
+
+
+class ExchangeRate(BaseModel):
+    system_currency_code: str
+    currency_code: str
+    current_rate: float
+    new_rate: float

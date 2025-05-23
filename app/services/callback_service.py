@@ -1,5 +1,4 @@
 import json
-import json
 import os
 import threading
 from datetime import datetime
@@ -18,7 +17,7 @@ from app.config.notification_types import send_consumption_80_bundle_notificatio
 from app.config.push_notification_manager import fcm_service
 from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel
 from app.repo import UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
-from app.schemas.callback import ConsumptionLimitRequest, NotificationCategoryType
+from app.schemas.callback import ConsumptionLimitRequest
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
 from app.schemas.response import ResponseHelper
@@ -89,7 +88,7 @@ class CallbackService:
                 try:
                     # Get bundle info from user profile
                     # Prepare notification data based on event type
-                    if event_type == NotificationCategoryType.CONSUMPTION80.value:
+                    if event_type in ["limit_80", "PLAN-80", "Eighty"]:
                         notification_data = send_consumption_80_bundle_notification(
                             user_name=order.user_display_name,
                             bundle_name=order.bundle_display_name,
@@ -101,7 +100,7 @@ class CallbackService:
                             bundle_name=order.bundle_display_name,
                             iccid=iccid
                         )
-                    elif event_type == NotificationCategoryType.CONSUMPTION100.value:
+                    elif event_type in ["limit_100", "PLAN-100", "DATA_LIMIT", "PREPAID_PLAN_COMPLETION"]:
                         notification_data = send_consumption_100_bundle_notification(
                             user_name=order.user_display_name,
                             bundle_name=order.bundle_display_name,
@@ -113,7 +112,8 @@ class CallbackService:
                             bundle_name=order.bundle_display_name,
                             iccid=iccid
                         )
-                    elif event_type == NotificationCategoryType.BUNDLE_STARTED.value:
+                    elif event_type in ["StartBundle", "PLAN-STARTED", "thing activated", "Plan Started and Selected",
+                                        "SESSION_START", "Started"]:
                         datetime_str = order_info.validity
                         dt_object = datetime.strptime(datetime_str, "%Y-%m-%dT%H:%M:%S")
                         date_only_str = dt_object.strftime("%Y-%m-%d")
@@ -164,9 +164,26 @@ class CallbackService:
         thread.start()
         return ResponseHelper.success_response()
 
-    async def handle_sync_one_bundle(self, id: str):
+    async def handle_exchange_rate_update(self, request: Request):
+        json_request = await request.json()
+        currency = json_request["currency"]
+        rate = json_request["rate"]
+        logger.info(f"updating exchange rate for currency: {currency} with rate: {rate}")
+
+    async def handle_sync_one_bundle(self, request: Request):
+        json_data = await request.json()
+        logger.info(f"receiving bundle sync request {json_data}")
+        operation = json_data.get("operation", "insert")
+        bundle_id = json_data.get("bundle_id")
+        reseller_id = json_data.get("reseller_id", None)
+
+        thread = threading.Thread(target=self.__run_one_sync, args=(bundle_id, operation, reseller_id))
+        thread.start()
+        return ResponseHelper.success_response()
+
+    async def handle_sync_one_bundle_by_id(self, request: Request, id: str):
         logger.info(f"receiving bundle sync request {id}")
-        thread = threading.Thread(target=self.__run_one_sync, args=(id,))
+        thread = threading.Thread(target=self.__run_one_sync, args=(id, "update"))
         thread.start()
         return ResponseHelper.success_response()
 
@@ -176,12 +193,40 @@ class CallbackService:
         # thread.start()
         return ResponseHelper.success_response()
 
-    def __run_one_sync(self, id: str):
+    def __run_one_sync(self, bundle_id: str, operation: str, reseller_id: str = None):
         import asyncio
         try:
-            bundle = asyncio.run(
-                self.__esim_hub_service.get_bundle_by_id(bundle_id=id, currency_code=os.getenv("DEFAULT_CURRENCY")))
-            asyncio.run(self.__sync_service.sync_bundle(bundle))
+            if operation == "delete":
+                if reseller_id and reseller_id == os.getenv("RESELLER_ID"):
+                    logger.info(f"deleting bundle {bundle_id} for reseller {reseller_id}")
+                    asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
+                else:
+                    logger.info(f"ignoring delete bundle {bundle_id}, no reseller provided")
+                    return
+            elif operation == "update":
+                logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
+                bundle = asyncio.run(
+                    self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
+                                                             currency_code=os.getenv("DEFAULT_CURRENCY")))
+                asyncio.run(self.__sync_service.sync_bundle(bundle))
+            elif operation == "assign" or operation == "edit_price":
+                if reseller_id and  reseller_id == os.getenv("RESELLER_ID"):
+                    bundle = asyncio.run(
+                        self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
+                                                                 currency_code=os.getenv("DEFAULT_CURRENCY")))
+                    asyncio.run(self.__sync_service.sync_bundle(bundle))
+                else:
+                    logger.info(f"ignoring assign bundle {bundle_id}, no reseller provided")
+                    return
+            elif operation == "unassign":
+                if not reseller_id:
+                    logger.info(f"ignoring assign bundle {bundle_id}, no reseller provided")
+                    return
+                if reseller_id == os.getenv("RESELLER_ID"):
+                    logger.info(f"unassigning bundle {bundle_id} for reseller {reseller_id}")
+                    asyncio.run(self.__sync_service.delete_bundle(bundle_id))
+                else:
+                    logger.info(f"reseller id not matching")
             asyncio.run(self.__sync_service.update_sync_version())
         except Exception as e:
             logger.error(f"error while syncing bundle {id}: {str(e)}")
@@ -219,6 +264,7 @@ class CallbackService:
         amount = metadata.get("amount", None)
         user_order = self.__user_order_repo.get_by_id(order_id)
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
+        user = self.__user_repo.get_by_id(user_id)
         payment_status = OrderStatusEnum.SUCCESS if event.get(
             "type") == "payment_intent.succeeded" else OrderStatusEnum.FAILURE
         if payment_status == OrderStatusEnum.FAILURE:
@@ -233,7 +279,7 @@ class CallbackService:
                 self.__promotion_service.update_promotion_usage(user_id, promo_code, "completed", rule_id, amount)
             return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
                                                           payment_status=payment_status,
-                                                          user_id=user_id)
+                                                          user_id=user_id, user=user)
 
         elif payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.BUNDLE_TOP_UP:
             if not iccid:
@@ -241,7 +287,7 @@ class CallbackService:
                 return HTTPException(status_code=400, detail="Invalid iccid")
             return await self.__bundle_service.top_up_bundle(bundle=bundle, user_order=user_order, iccid=iccid,
                                                              user_id=user_id,
-                                                             payment_status=payment_status)
+                                                             payment_status=payment_status, user=user)
         return ResponseHelper.success_response()
 
     async def __check_metadata_fields(self, metadata: dict):
@@ -252,9 +298,11 @@ class CallbackService:
     async def __send_email_80_consumption(self, user: UsersCopyModel, bundle_name, iccid):
         try:
             msisdn = os.getenv("WHATSAPP_NUMBER").replace("+", "").replace("-", "").replace(" ", "")
+            display_email = user.metadata.get("display_email", None)
+            email = user.metadata.get("email", user.email) if display_email is None else display_email
 
             data = {
-                "user": user.metadata.get("email", user.email),
+                "user": email,
                 "bundle_name": bundle_name,
                 "montyesim_msisdn": msisdn,
                 "iccid": iccid
@@ -264,16 +312,18 @@ class CallbackService:
             template = env.get_template('80_percent_email_template.htm')
             html_content = template.render(data=data)
             send_email(subject="80% Consumption", html_content=html_content,
-                       recipients=user.metadata.get("email", user.email))
+                       recipients=email)
         except Exception as e:
             logger.error(f"error while sending email {str(e)}")
 
     async def __send_email_100_consumption(self, user: UsersCopyModel, bundle_name, iccid):
         try:
             msisdn = os.getenv("WHATSAPP_NUMBER").replace("+", "").replace("-", "").replace(" ", "")
+            display_email = user.metadata.get("display_email", None)
+            email = user.metadata.get("email", user.email) if display_email is None else display_email
 
             data = {
-                "user": user.metadata.get("email", user.email),
+                "user": email,
                 "bundle_name": bundle_name,
                 "montyesim_msisdn": msisdn,
                 "iccid": iccid
@@ -283,7 +333,7 @@ class CallbackService:
             template = env.get_template('expiry_email_template.htm')
             html_content = template.render(data=data)
             send_email(subject="100% Consumption", html_content=html_content,
-                       recipients=user.metadata.get("email", user.email))
+                       recipients=user.metadata.get("email", email))
         except Exception as e:
             logger.error(f"error while sending email {str(e)}")
 
@@ -300,7 +350,8 @@ class CallbackService:
                 logger.info(f"updating user wallet: {user_wallet} with new {amount=}")
                 await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
                 self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.SUCCESS})
-                logger.info(f"Top-Up for user {user_id} wallet {user_wallet} with amount {amount} {order.currency} succeeded")
+                logger.info(
+                    f"Top-Up for user {user_id} wallet {user_wallet} with amount {amount} {order.currency} succeeded")
                 return ResponseHelper.success_response()
             else:
                 self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.FAILURE})

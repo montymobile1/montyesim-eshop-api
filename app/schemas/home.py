@@ -41,10 +41,12 @@ class BundleDTO(BaseModel):
     currency_code: str
     gprs_limit: Optional[float] = 0
     gprs_limit_display: str
+    original_price: Optional[float] = 0
     price: float
     price_display: str
     unlimited: bool
     validity: int
+    validity_label: Optional[str] =None
     plan_type: str = "Data only"
     activity_policy: str = "The validity period starts when the eSIM connects to any supported networks."
     validity_display: str

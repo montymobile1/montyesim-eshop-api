@@ -30,15 +30,24 @@ async def bundle_sync_all(request: Request, page_index=Query(default=1, descript
     return await service.handle_sync_all_bundles(page_index=page_index)
 
 
-@router.post("/bundle/sync-one/{id}")
+@router.post("/bundle/sync-one")
+async def bundle_sync_all(request: Request):
+    return await service.handle_sync_one_bundle(request=request)
+
+
+@router.post("/bundle/sync-one-by-id/{id}")
 async def bundle_sync_all(request: Request, id: str):
-    return await service.handle_sync_one_bundle(id)
+    return await service.handle_sync_one_bundle_by_id(request=request, id=id)
 
 
 @router.post("/bundle-webhook/sync")
 async def bundle_sync_all(request: Request):
     return await service.handle_sync_bundle(request)
 
+
+@router.post("/currency/exchange_rate")
+async def currency_exchange_rate(request: Request):
+    return await service.handle_exchange_rate_update(request=request)
 # @router.post("/notify")
 # async def consumption_limit():
 #     # notification_data = send_buy_bundle_notification(amount="10", iccid= "892200660703814891")

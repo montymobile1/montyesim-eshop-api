@@ -1,4 +1,5 @@
 import os
+import random
 from io import BytesIO
 
 import qrcode
@@ -12,6 +13,7 @@ from supabase.lib.client_options import SyncClientOptions
 from app.exceptions import CustomException
 from app.models.user import UserOrderModel
 from app.schemas.bundle import PaymentDetailsDTO
+from app.services.integration.dcb_service import DCBService
 from app.services.integration.esim_hub_service import EsimHubService
 
 ROOT_PATH = os.path.abspath(os.curdir)
@@ -53,6 +55,14 @@ def esim_hub_service_instance():
         base_url=os.getenv("ESIM_HUB_BASE_URL"),
         api_key=os.getenv("ESIM_HUB_API_KEY"),
         tenant_key=os.getenv("ESIM_HUB_TENANT_KEY"))
+
+
+def dcb_service_instance():
+    send_otp_url = os.getenv("DCB_SEND_OTP_API")
+    charge_url = os.getenv("DCB_CHARGE_API")
+    verify_otp_url = os.getenv("DCB_VERIFY_CHARGE_API")
+    return DCBService(send_otp_url=send_otp_url, charge_url=charge_url, verify_otp_url=verify_otp_url,
+                      api_key=os.getenv("DCB_API_KEY"))
 
 
 def authenticate(email: str, referral_code: str):
@@ -190,3 +200,7 @@ def generate_qr_code(qr_data: str) -> BytesIO:
     qr.save(buffer, format="PNG")
     buffer.seek(0)
     return buffer
+
+
+def generate_otp():
+    return str(random.randint(100000, 999999))

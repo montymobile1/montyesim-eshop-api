@@ -19,13 +19,13 @@ class Response(BaseModel, Generic[T]):
 
 class ResponseHelper:
     @staticmethod
-    def success_response() -> Response[None]:
-        return Response(status='success', totalCount=0, data=None, title=None, message=None, developerMessage=None,
+    def success_response(message: str = None) -> Response[None]:
+        return Response(status='success', totalCount=0, data=None, title=None, message=message, developerMessage=None,
                         responseCode=200)
 
     @staticmethod
-    def success_data_response(data: T, total_count: int) -> Response[T]:
-        return Response(status='success', totalCount=total_count, data=data, title="Success", message=None,
+    def success_data_response(data: T, total_count: int, message: str = None) -> Response[T]:
+        return Response(status='success', totalCount=total_count, data=data, title="Success", message=message,
                         developerMessage=None,
                         responseCode=200)
 

@@ -97,6 +97,14 @@ class SyncService:
         else:
             self.__config_repo.update_by(where={"key": ConfigKeysEnum.APP_CACHE_KEY}, data={"value": new_key})
 
+    async def delete_bundle(self, bundle_id: str):
+        try:
+            self.__bundle_tag_repo.delete_by({"bundle_id": bundle_id})
+            self.__bundle_repo.delete(record_id=bundle_id)
+            logger.info(f"deleted bundle {bundle_id}")
+        except Exception as e:
+            logger.error(f"error while deleting bundle {bundle_id=} {e}")
+
     async def __sync_country_tags(self, countries: List[CountryDTO]):
         for country in countries:
             if not self.__tag_repo.get_first_by({"name": country.country}):

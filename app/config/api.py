@@ -11,7 +11,6 @@ class EsimHubEndpoint(StrEnum):
     API_SEARCH_BUNDLES_BY_COUNTRY = "/catalog/api/admin/v1/Bundle/search-by-countries"
     API_GET_TOPUP_RELATED_BUNDLES = "/core/api/v1/order/compatible-topup-with-currency"
 
-
     API_GET_ALL_BUNDLES = "/catalog/api/v1/Bundle/get-all-basic/active"
 
     API_GET_CONTENT_TAG = "/catalog/api/reseller/v1/Content/get-latest"
@@ -24,3 +23,10 @@ class EsimHubEndpoint(StrEnum):
     API_GET_ACTIVATION_CODE = "/core/api/v1/order/activation-code"
 
     API_CHECK_BUNDLE_APPLICABLE = "/core/api/v1/order/check-bundle-availability"
+
+    API_EXCHANGE_RATE = "/api-gateway/billing/api/v1/exchangerate/get-all"
+
+
+class DCBEndpoint(StrEnum):
+    API_SEND_OTP = "/otp"
+    API_DEDUCT = "/deduct"

@@ -43,6 +43,7 @@ class UserOrderModel(BaseModel):
     promo_code: Optional[str] = None
     referral_code: Optional[str] = None
     modified_amount: Optional[float] = 0
+    otp: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 

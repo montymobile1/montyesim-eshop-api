@@ -3,6 +3,7 @@ from typing import Optional, List
 
 from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
 
+from app.config.db import PaymentTypeEnum
 from app.models.user import UserBundleType
 from app.schemas.home import BundleCategoryDTO, CountryDTO, BundleDTO
 
@@ -27,14 +28,19 @@ class AssignRequest(BaseModel):
     related_search: Optional[RelatedSearchRequestDto]
     promo_code: Optional[str]
     affiliate_code: Optional[str]
-    payment_type: Optional[str] = "Card"
+    payment_type: Optional[PaymentTypeEnum] = PaymentTypeEnum.CARD
     promo_code: Optional[str]
 
+
+class VerifyOtpRequestDto(BaseModel):
+    otp: str
+    order_id: str
+    iccid: Optional[str] = None
 
 class AssignTopUpRequest(BaseModel):
     iccid: str
     bundle_code: str
-    payment_type: Optional[str] = "Card"
+    payment_type: Optional[PaymentTypeEnum] = PaymentTypeEnum.CARD
 
 
 class PaymentRequest(BaseModel):
@@ -50,14 +56,14 @@ class PaymentRequest(BaseModel):
 
 
 class PaymentIntentResponse(BaseModel):
-    publishable_key: str
-    merchant_identifier: str
-    billing_country_code: str
-    payment_intent_client_secret: str
-    customer_id: str
-    customer_ephemeral_key_secret: str
-    test_env: bool
-    merchant_display_name: str
+    publishable_key: Optional[str] = None
+    merchant_identifier: Optional[str] = None
+    billing_country_code: Optional[str] = None
+    payment_intent_client_secret: Optional[str] = None
+    customer_id: Optional[str] = None
+    customer_ephemeral_key_secret: Optional[str] = None
+    test_env: Optional[bool] = True
+    merchant_display_name: Optional[str] = None
     stripe_url_scheme: Optional[str] = "stripe"
     order_id: str
 
@@ -177,6 +183,7 @@ class UserOrderHistoryResponse(BaseModel):
     quantity: Optional[int] = 1
     company_name: Optional[str] = None
     payment_details: Optional[PaymentDetailsDTO] = None
+    payment_type: Optional[PaymentTypeEnum] = PaymentTypeEnum.CARD
     bundle_details: BundleDTO
 
     @field_validator("order_date", mode="before")

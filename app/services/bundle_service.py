@@ -1,7 +1,8 @@
 import asyncio
+import os
 from collections import defaultdict
-from typing import List
 from datetime import datetime
+from typing import List
 
 from coverage.html import os
 from jinja2 import Environment, FileSystemLoader
@@ -12,7 +13,7 @@ from app.config.db import UserBundleType, OrderStatusEnum
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
 from app.exceptions import BadRequestException
-from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel
+from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel, UserModel
 from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
 from app.repo.bundle_repo import BundleRepo
 from app.repo.bundle_tage_repo import BundleTagRepo
@@ -37,20 +38,31 @@ class BundleService:
         self.__user_order_repo = UserOrderRepo()
         self.__user_profile_repo = UserProfileRepo()
         self.__user_profile_bundle_repo = UserProfileBundleRepo()
-    async def get_bundle(self, bundle_id: str,currency_name : str) -> Response[BundleDTO]:
+
+    async def get_bundle(self, bundle_id: str, currency_name: str, locale: str = "en") -> Response[BundleDTO]:
         # bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id)
         # todo check if currency needed to be checked
         bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=bundle_id)
         rate = self.__currency_service.get_rate_by_currency(currency_name)
 
-        return ResponseHelper.success_data_response(DtoMapper.bundle_currency_update(bundle,currency_name,rate), 1)
+        tags_id = [bundle_country.id for bundle_country in bundle.countries]
+        country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
+                                                        where={"tag_ids": tags_id,
+                                                               "locale_param": locale})
+        for country_tag in country_tags:
+            country_tag.data["country"] = country_tag.name
+        countries = [CountryDTO(**tag.data) for tag in country_tags]
+        bundle.countries = countries
 
-    async def get_regions(self) -> Response[List[RegionDTO]]:
+        return ResponseHelper.success_data_response(DtoMapper.bundle_currency_update(bundle, currency_name, rate), 1)
+
+    async def get_regions(self, locale: str) -> Response[List[RegionDTO]]:
         # regions = await self.__esim_hub_service.get_regions()
-        regions = await self.__grouping_service.get_all_regions()
+        regions = await self.__grouping_service.get_all_regions(locale=locale)
         return ResponseHelper.success_data_response(regions, len(regions))
 
-    async def get_bundles_by_country(self, country_codes: str, currency_name: str) -> Response[List[BundleDTO]]:
+    async def get_bundles_by_country(self, country_codes: str, currency_name: str, locale: str) -> Response[
+        List[BundleDTO]]:
         if country_codes is None or len(country_codes) == 0:
             raise BadRequestException("country_codes cannot be empty")
 
@@ -79,7 +91,8 @@ class BundleService:
             if tags >= target_tag_set
         ]
         is_active = True
-        bundles_model = self.__bundle_repo.list_in(where={"is_active":is_active}, filter={"id": matching_bundle_ids}, order_by="data->price")
+        bundles_model = self.__bundle_repo.list_in(where={"is_active": is_active}, filter={"id": matching_bundle_ids},
+                                                   order_by="data->price")
 
         bundles: List[BundleDTO] = []
 
@@ -89,15 +102,24 @@ class BundleService:
             if bundle and bundle.data:
                 bundle_dto = BundleDTO(**bundle.data)
                 bundle_dto.icon = country.icon
-                bundles.append(DtoMapper.bundle_currency_update(bundle_dto,currency_name,rate))
+                tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
+                country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
+                                                                where={"tag_ids": tags_id,
+                                                                       "locale_param": locale})
+                for country_tag in country_tags:
+                    country_tag.data["country"] = country_tag.name
+                countries = [CountryDTO(**tag.data) for tag in country_tags]
+                bundle_dto.countries = countries
+
+                bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency_name, rate))
 
         filtered_bundles = self.__filter_by_gprs_limit(bundles)
         # bundles = await self.__esim_hub_service.get_bundles_by_country(country_codes.split(","))
         return ResponseHelper.success_data_response(filtered_bundles, len(filtered_bundles))
 
-    async def get_bundles_by_region(self, region_code: str, currency: str) -> Response[List[BundleDTO]]:
+    async def get_bundles_by_region(self, region_code: str, currency: str, locale: str) -> Response[List[BundleDTO]]:
         # regions = await self.__esim_hub_service.get_regions()
-        regions = await self.__grouping_service.get_all_regions()
+        regions = await self.__grouping_service.get_all_regions(locale)
 
         searched_regions = [region for region in regions if region.region_code == region_code]
 
@@ -109,9 +131,11 @@ class BundleService:
         #                                                             currency_code=currency)
 
         bundle_tags = self.__bundle_tag_repo.list(where={"tag_id": searched_regions[0].guid})
+        print(bundle_tags)
 
         is_active = True
-        bundles_model = self.__bundle_repo.list_in(where={"is_active":is_active}, filter={"id": [item.bundle_id for item in bundle_tags]},
+        bundles_model = self.__bundle_repo.list_in(where={"is_active": is_active},
+                                                   filter={"id": [item.bundle_id for item in bundle_tags]},
                                                    order_by="data->price")
 
         bundles: List[BundleDTO] = []
@@ -122,7 +146,16 @@ class BundleService:
             if bundle and bundle.data:
                 bundle_dto = BundleDTO(**bundle.data)
                 bundle_dto.icon = searched_regions[0].icon
-                bundles.append(DtoMapper.bundle_currency_update(bundle_dto,currency,rate))
+                tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
+                country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
+                                                                where={"tag_ids": tags_id,
+                                                                       "locale_param": locale})
+                for country_tag in country_tags:
+                    country_tag.data["country"] = country_tag.name
+                countries = [tag.data for tag in country_tags]
+                bundle_dto.countries = countries
+
+                bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency, rate))
 
         filtered_bundles = []
         for bundle in bundles:
@@ -132,15 +165,16 @@ class BundleService:
         filtered = self.__filter_by_gprs_limit(filtered_bundles)
         return ResponseHelper.success_data_response(filtered, len(filtered))
 
-    async def get_countries(self):
-        countries = await self.__grouping_service.get_all_countries()
+    async def get_countries(self, locale: str):
+        countries = await self.__grouping_service.get_all_countries(locale)
         return ResponseHelper.success_data_response(countries, len(countries))
 
-
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
-                                      payment_status: str):
+                         payment_status: str, user: UserModel = None):
+        msisdn = user.msisdn if user else ""
+        order_id = f"{msisdn}|{user_order.id}"
         esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
-                                                                             order_id=user_order.id)
+                                                                             order_id=order_id)
         user_order.payment_status = payment_status
         user_order.payment_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         user_order.order_status = OrderStatusEnum.SUCCESS
@@ -189,15 +223,16 @@ class BundleService:
 
         return ResponseHelper.success_response()
 
-
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,
-                                     payment_status: str):
+                            payment_status: str, user: UserModel = None):
+        msisdn = user.msisdn if user else ""
+        order_id = f"{msisdn}|{user_order.id}"
         user_profile = self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
         try:
             esim_hub_topup = await self.__esim_hub_service.create_reseller_topup(
                 esim_hub_order_id=user_profile.esim_hub_order_id,
                 bundle_code=bundle.bundle_code,
-                order_id=user_order.id)
+                order_id=order_id)
         except Exception as e:
             esim_hub_topup = None
             logger.error(f"error while topping up bundle {str(e)}")
@@ -235,6 +270,8 @@ class BundleService:
         try:
             qr = generate_qr_code(f"LPA:1${user_profile.smdp_address}${user_profile.activation_code}")
             msisdn = os.getenv("WHATSAPP_NUMBER").replace("+", "").replace("-", "").replace(" ", "")
+            display_email = user.metadata.get("display_email", None)
+            email = user.metadata.get("email", user.email) if display_email is None else display_email
             data = {
                 "bundle_name": bundle.bundle_name,
                 "gprs_limit_display": bundle.gprs_limit_display,
@@ -245,14 +282,14 @@ class BundleService:
                 "smdp_address": user_profile.smdp_address,
                 "activation_code": user_profile.activation_code,
                 "msisdn": msisdn,
-                "user": user.metadata.get("email", user.email)
+                "user": email
             }
 
             env = Environment(loader=FileSystemLoader('app/email_templates'))
             template = env.get_template('send_qr_email_template.htm')
             html_content = template.render(data=data)
             send_email(subject="Activate Your Esim", html_content=html_content,
-                       recipients=user.metadata.get("email", user.email), attachment=qr)
+                       recipients=user.metadata.get("email", email), attachment=qr)
         except Exception as e:
             logger.error(f"error while sending email {str(e)}")
 

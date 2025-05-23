@@ -56,7 +56,7 @@ class PromotionService:
                 referral_user = self.__user_repo.get_first_by(where={},filters={"metadata ->> referral_code": promotion_usage.referral_code})
                 name = referral_user.email
             else:
-                bundle = await self.__bundle_service.get_bundle(promotion_usage.bundle_id,os.getenv("DEFAULT_CURRENCY"))
+                bundle = await self.__bundle_service.get_bundle(promotion_usage.bundle_id,os.getenv("DEFAULT_CURRENCY"),"en")
                 name = bundle.data.bundle_name
                 promotion = self.__promotion_repo.get_first_by(where={"code": promotion_usage.promotion_code})
                 promotion_name = promotion.name
@@ -67,7 +67,7 @@ class PromotionService:
     async def validate_promotion_code(self, promotion_validation_request: PromotionValidationRequest, x_currency: str,user_id :str) -> Response[BundleDTO]:
         response = self.code_type_and_get_rule(promotion_validation_request.promo_code, user_id)
         bundle_response = await self.__bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
-                                                  currency_name=x_currency)
+                                                  currency_name=x_currency,locale="en")
         bundle:BundleDTO = bundle_response.data
         promotion_check = self.__check_promotion_reward(response.data.rule_id,promotion_validation_request.bundle_code,False)
 

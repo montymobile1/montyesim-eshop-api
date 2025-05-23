@@ -1,17 +1,19 @@
 import json
 import os
 from datetime import datetime
+from math import ceil
 from typing import List
 
 from gotrue import AuthResponse
 from loguru import logger
 
+from app.config.db import PaymentTypeEnum
 from app.models.app import CurrencyModel
 from app.models.notification import NotificationModel
 from app.models.promotion import PromotionUsageModel
 from app.models.user import UserProfileModel, UserProfileBundleModel, UserProfileBundleWithProfileModel, \
     CallBackNotificationInfoModel, UserOrderModel, UserWalletModel
-from app.schemas.app import UserNotificationResponse, PageContentResponse
+from app.schemas.app import UserNotificationResponse, PageContentResponse, ExchangeRate
 from app.schemas.auth import AuthResponseDTO, UserInfo
 from app.schemas.bundle import EsimBundleResponse, ConsumptionResponse, TransactionHistoryResponse, \
     UserOrderHistoryResponse, RelatedSearchRequestDto, CountryRequestDto
@@ -39,9 +41,15 @@ class DtoMapper:
         countries = [DtoMapper.to_country_dto(c) for c in bundle.get("supportedCountries", [])]
         currency_code = os.getenv("DEFAULT_CURRENCY",
                                   "EUR") if currency is None else currency
-        price = bundle["exchangedPrice"] if bundle["exchangedPrice"] is not None else bundle["price"]
+        original_price = bundle["price"]
+        price = bundle["exchangedPrice"] if bundle["exchangedPrice"] is not None else original_price
         gprs_limit = bundle_info.get("gprsLimit", 0)
         gprs_limit_display = f'{gprs_limit} {bundle_info.get("dataUnit")}' if gprs_limit >= 0 else "∞ Unlimited"
+        if os.getenv("DISPLAY_PRICE", "normal") == "rounded":
+            price = int(ceil(price))
+            price_display = f'{price} {currency_code}'
+        else:
+            price_display = f'{round(price, 2):.2f} {currency_code}'
         bundle_data = {
             "display_title": bundle["bundleDetails"][0]["name"],
             "display_subtitle": bundle["bundleDetails"][0]["description"],
@@ -53,10 +61,12 @@ class DtoMapper:
             "currency_code": currency_code,
             "gprs_limit": gprs_limit,
             "gprs_limit_display": gprs_limit_display,
+            "original_price": round(original_price, 2),
             "price": round(price, 2),
-            "price_display": f'{round(price, 2):.2f} {currency_code}',
+            "price_display": price_display,
             "unlimited": True if gprs_limit < 0 else False,
             "validity": validity.split(" ")[0],
+            "validity_label": validity.split(" ")[1],
             "validity_display": validity,
             "countries": countries,
             "is_stockable": bundle_info.get("isStockable"),
@@ -332,6 +342,7 @@ class DtoMapper:
             "order_type": user_order.order_type,
             "bundle_details": BundleDTO.model_validate_json(user_order.bundle_data),
             "company_name": os.getenv("MERCHANT_DISPLAY_NAME", "Company Name"),
+            "payment_type": os.getenv("PAYMENT_METHODS", PaymentTypeEnum.CARD)
         }
         return UserOrderHistoryResponse.model_validate(data)
 
@@ -357,13 +368,16 @@ class DtoMapper:
             name_parts = fullname.split()
             first_name = name_parts[0] if len(name_parts) > 0 else ""
             last_name = name_parts[1] if len(name_parts) > 1 else ""
-
+        msisdn = user_metadata.get("msisdn", "")
+        user_email = user_metadata.get("email") if not supabase_response.user.email else supabase_response.user.email
+        if user_email.startswith(msisdn):
+            user_email = user_metadata.get("display_email", None)
         user_info = UserInfo(
             is_verified=user_metadata.get("email_verified", False),
             first_name=first_name,
             last_name=last_name,
-            msisdn=user_metadata.get("msisdn", ""),
-            email=user_metadata.get("email") if not supabase_response.user.email else supabase_response.user.email,
+            msisdn=msisdn,
+            email=user_email,
             user_token=supabase_response.user.id,
             should_notify=user_metadata.get("should_notify", False),
             referral_code=referral_code,
@@ -396,36 +410,48 @@ class DtoMapper:
         }
         return UserWalletResponse.model_validate(data)
 
-
     @staticmethod
-    def bundle_currency_update(bundle: BundleDTO, currency: str = None, rate :float =1.0) -> BundleDTO:
-         if rate == 1.0:
-             currency = os.getenv("DEFAULT_CURRENCY")
-         bundle.price = bundle.price * rate
-         bundle.currency_code = currency
-         bundle.price_display = f'{round(bundle.price, 2):.2f} {bundle.currency_code}'
-         return bundle
+    def bundle_currency_update(bundle: BundleDTO, currency: str = None, rate: float = 1.0) -> BundleDTO:
+        if rate == 1.0:
+            currency = os.getenv("DEFAULT_CURRENCY")
+        price = bundle.original_price * rate
+        bundle.currency_code = currency
+        if os.getenv("DISPLAY_PRICE", "normal") == "rounded":
+            price = int(ceil(price))
+        bundle.price = price
+        bundle.price_display = f'{bundle.price:.2f} {bundle.currency_code}'
+        return bundle
 
     @staticmethod
     def to_currency_dto(currency: CurrencyModel) -> CurrencyDto:
         currency_dto = {
-            "currency" : currency.name
+            "currency": currency.name
         }
         return CurrencyDto.model_validate(currency_dto)
 
-
     @staticmethod
-    def to_promotion_history_dto(promotion_usage:PromotionUsageModel,name:str,promotion_name) -> PromotionHistoryDto:
+    def to_promotion_history_dto(promotion_usage: PromotionUsageModel, name: str,
+                                 promotion_name) -> PromotionHistoryDto:
         is_referral = False
         if promotion_usage.referral_code:
             is_referral = True
 
         promotion_history_data = {
-            "is_referral" : is_referral,
-            "amount" : f'{round(promotion_usage.amount, 2):.2f} {os.getenv("DEFAULT_CURRENCY")}',
-            "name" : name,
-            "promotion_name" : promotion_name,
-            "date" : promotion_usage.created_at
+            "is_referral": is_referral,
+            "amount": f'{round(promotion_usage.amount, 2):.2f} {os.getenv("DEFAULT_CURRENCY")}',
+            "name": name,
+            "promotion_name": promotion_name,
+            "date": promotion_usage.created_at
         }
 
         return PromotionHistoryDto.model_validate(promotion_history_data)
+
+    @staticmethod
+    def to_exchange_rate(data: dict) -> ExchangeRate:
+        data = {
+            "system_currency_code": data.get("systemCurrencyCode", ""),
+            "currency_code": data.get("currencyCode", ""),
+            "current_rate": data.get("currentRate", ""),
+            "new_rate": data.get("newRate", ""),
+        }
+        return ExchangeRate.model_validate(data)

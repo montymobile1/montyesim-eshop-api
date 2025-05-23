@@ -6,6 +6,7 @@ from loguru import logger
 
 from app.config.api import EsimHubEndpoint
 from app.exceptions import EsimHubException
+from app.schemas.app import ExchangeRate
 from app.schemas.bundle import ConsumptionResponse
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.esim_hub import EsimHubOrderResponse, GlobalConfigurationResponse, ContentResponse
@@ -320,6 +321,21 @@ class EsimHubService:
         except Exception as e:
             logger.error("Failed to get content tag: {}".format(e))
             raise EsimHubException(e)
+
+    async def get_exchange_rates(self, currency_codes: List[str]) -> List[ExchangeRate]:
+        params = {
+            "CurrencyCodes": currency_codes,
+            "ResellerGuid": os.getenv("RESELLER_ID", ""),
+        }
+        try:
+            response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_EXCHANGE_RATE, params=params)
+            if not "success" in response:
+                logger.error("Failed to get exchange rates: {}".format(response))
+                return []
+            return [DtoMapper.to_exchange_rate(data) for data in response["data"]["exchangeRates"]]
+        except Exception as e:
+            logger.error("Failed to get exchange rates: {}".format(e))
+            return []
 
     async def __do_request(self,
                            method: Literal["GET", "OPTIONS", "HEAD", "POST", "PUT", "PATCH", "DELETE"], path: str,

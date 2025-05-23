@@ -46,6 +46,13 @@ class BaseRepository(Generic[T]):
         except Exception as e:
             raise DatabaseException(str(e))
 
+    def select_procedure(self, where: dict = (),function_name : str='') -> List[T]:
+        try:
+            response = self.client.rpc(function_name, params=where).execute()
+            return [self.model(**item) for item in response.data] if response.data else []
+        except Exception as e:
+            raise DatabaseException(str(e))
+
     def get_first_by(self, where: dict, filters: dict = None) -> Optional[T]:
         try:
             myquery = self.table.select("*")

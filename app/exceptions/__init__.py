@@ -29,3 +29,14 @@ class BadRequestException(CustomException):
 class DatabaseException(CustomException):
     def __init__(self, details: str):
         super().__init__(code=400, name="DataException", details=details)
+
+class DCBException(CustomException):
+    def __init__(self, details: str | dict | Any):
+        self.name = "DCB Exception"
+        self.details = details
+        self.code = 400
+        if isinstance(details, dict):
+            self.details = details["message"] or details["code"]
+        else:
+            self.details = str(details)
+        super().__init__(name=self.name, details=self.details, code=self.code)

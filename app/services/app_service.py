@@ -6,7 +6,7 @@ from fastapi import Request
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance, send_email
-from app.config.db import ConfigKeysEnum
+from app.config.db import ConfigKeysEnum, PaymentTypeEnum
 from app.exceptions import CustomException
 from app.models.app import DeviceModel
 from app.models.user import UserModel
@@ -115,10 +115,7 @@ class AppService:
         return ResponseHelper.success_response()
 
     async def configurations(self) -> Response[List[GlobalConfiguration]]:
-        configs = await self.__esim_hub_service.get_global_configurations()
-        filtered_configs = [config for config in configs if config.key != "CATALOG.BUNDLES_CACHE_VERSION"]
-
-        response = [GlobalConfiguration.model_validate(data.model_dump()) for data in filtered_configs]
+        response = []
         app_cache_key = self.__config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
         if app_cache_key:
             response.append(GlobalConfiguration(key="CATALOG.BUNDLES_CACHE_VERSION", value=app_cache_key.value))
@@ -128,4 +125,7 @@ class AppService:
         response.append(
             GlobalConfiguration(key="supabase_base_anon_key".upper(), value=os.getenv("SUPABASE_ANON_KEY", "")))
         response.append(GlobalConfiguration(key="default_currency", value=os.getenv("DEFAULT_CURRENCY", "EUR")))
+        response.append(GlobalConfiguration(key="allowed_payment_types", value=os.getenv("PAYMENT_METHODS",
+                                                                                         f"{PaymentTypeEnum.CARD.value},{PaymentTypeEnum.WALLET.value},{PaymentTypeEnum.DCB.value}")))
+        response.append(GlobalConfiguration(key="login_type", value=os.getenv("LOGIN_TYPE", "email")))
         return ResponseHelper.success_data_response(response, len(response))
