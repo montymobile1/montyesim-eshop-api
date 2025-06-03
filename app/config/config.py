@@ -1,5 +1,5 @@
 import os
-import random
+import secrets
 from io import BytesIO
 
 import qrcode
@@ -199,4 +199,4 @@ def generate_qr_code(qr_data: str) -> BytesIO:
 
 
 def generate_otp():
-    return str(random.randint(100000, 999999))
+    return str(secrets.randbelow(900000) + 100000)
