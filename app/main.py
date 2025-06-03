@@ -31,10 +31,8 @@ scheduler_service = SchedulerService()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     scheduler_service.start_scheduler()
     yield
-    # Shutdown
     scheduler_service.shutdown_scheduler()
 
 esim_app = FastAPI(lifespan=lifespan,title="eSIM Reseller Backend Open Source",
@@ -46,7 +44,7 @@ logger.info("Application started")
 
 @esim_app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Exception: {exc}")
+    logger.error(f"Exception: {exc} request: {request.url.path}")
     response_data = ResponseHelper.error_response(status_code=500, title="Exception", error="Internal Server Exception",
                                                   developer_message=str(exc))
     return JSONResponse(
@@ -57,7 +55,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @esim_app.exception_handler(HTTPException)
 async def custom_unauthorized_handler(request: Request, exc: HTTPException):
-    logger.error(f"Http Exception: {exc}")
+    logger.error(f"Http Exception: {exc} request: {request.url.path}")
     title = "Http Exception"
     if exc.status_code == 401:
         title = "401 Unauthorized"
@@ -74,7 +72,7 @@ async def custom_unauthorized_handler(request: Request, exc: HTTPException):
 
 @esim_app.exception_handler(CustomException)
 async def global_exception_handler(request: Request, exc: CustomException):
-    logger.error(f"CustomException: {exc}")
+    logger.error(f"CustomException: {exc} request: {request.url.path}")
     response_data = ResponseHelper.error_response(status_code=exc.code, title=exc.name,
                                                   error=exc.name, developer_message=exc.details)
     return JSONResponse(
@@ -99,7 +97,7 @@ async def handle_validation_exception(request: Request, exc: ValidationException
 
 
 async def handle_validations(request: Request, exc):
-    logger.error(f"RequestValidationError: {exc}")
+    logger.error(f"RequestValidationError: {exc} : request: {request.url.path}")
     errors = exc.errors()
     formatted_errors = []
     for error in errors:
@@ -126,7 +124,6 @@ async def add_cors_headers(request, call_next):
 
 
 
-# add cors middleware
 esim_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -134,7 +131,6 @@ esim_app.add_middleware(
     allow_headers=["*"],
 )
 
-# add gzip middleware to reduce response size
 esim_app.add_middleware(GZipMiddleware, minimum_size=500)
 
 api_version = "/api/v1"

@@ -126,10 +126,6 @@ class DtoMapper:
 
     @staticmethod
     def get_profile_current_bundle(user_profile: UserProfileModel):
-        #    Sort bundles by created_at in descending order and get the first bundle based on criteria:
-        #    1. First bundle with plan_started=True and bundle_expired=False
-        #    2. If none found, get first bundle with bundle_expired=False
-        #    3. If still none found, return the first bundle in the sorted list
         bundles = user_profile.bundles
         if not bundles:
             return None

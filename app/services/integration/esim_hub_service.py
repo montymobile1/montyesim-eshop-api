@@ -29,7 +29,7 @@ class EsimHubService:
             "CountryCode": ""
         }
         response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_REGIONS, params=params)
-        if not "success" in response:
+        if "success" not in response:
             raise EsimHubException(response)
         regions = []
         for region in response["data"]["zones"]:
@@ -73,7 +73,7 @@ class EsimHubService:
         }
         response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_COUNTRIES,
                                            base_url=os.getenv("ESIM_HUB_BASE_URL2"), params=params)
-        if not "success" in response:
+        if "success" not in response:
             raise EsimHubException(response)
         countries = []
         for country in response["data"]["countries"]:
@@ -92,7 +92,7 @@ class EsimHubService:
             "CurrencyCode": currency_code,
         }
         response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_ALL_BUNDLES, params=params)
-        if not "success" in response:
+        if "success" not in response:
             raise EsimHubException(response)
         bundles = []
         for bundle in response["data"]["items"]:
@@ -114,7 +114,7 @@ class EsimHubService:
         }
         response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_BUNDLES_BY_CATEGORY,
                                            params=params)
-        if not "success" in response:
+        if "success" not in response:
             raise EsimHubException(response)
         bundles = []
         for bundle in response["data"]["items"]:
@@ -136,7 +136,7 @@ class EsimHubService:
         }
         response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_BUNDLES_BY_ZONE, params=params)
         logger.debug(response)
-        if not "success" in response:
+        if "success" not in response:
             raise EsimHubException(response)
         bundles = []
         for bundle in response["data"]["items"]:
@@ -154,7 +154,7 @@ class EsimHubService:
         try:
             response = await self.__do_request("GET", EsimHubEndpoint.API_GET_ACTIVATION_CODE, params=params,
                                                base_url=os.getenv("ESIM_HUB_BASE_URL2"))
-            if not "success" in response:
+            if "success" not in response:
                 logger.error(f"error while getting activation code {response}")
                 return None
             return response["data"]["activationCode"]
@@ -176,7 +176,7 @@ class EsimHubService:
                                                base_url=os.getenv("ESIM_HUB_BASE_URL2"))
             logger.debug(f"request body: {request_body}")
             logger.debug(f"response: {response}")
-            if not "success" in response or response["success"] == False:
+            if "success" not in response or response["success"] == False:
                 logger.error("Failed to create reseller Hub: {}".format(response["message"]))
                 return None
             response_data = response["data"]
@@ -201,7 +201,7 @@ class EsimHubService:
                                            body=request_body,
                                            base_url=os.getenv("ESIM_HUB_BASE_URL2"))
         logger.info(response)
-        if not "success" in response:
+        if "success" not in response:
             logger.error("Failed to create reseller Hub: {}".format(response))
             return None
         return EsimHubOrderResponse.model_validate(response["data"])
@@ -218,7 +218,7 @@ class EsimHubService:
         }
         response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_SEARCH_BUNDLES_BY_COUNTRY,
                                            params=params)
-        if not "success" in response:
+        if "success" not in response:
             raise EsimHubException(response)
         bundles = []
         for bundle in response["data"]["items"]:
@@ -241,7 +241,7 @@ class EsimHubService:
         response = await self.__do_request(method="GET",
                                            path=EsimHubEndpoint.API_GET_TOPUP_RELATED_BUNDLES,
                                            base_url=os.getenv("ESIM_HUB_BASE_URL2"), params=params)
-        if not "success" in response:
+        if "success" not in response:
             raise EsimHubException(response)
         bundles = []
         for bundle in response["data"]["items"]:
@@ -254,7 +254,7 @@ class EsimHubService:
             "CurrencyCode": currency_code
         }
         response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_BUNDLE_BY_ID, params=params)
-        if not "success" in response:
+        if "success" not in response:
             raise EsimHubException(response)
         data = response["data"]["item"]
         return DtoMapper.to_bundle_dto(bundle=data, currency=currency_code)
@@ -266,7 +266,7 @@ class EsimHubService:
         response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_BUNDLE_CONSUMPTION,
                                            base_url=os.getenv("ESIM_HUB_BASE_URL2"), params=params)
         logger.debug(f"get bundle consumption: {response}")
-        if not "success" in response:
+        if "success" not in response:
             raise EsimHubException(response)
         return DtoMapper.to_consumption_response(dict(response["data"]))
 
@@ -277,7 +277,7 @@ class EsimHubService:
         try:
             response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_GLOBAL_CONFIGURATIONS,
                                                params=params)
-            if not "success" in response:
+            if "success" not in response:
                 logger.error("Failed to get global configurations: {}".format(response))
                 return []
 
@@ -298,7 +298,7 @@ class EsimHubService:
             response = await self.__do_request(method="POST", path=EsimHubEndpoint.API_GET_CONTENT_TAG,
                                                body=body_request, headers={"LanguageCode": lang_code})
             logger.debug("success" in response)
-            if not "success" in response:
+            if "success" not in response:
                 raise EsimHubException(response)
             return ContentResponse.model_validate(response["data"]["item"])
         except Exception as e:
@@ -315,7 +315,7 @@ class EsimHubService:
             response = await self.__do_request(method="POST", path=EsimHubEndpoint.API_GET_CONTENT_TAGS,
                                                body=body_request, headers={"LanguageCode": lang_code})
             logger.debug(response)
-            if not "success" in response:
+            if "success" not in response:
                 raise EsimHubException(response)
             return [ContentResponse.model_validate(item) for item in response["data"]["items"]]
         except Exception as e:
@@ -329,7 +329,7 @@ class EsimHubService:
         }
         try:
             response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_EXCHANGE_RATE, params=params)
-            if not "success" in response:
+            if "success" not in response:
                 logger.error("Failed to get exchange rates: {}".format(response))
                 return []
             return [DtoMapper.to_exchange_rate(data) for data in response["data"]["exchangeRates"]]
@@ -355,8 +355,9 @@ class EsimHubService:
                 headers["Api-Key"] = self.__api_key
                 response = client.request(method=method, url=base_url + path, headers=headers, params=params,
                                           json=body, timeout=120)
+                safe_headers = {k: '***' if k.lower() in ['api-key', 'tenant'] else v for k, v in headers.items()}
                 logger.debug("Request: curl -X {} {} {} Response: {}".format(method, response.url, " ".join(
-                    [f'--header "{key}: {value}"' for key, value in headers.items()]), response))
+                    [f'--header "{key}: {value}"' for key, value in safe_headers.items()]), response))
                 if response.status_code != httpx.codes.OK:
                     try:
                         json_response = response.json()
@@ -377,7 +378,7 @@ class EsimHubService:
             }
             response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_CHECK_BUNDLE_APPLICABLE,
                                                params=params, base_url=os.getenv("ESIM_HUB_BASE_URL2"))
-            if not "success" in response:
+            if "success" not in response:
                 return False
             return True
         except Exception as e:

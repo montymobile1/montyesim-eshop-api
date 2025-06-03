@@ -187,12 +187,6 @@ class CallbackService:
         thread.start()
         return ResponseHelper.success_response()
 
-    async def handle_sync_bundle(self, request: Request):
-        logger.info(f"receiving bundle sync request {request}")
-        # thread = threading.Thread(target=self.__run_one_sync, args=(id,))
-        # thread.start()
-        return ResponseHelper.success_response()
-
     def __run_one_sync(self, bundle_id: str, operation: str, reseller_id: str = None):
         import asyncio
         try:
@@ -210,7 +204,7 @@ class CallbackService:
                                                              currency_code=os.getenv("DEFAULT_CURRENCY")))
                 asyncio.run(self.__sync_service.sync_bundle(bundle))
             elif operation == "assign" or operation == "edit_price":
-                if reseller_id and  reseller_id == os.getenv("RESELLER_ID"):
+                if reseller_id and reseller_id == os.getenv("RESELLER_ID"):
                     bundle = asyncio.run(
                         self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
                                                                  currency_code=os.getenv("DEFAULT_CURRENCY")))

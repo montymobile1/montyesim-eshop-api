@@ -11,7 +11,6 @@ from app.schemas.response import Response
 from app.services.app_service import AppService
 from app.services.currency_service import CurrencyService
 
-# service = AppMockService()
 service = AppService()
 currency_service = CurrencyService()
 router = APIRouter()

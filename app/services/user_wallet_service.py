@@ -46,10 +46,6 @@ class UserWalletService:
             user_wallet: UserWalletModel = self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
             if user_wallet is None:
                 raise CustomException(code=400, name="wallet not found", details="user wallet not found")
-
-            # if amount < 0:
-            #     raise CustomException(code=400, name="amount cannot be negative", details="amount cannot be negative")
-
             user_wallet.amount += amount
             self.__user_wallet_repo.update_by(where={"user_id": user_id},
                                               data=user_wallet.model_dump())
@@ -58,9 +54,9 @@ class UserWalletService:
                 "wallet_id": user_wallet.id,
                 "amount": amount,
                 "source": source,
-                "status" : "success"
+                "status": "success"
             })
-            thread = threading.Thread(target=self.__send_push, args=(amount,user_wallet.currency,user_id,))
+            thread = threading.Thread(target=self.__send_push, args=(amount, user_wallet.currency, user_id,))
             thread.start()
             dto = DtoMapper.to_user_wallet_response(user_wallet)
             return ResponseHelper.success_data_response(dto, 1)
@@ -117,7 +113,6 @@ class UserWalletService:
         logger.info(f"creating wallet for user {user_id}")
         return wallet
 
-
-    def __send_push(self,amount:float,currency:str,user_id:str):
+    def __send_push(self, amount: float, currency: str, user_id: str):
         content = send_wallet_top_up_succeeded_notification(f"{amount} {currency}")
         fcm_service.send_notification_to_user_from_template(content, user_id=user_id)

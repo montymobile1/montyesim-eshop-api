@@ -3,6 +3,7 @@ from typing import Optional, List, Dict, Any
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
+from app.config.constants import ErrorEnums
 from app.config.db import UserOrderType, OrderStatusEnum, UserBundleType
 
 
@@ -77,10 +78,10 @@ class UserProfileBundleModel(BaseModel):
     def parse_bundle_data(cls, value):
         if isinstance(value, str):
             try:
-                return json.loads(value)  # Convert string to dictionary
+                return json.loads(value)
             except json.JSONDecodeError:
-                raise ValueError("Invalid JSON format in bundle_data")
-        return value  # If already a dict, return as is
+                raise ValueError(ErrorEnums.INVALID_JSON_FORMAT_IN_BUNDLE)
+        return value
 
 
 class UserProfileModel(BaseModel):

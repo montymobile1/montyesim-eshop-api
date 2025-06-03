@@ -6,12 +6,12 @@ from typing import Dict
 class NotificationCategoryType(IntEnum):
     BUY_BUNDLE = 1
     BUY_TOP_UP = 2
-    REWARD_AVAILABLE = 3  # TODO: update notification text
-    CASHBACK_REWARD = 4  # TODO: update notification text
+    REWARD_AVAILABLE = 3
+    CASHBACK_REWARD = 4
     CONSUMPTION_80_BUNDLE_DETAIL = 5
     PLAN_STARTED = 6
-    SHARE_BUNDLE_NOTIFICATION = 7  # TODO: update notification text
-    CONSUMPTION_100_BUNDLE_DETAIL = 8  # TODO: update notification text
+    SHARE_BUNDLE_NOTIFICATION = 7
+    CONSUMPTION_100_BUNDLE_DETAIL = 8
     WALLET_TOP_UP_SUCCEEDED = 9
     WALLET_TOP_UP_FAILED = 10
 
@@ -21,7 +21,7 @@ class NotificationContent:
     title: str
     message: str
     data: Dict[str, str]
-    isSilent: bool = False
+    is_silent: bool = False
 
 
 def get_notification_content(category: NotificationCategoryType, **kwargs) -> NotificationContent:
@@ -71,7 +71,7 @@ def get_notification_content(category: NotificationCategoryType, **kwargs) -> No
                 "message": "Cashback reward received",
                 "cashback_percent": kwargs.get('cashback_percent', '0'),
             },
-            isSilent=False
+            is_silent=False
         ),
 
         NotificationCategoryType.CONSUMPTION_80_BUNDLE_DETAIL: NotificationContent(
@@ -90,7 +90,6 @@ def get_notification_content(category: NotificationCategoryType, **kwargs) -> No
             message=f"Dear {kwargs.get('user_name', '0')}, Your {kwargs.get('bundle_name', 'Bundle')} plan has expired. You have reached your consumption limit. You can check available top ups to activate your plan.",
             data={
                 "category": str(NotificationCategoryType.CONSUMPTION_80_BUNDLE_DETAIL.value),
-                # keep CONSUMPTION_80_BUNDLE_DETAIL to be handled by mobile
                 "message": "Bundle usage update",
                 "iccid": kwargs.get('iccid', '0'),
             }
@@ -123,7 +122,7 @@ def get_notification_content(category: NotificationCategoryType, **kwargs) -> No
         ),
         NotificationCategoryType.WALLET_TOP_UP_FAILED: NotificationContent(
             title="Wallet Top-Up Failed",
-            message=f"Your wallet top-up failed!",
+            message="Your wallet top-up failed!",
             data={
                 "category": str(NotificationCategoryType.WALLET_TOP_UP_SUCCEEDED.value),
                 "message": "Wallet Top Up Successful",
@@ -134,7 +133,6 @@ def get_notification_content(category: NotificationCategoryType, **kwargs) -> No
     return notifications.get(category)
 
 
-# Example usage:
 def send_buy_bundle_notification(bundle_name: str, iccid: str) -> NotificationContent:
     return get_notification_content(
         category=NotificationCategoryType.BUY_BUNDLE,
@@ -151,7 +149,7 @@ def send_buy_topup_notification(bundle_name: str, iccid: str) -> NotificationCon
     )
 
 
-def send_reward_available_notification(cashback_percent: str) -> NotificationContent:
+def send_reward_available_notification() -> NotificationContent:
     return get_notification_content(
         category=NotificationCategoryType.REWARD_AVAILABLE,
     )

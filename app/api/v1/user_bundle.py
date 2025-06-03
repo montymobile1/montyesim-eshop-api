@@ -96,7 +96,6 @@ async def read_user_notification(user: Annotated[UserModel, Depends(bearer_token
 @router.get("/bundle-exists/{code}", response_model=Response[bool],
             dependencies=[Depends(bearer_token), Depends(device_token)])
 async def bundle_exists(code: str, user: Annotated[UserModel, Depends(bearer_token)]):
-    # return service.bundle_exists(user_id=user.id, bundle_id=code)
     return await service.bundle_exists(user_id=user.id, bundle_id=code)
 
 

@@ -48,12 +48,10 @@ class AppService:
             user_id=user_id,
         )
 
-        # if device_id is null we need to check if it already exist to update values, since upsert doesnt work for Null values
         if user_id is None:
             update_response = self.__device_repo.update_by(where={"device_id": device_id},
                                                            data=device_model.model_dump(
                                                                exclude={"timestamp_login", "timestamp_logout"}))
-            # Check if any rows were updated
             if update_response and len(update_response) > 0:
                 return ResponseHelper.success_response()
 

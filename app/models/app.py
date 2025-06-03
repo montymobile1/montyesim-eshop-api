@@ -1,5 +1,6 @@
 import json
 from typing import Optional, Dict, Any
+from config.constants import ErrorEnums
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -37,9 +38,6 @@ class DeviceModel(DeviceBase):
     ip_location: Optional[str] = Field(None, alias="ip_location")
     timestamp_login: Optional[str] = Field(None, alias="timestamp_login")
     timestamp_logout: Optional[str] = Field(None, alias="timestamp_logout")
-    # updated_at: Optional[datetime] = None
-    # created_at: Optional[datetime] = None
-
 
 class BundleModel(BaseModel):
     id: Optional[str] = Field(None, alias="id")
@@ -55,7 +53,7 @@ class BundleModel(BaseModel):
             try:
                 return json.loads(value)
             except json.JSONDecodeError:
-                raise ValueError("Invalid JSON format in bundle_data")
+                raise ValueError(ErrorEnums.INVALID_JSON_FORMAT_IN_BUNDLE)
         return value
 
 
@@ -75,7 +73,7 @@ class TagModel(BaseModel):
             try:
                 return json.loads(value)
             except json.JSONDecodeError:
-                raise ValueError("Invalid JSON format in bundle_data")
+                raise ValueError(ErrorEnums.INVALID_JSON_FORMAT_IN_BUNDLE)
         return value
 
 class TagTranslationModel(BaseModel):
@@ -94,7 +92,7 @@ class TagTranslationModel(BaseModel):
             try:
                 return json.loads(value)
             except json.JSONDecodeError:
-                raise ValueError("Invalid JSON format in bundle_data")
+                raise ValueError(ErrorEnums.INVALID_JSON_FORMAT_IN_BUNDLE)
         return value
 
 

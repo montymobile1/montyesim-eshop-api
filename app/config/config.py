@@ -40,7 +40,6 @@ PASSWORD = os.getenv("SMTP_PASSWORD", "<PASSWORD>")
 if not any([SUPABASE_URL, SUPABASE_KEY, STRIPE_PUBLIC_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_SECRET_KEY]):
     logger.error(
         "missing environment variables: SUPABASE_URL,SUPABASE_KEY,STRIPE_PUBLIC_KEY,STRIPE_WEBHOOK_SECRET,STRIPE_SECRET_KEY are required to run the project")
-    # sys.exit(1)
 
 stripe.api_key = STRIPE_SECRET_KEY
 
@@ -88,7 +87,6 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
         payment_intent = stripe.PaymentIntent.create(
             amount=user_bundle_order.amount,
             currency=user_bundle_order.currency,
-            # receipt_email=user_email,
             payment_method_types=["card"],
             description=f"Bundle order ({user_bundle_order.order_type}) for bundle {user_bundle_order.bundle_id}",
             metadata=metadata,
@@ -104,7 +102,7 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
 
 def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, metadata: dict) -> PaymentIntent:
     try:
-        logger.info(f"Creating payment intent for wallet top-up: ")
+        logger.info("Creating payment intent for wallet top-up")
         customers = stripe.Customer.list(email=user_email)
         if not customers:
             customer = stripe.Customer.create(email=user_email)
@@ -173,7 +171,6 @@ def send_email(subject: str, html_content: str, recipients: str, attachment: Byt
     import smtplib
     from email.message import EmailMessage
 
-    # Email content
     msg = EmailMessage()
     msg['Subject'] = subject
     msg['From'] = os.getenv("SMTP_SENDER", "noreply@esim.com")
@@ -183,10 +180,9 @@ def send_email(subject: str, html_content: str, recipients: str, attachment: Byt
     if attachment:
         msg.get_payload()[1].add_related(attachment.read(), maintype='image', subtype='png', cid='qr_code')
 
-    # Sending the email
     try:
         with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()  # Secure the connection
+            server.starttls()
             server.login(USERNAME, PASSWORD)
             server.send_message(msg)
             logger.info("Email sent successfully.")

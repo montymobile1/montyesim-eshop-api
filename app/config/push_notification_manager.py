@@ -19,7 +19,6 @@ def initialize_firebase():
     Initialize Firebase Admin SDK with credentials
     """
     try:
-        # Get credentials from environment
         fcm_base_64 = os.getenv("FCM_BASE_64")
         if fcm_base_64:
             config_json = base64.b64decode(fcm_base_64)
@@ -29,9 +28,7 @@ def initialize_firebase():
 
         fcm_config = os.getenv("FCM_CONFIG_FILE", "esim-app.json")
 
-        # Check if any app is already initialized
         if not firebase_admin._apps:
-            # Initialize the default app without a name
             cred = credentials.Certificate(fcm_config)
             firebase_admin.initialize_app(credential=cred)
             logger.info("Firebase default app initialized successfully.")
@@ -57,7 +54,6 @@ class FCMService:
 
     def __init__(self):
         if not hasattr(self, '_initialized') or not self._initialized:
-            # Initialize Firebase when service is instantiated
             initialize_firebase()
             self._initialized = True
             self.__notification_repo = NotificationRepo()
@@ -94,7 +90,7 @@ class FCMService:
         if not notification:
             raise ValueError(f"Template {notification} not found")
 
-        if notification.isSilent:
+        if notification.is_silent:
             return self.send_data_message_to_user(user_id, notification.data)
         notification_data = NotificationModel.model_validate({
             "user_id": user_id,
@@ -117,7 +113,7 @@ class FCMService:
         if not notification:
             raise ValueError(f"Template {notification} not found")
 
-        if notification.isSilent:
+        if notification.is_silent:
             return self.send_data_message_to_device(device_id, notification.data)
 
         notification_data = NotificationModel.model_validate({
@@ -218,7 +214,7 @@ class FCMService:
     def send_multicast_notification(self, tokens: List[str], title: str, body: str,
                                     image: Optional[str] = None,
                                     data: Optional[Dict[str, str]] = None,
-                                    isSilent: bool = False) -> messaging.BatchResponse | None:
+                                    is_silent: bool = False) -> messaging.BatchResponse | None:
         """
         Sends a notification to multiple devices efficiently using FCM's multicast messaging.
         :param tokens: List of FCM tokens.
@@ -238,14 +234,13 @@ class FCMService:
                 body=body,
                 image=image
             )
-            print(tokens)
 
             message = messaging.MulticastMessage(
                 notification=notification,
                 data=data or {},
                 tokens=tokens,
             )
-            if isSilent:
+            if is_silent:
                 message.notification = None
 
             batch_response = messaging.send_each_for_multicast(message)
@@ -326,7 +321,6 @@ class FCMService:
         :return: Boolean indicating if token is valid.
         """
         try:
-            # Create a minimal message just to test token validity
             message = messaging.Message(
                 data={'validate': 'true'},
                 token=token

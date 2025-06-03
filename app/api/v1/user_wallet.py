@@ -15,7 +15,6 @@ service = UserWalletService()
 
 
 @router.get("/user_wallet_by_id/{user_wallet_id}", response_model=Response[UserWalletResponse])
-# , dependencies=[Depends(bearer_token), Depends(device_token)])
 async def get_user_wallet_by_id(user_wallet_id: str) -> Response[UserWalletResponse]:
     wallet = await service.get_user_wallet_by_id(user_wallet_id=user_wallet_id)
     count = 1 if wallet else 0

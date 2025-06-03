@@ -43,7 +43,6 @@ class UserBundleService:
                                          PaymentIntentResponse] | \
                                      Response[
                                          bool]:
-        # bundle = await self.__esim_hub_service.get_bundle_by_id(assign_request.bundle_code)
         bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_request.bundle_code,
                                                                  currency_name=x_currency, locale=locale)
         bundle = bundle_response.data
@@ -113,7 +112,6 @@ class UserBundleService:
         return ResponseHelper.success_data_response(response, 0)
 
     async def assign_top_up(self, user: UserModel, assign_top_up_request: AssignTopUpRequest, device_id) -> Response:
-        # bundle = await self.__esim_hub_service.get_bundle_by_id(assign_top_up_request.bundle_code)
         bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=assign_top_up_request.bundle_code)
 
         order = self.__user_order_repo.create({
@@ -165,7 +163,6 @@ class UserBundleService:
                 if bundle is not None:
                     esim_bundle_response.append(bundle)
             except Exception as e:
-                print(e)
                 logger.error(e)
                 logger.error(f"Failed to map profile {profile.id if hasattr(profile, 'id') else 'unknown'}: {e}")
         return ResponseHelper.success_data_response(esim_bundle_response, len(esim_bundle_response))

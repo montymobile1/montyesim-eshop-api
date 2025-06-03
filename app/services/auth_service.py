@@ -91,7 +91,7 @@ class AuthService:
             if not authorization or not authorization.startswith("Bearer "):
                 return ResponseHelper.success_data_response(False, 0)
             token = authorization.split("Bearer ")[1]
-            response = supabase_client().auth.get_user(token)
+            supabase_client().auth.get_user(token)
             return ResponseHelper.success_data_response(True, 0)
         except Exception as e:
             return ResponseHelper.success_data_response(False, 0)
@@ -192,14 +192,12 @@ class AuthService:
 
         referral_code = self.__generate_referral_code()
         logger.info(f"login request received: {login_request}")
-        # if user exists do normal login
         if user_exists:
             authenticate(email=str(login_request.email), referral_code=referral_code)
             return ResponseHelper.success_response()
         else:
-            # if user does not exist we check for previous anonymous user and update it
             user = self.__user_repo.get_first_by(where={"email": login_request.email}, filters={
-                "metadata->>email": login_request.email})  # db_anonymous_user(login_request.email)
+                "metadata->>email": login_request.email})
             if user:
                 supabase_client().auth.admin.update_user_by_id(uid=user["id"], attributes={
                     "email": login_request.email,
@@ -251,7 +249,6 @@ class AuthService:
                 "type": "email"
             }
         )
-        # update device to be logged in
 
         self.__device_repo.upsert({
             "is_logged_in": True,

@@ -57,7 +57,6 @@ class BundleService:
         return ResponseHelper.success_data_response(DtoMapper.bundle_currency_update(bundle, currency_name, rate), 1)
 
     async def get_regions(self, locale: str) -> Response[List[RegionDTO]]:
-        # regions = await self.__esim_hub_service.get_regions()
         regions = await self.__grouping_service.get_all_regions(locale=locale)
         return ResponseHelper.success_data_response(regions, len(regions))
 
@@ -74,7 +73,6 @@ class BundleService:
         if not tags:
             raise BadRequestException("country_codes not found")
 
-        # bundle_tags = self.__bundle_tag_repo.list_in(where={},filter = {"tag_id" : [item.id for item in tags] })
 
         results = self.__bundle_tag_repo.table \
             .select("bundle_id, tag_id") \
@@ -131,7 +129,6 @@ class BundleService:
         #                                                             currency_code=currency)
 
         bundle_tags = self.__bundle_tag_repo.list(where={"tag_id": searched_regions[0].guid})
-        print(bundle_tags)
 
         is_active = True
         bundles_model = self.__bundle_repo.list_in(where={"is_active": is_active},

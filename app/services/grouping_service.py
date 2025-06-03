@@ -25,7 +25,6 @@ class GroupingService:
 
     async def __get_all_tags_by_group_id_with_language(self, group_id :int,locale :str ='en') -> List[TagModel]:
         tags = self.__tag_repo.select_procedure(function_name = "get_translated_tag_by_tag_group_id",where ={"tag_group_id_param": group_id,"locale_param":locale})
-        # tags = self.__tag_repo.list(where={"tag_group_id": group_id})
         return tags
 
     async def get_all_countries(self,locale :str) -> List[CountryDTO]:
@@ -105,12 +104,10 @@ class GroupingService:
         tags = self.__tag_repo.list(where={})
         for tag in tags:
             translated = GoogleTranslator(source='en', target=locale).translate(tag.name)
-            print(tag)
             data = {
                 "tag_id" : tag.id,
                 "locale" : locale,
                 "name" : translated,
                 "data" : tag.data
             }
-            print(data)
             self.__tag_translation_repo.create(data)

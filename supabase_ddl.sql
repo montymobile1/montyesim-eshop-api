@@ -321,7 +321,7 @@ CREATE TABLE promotion_usage
 (
     id             UUID                 DEFAULT gen_random_uuid() PRIMARY KEY,
     user_id        UUID REFERENCES auth.users (id),
-    promotion_code VARCHAR REFERENCES promotion (code),
+    promotion_code VARCHAR(200) REFERENCES promotion (code),
     referral_code  VARCHAR,
     bundle_id      UUID REFERENCES bundle(id),
     amount         FLOAT4    DEFAULT 0 CHECK (amount >= 0),
