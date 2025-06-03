@@ -1,8 +1,9 @@
 import json
 from typing import Optional, Dict, Any
-from config.constants import ErrorEnums
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.config.constants import ErrorEnums
 
 
 class AppConfigModel(BaseModel):

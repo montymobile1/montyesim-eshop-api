@@ -15,19 +15,17 @@ from app.api.v1.bundles import router as bundle_routes
 from app.api.v1.callback import router as notification_routes
 from app.api.v1.health_check import router as health_check_router
 from app.api.v1.home import router as home_routes
-from app.api.v1.promotion import router as promotion
-from app.api.v2.home import router as home_routes_v2
+from app.api.v1.promotion import router as promotion_router
 from app.api.v1.user_bundle import router as user_bundle_routes
 from app.api.v1.user_wallet import router as user_wallet_router
-from app.api.v1.promotion import router as promotion_router
 from app.api.v1.voucher import router as voucher_router
 from app.api.v2.home import router as home_routes_v2
 from app.exceptions import CustomException
 from app.schemas.response import ResponseHelper
 from app.services.scheduler_service import SchedulerService
 
-
 scheduler_service = SchedulerService()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,7 +33,8 @@ async def lifespan(app: FastAPI):
     yield
     scheduler_service.shutdown_scheduler()
 
-esim_app = FastAPI(lifespan=lifespan,title="eSIM Reseller Backend Open Source",
+
+esim_app = FastAPI(lifespan=lifespan, title="eSIM Reseller Backend Open Source",
                    description="eSIM Reseller Backend Open Source using FAST API Framework",
                    version="1.0")
 logger.add("esim_opensource.log", rotation="10 MB", level="INFO")
@@ -121,9 +120,6 @@ async def add_cors_headers(request, call_next):
     return response
 
 
-
-
-
 esim_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -146,6 +142,3 @@ esim_app.include_router(user_bundle_routes, prefix=f"{api_version}/user", tags=[
 esim_app.include_router(user_wallet_router, prefix=f"{api_version}/wallet", tags=["Wallet"])
 esim_app.include_router(voucher_router, prefix=f"{api_version}/voucher", tags=["Voucher"])
 esim_app.include_router(promotion_router, prefix=f"{api_version}/promotion", tags=["Promotion"])
-
-
-
