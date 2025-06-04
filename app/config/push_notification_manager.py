@@ -147,7 +147,8 @@ class FCMService:
             return []
 
         try:
-            self.send_multicast_notification(tokens, title, body, image, data)
+            self.send_multicast_notification(tokens=tokens, title=title, body=body, image=image, data=data)
+            return None
         except Exception as e:
             logger.error(f"Error sending notifications: {e}")
             return [str(e)]
@@ -170,7 +171,8 @@ class FCMService:
             return []
 
         try:
-            self.send_multicast_notification(tokens, title, body, image, data)
+            self.send_multicast_notification(tokens=tokens, title=title, body=body, image=image, data=data)
+            return None
         except Exception as e:
             logger.error(f"Error sending notifications: {e}")
             return [str(e)]
@@ -188,7 +190,8 @@ class FCMService:
             return []
 
         try:
-            self.send_multicast_notification(tokens, "", "", None, data, True)
+            self.send_multicast_notification(tokens=tokens, title="", body="", image=None, data=data, is_silent=True)
+            return None
         except Exception as e:
             logger.error(f"Error sending data messages: {e}")
             return [str(e)]
@@ -206,7 +209,8 @@ class FCMService:
             return []
 
         try:
-            self.send_multicast_notification(tokens, "", "", None, data, True)
+            self.send_multicast_notification(tokens=tokens, title="", body="", image=None, data=data, is_silent=True)
+            return None
         except Exception as e:
             logger.error(f"Error sending data messages: {e}")
             return [str(e)]
@@ -222,19 +226,18 @@ class FCMService:
         :param body: Notification body.
         :param image: Optional URL for notification image.
         :param data: Optional data payload.
+        :param is_silent: Optional flag to indicate if notification is silent.
         :return: BatchResponse containing the results.
         """
         if not tokens:
             logger.warning("No tokens provided for multicast notification")
             return None
-
         try:
             notification = messaging.Notification(
                 title=title,
                 body=body,
                 image=image
             )
-
             message = messaging.MulticastMessage(
                 notification=notification,
                 data=data or {},
@@ -321,6 +324,7 @@ class FCMService:
         :return: Boolean indicating if token is valid.
         """
         try:
+            # Create a minimal message just to test token validity
             message = messaging.Message(
                 data={'validate': 'true'},
                 token=token
@@ -338,5 +342,5 @@ class FCMService:
             return False
 
 
-fcm_service: FCMService = FCMService()
+fcm_service = FCMService()
 initialize_firebase()

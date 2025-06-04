@@ -15,6 +15,7 @@ from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import Response, ResponseHelper
 from app.schemas.user_wallet import UserWalletRequestDto, TopUpWalletRequest
 from app.schemas.user_wallet import UserWalletResponse
+from app.services.currency_service import CurrencyService
 
 
 class UserWalletService:
@@ -22,6 +23,7 @@ class UserWalletService:
         self.__user_wallet_repo = UserWalletRepo()
         self.__user_order_repo = UserOrderRepo()
         self.__user_wallet_transaction_repo = UserWalletTransactionRepo()
+        self.__currency_service = CurrencyService()
 
     async def get_user_wallet_by_id(self, user_wallet_id: str) -> UserWalletResponse | None:
         wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"id": user_wallet_id})
@@ -34,10 +36,13 @@ class UserWalletService:
                                       currency=user_wallet_request_dto.currency)
         return DtoMapper.to_user_wallet_response(wallet)
 
-    async def get_user_wallet_by_user_id(self, user_id: str) -> UserWalletResponse | None:
+    async def get_user_wallet_by_user_id(self, user_id: str, currency_code: str = os.getenv(
+        "DEFAULT_CURRENCY")) -> UserWalletResponse | None:
         wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"user_id": user_id})
         if not wallet:
             return None
+        rate = self.__currency_service.get_currency_rate(from_currency=wallet.currency, to_currency=currency_code)
+        wallet.amount = wallet.amount * rate
         return DtoMapper.to_user_wallet_response(wallet)
 
     async def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp") -> Response[
@@ -46,6 +51,7 @@ class UserWalletService:
             user_wallet: UserWalletModel = self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
             if user_wallet is None:
                 raise CustomException(code=400, name="wallet not found", details="user wallet not found")
+
             user_wallet.amount += amount
             self.__user_wallet_repo.update_by(where={"user_id": user_id},
                                               data=user_wallet.model_dump())

@@ -9,17 +9,7 @@ from loguru import logger
 from pydantic import ValidationError
 from starlette.responses import JSONResponse
 
-from app.api.v1.application import router as app_routes
-from app.api.v1.authentication import router as auth_routes
-from app.api.v1.bundles import router as bundle_routes
-from app.api.v1.callback import router as notification_routes
-from app.api.v1.health_check import router as health_check_router
-from app.api.v1.home import router as home_routes
-from app.api.v1.promotion import router as promotion_router
-from app.api.v1.user_bundle import router as user_bundle_routes
-from app.api.v1.user_wallet import router as user_wallet_router
-from app.api.v1.voucher import router as voucher_router
-from app.api.v2.home import router as home_routes_v2
+from app.api.v1 import router
 from app.exceptions import CustomException
 from app.schemas.response import ResponseHelper
 from app.services.scheduler_service import SchedulerService
@@ -37,13 +27,13 @@ async def lifespan(app: FastAPI):
 esim_app = FastAPI(lifespan=lifespan, title="eSIM Reseller Backend Open Source",
                    description="eSIM Reseller Backend Open Source using FAST API Framework",
                    version="1.0")
-logger.add("esim_opensource.log", rotation="10 MB", level="INFO")
+logger.add("esim_opensource.log", rotation="10 MB", level="INFO", compression="zip")
 logger.info("Application started")
 
 
 @esim_app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Exception: {exc} request: {request.url.path}")
+    logger.error(f"Exception: {exc} {request.url.path}")
     response_data = ResponseHelper.error_response(status_code=500, title="Exception", error="Internal Server Exception",
                                                   developer_message=str(exc))
     return JSONResponse(
@@ -54,7 +44,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @esim_app.exception_handler(HTTPException)
 async def custom_unauthorized_handler(request: Request, exc: HTTPException):
-    logger.error(f"Http Exception: {exc} request: {request.url.path}")
+    logger.error(f"Http Exception: {exc} {request.url.path}")
     title = "Http Exception"
     if exc.status_code == 401:
         title = "401 Unauthorized"
@@ -71,7 +61,7 @@ async def custom_unauthorized_handler(request: Request, exc: HTTPException):
 
 @esim_app.exception_handler(CustomException)
 async def global_exception_handler(request: Request, exc: CustomException):
-    logger.error(f"CustomException: {exc} request: {request.url.path}")
+    logger.error(f"CustomException: {exc} {request.url.path}")
     response_data = ResponseHelper.error_response(status_code=exc.code, title=exc.name,
                                                   error=exc.name, developer_message=exc.details)
     return JSONResponse(
@@ -96,7 +86,7 @@ async def handle_validation_exception(request: Request, exc: ValidationException
 
 
 async def handle_validations(request: Request, exc):
-    logger.error(f"RequestValidationError: {exc} : request: {request.url.path}")
+    logger.error(f"RequestValidationError: {exc} {request.url.path}")
     errors = exc.errors()
     formatted_errors = []
     for error in errors:
@@ -120,6 +110,7 @@ async def add_cors_headers(request, call_next):
     return response
 
 
+# add cors middleware
 esim_app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -127,18 +118,9 @@ esim_app.add_middleware(
     allow_headers=["*"],
 )
 
+# add gzip middleware to reduce response size
 esim_app.add_middleware(GZipMiddleware, minimum_size=500)
 
 api_version = "/api/v1"
 api_version_2 = "/api/v2"
-esim_app.include_router(health_check_router, tags=["healthcheck"])
-esim_app.include_router(home_routes, prefix=f"{api_version}/home", tags=["Home"])
-esim_app.include_router(home_routes_v2, prefix=f"{api_version_2}/home", tags=["Home"])
-esim_app.include_router(app_routes, prefix=f"{api_version}/app", tags=["App"])
-esim_app.include_router(auth_routes, prefix=f"{api_version}/auth", tags=["Auth"])
-esim_app.include_router(bundle_routes, prefix=f"{api_version}/bundles", tags=["Bundles"])
-esim_app.include_router(notification_routes, prefix=f"{api_version}/callback", tags=["Callback"])
-esim_app.include_router(user_bundle_routes, prefix=f"{api_version}/user", tags=["User"])
-esim_app.include_router(user_wallet_router, prefix=f"{api_version}/wallet", tags=["Wallet"])
-esim_app.include_router(voucher_router, prefix=f"{api_version}/voucher", tags=["Voucher"])
-esim_app.include_router(promotion_router, prefix=f"{api_version}/promotion", tags=["Promotion"])
+esim_app.include_router(prefix=api_version, router=router)

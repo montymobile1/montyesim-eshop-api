@@ -20,13 +20,13 @@ router = APIRouter()
 async def add_device(device_request: DeviceRequest, request: Request, authorization: str = Header(None),
                      accept_language: str = Header("en"), x_device_id: str = Header(None)) -> Response:
     user: UserModel = get_user_from_token(authorization)
-    return await service.add_device(user, x_device_id, device_request,request)
+    return await service.add_device(user, x_device_id, device_request, request)
 
 
 @router.delete("/device", response_model=Response, dependencies=[Depends(bearer_token), Depends(device_token)])
 async def delete_device(delete_request: DeleteDeviceRequest, user: Annotated[UserModel, Depends(bearer_token)],
                         accept_language: str = Header("en"), x_device_id: str = Header(None)) -> Response:
-    return await service.delete_device(user, delete_request)
+    return await service.delete_device(delete_device_request=delete_request)
 
 
 @router.get("/faq", response_model=Response[List[FaqResponse]],
@@ -66,6 +66,7 @@ async def user_guide(accept_language: str = Header("en"),
 @router.get("/configurations", response_model=Response[List[GlobalConfiguration]], dependencies=[Depends(device_token)])
 async def configurations(accept_language: str = Header("en")):
     return await service.configurations()
+
 
 @router.get("/currency", response_model=Response[List[CurrencyDto]], dependencies=[Depends(device_token)])
 async def configurations(accept_language: str = Header("en")):

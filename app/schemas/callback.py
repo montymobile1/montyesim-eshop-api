@@ -1,7 +1,6 @@
 from typing import Optional
 
 from pydantic import BaseModel
-from app.config.db import NotificationCategoryType
 
 
 class ConsumptionLimitRequest(BaseModel):

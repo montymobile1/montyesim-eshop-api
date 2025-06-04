@@ -14,37 +14,45 @@ load_dotenv()
 
 
 class SchedulerService:
-
     def __init__(self):
         self.__currency_repo = CurrencyRepo()
         self.scheduler = BackgroundScheduler()
         self.__esim_hub_service = esim_hub_service_instance()
+        self.loop = asyncio.get_event_loop()
 
-    def scheduled_task(self):
+    async def _async_scheduled_task(self):
         logger.info(f"Scheduled task executed at {time.strftime('%X')}")
-        currencies = self.__currency_repo.list(where={})
+        currencies = self.__currency_repo.list(where={"default_currency": "USD"})
         if not currencies:
             return
         names = [currency.name for currency in currencies]
-        rates = asyncio.run(self.__esim_hub_service.get_exchange_rates(currency_codes=names))
+        rates = await self.__esim_hub_service.get_exchange_rates(currency_codes=names)
         logger.info(f"exchange from esim hub: {rates}")
         for rate in rates:
-            self.__currency_repo.update_by({"name": rate.currency_code}, data={'rate': rate.new_rate})
+            self.__currency_repo.update_by(
+                {"name": rate.currency_code, "default_currency": "USD"},
+                data={'rate': rate.new_rate}
+            )
+
+    def scheduled_task(self):
+        future = asyncio.run_coroutine_threadsafe(self._async_scheduled_task(), self.loop)
+        try:
+            future.result()
+        except Exception as e:
+            logger.error(f"Error in scheduled task: {e}")
 
     def start_scheduler(self):
-        interval_seconds = int(os.getenv("SCHEDULER_INTERVAL_SECONDS", 10000000))
-
+        interval_seconds = int(os.getenv("SCHEDULER_INTERVAL_SECONDS", 86400))
         self.scheduler.add_job(
             self.scheduled_task,
             trigger=IntervalTrigger(seconds=interval_seconds),
             id="my_task",
-            name="Run every 24 Hours",
+            name="Update exchange rates",
             replace_existing=True
         )
-
         self.scheduler.start()
-        logger.info("Scheduler Started")
+        logger.info("Scheduler started")
 
     def shutdown_scheduler(self):
-        self.scheduler.shutdown()
+        self.scheduler.shutdown(wait=False)
         logger.info("Scheduler shut down")

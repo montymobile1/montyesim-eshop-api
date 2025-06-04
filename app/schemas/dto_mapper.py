@@ -46,8 +46,7 @@ class DtoMapper:
         gprs_limit = bundle_info.get("gprsLimit", 0)
         gprs_limit_display = f'{gprs_limit} {bundle_info.get("dataUnit")}' if gprs_limit >= 0 else "∞ Unlimited"
         if os.getenv("DISPLAY_PRICE", "normal") == "rounded":
-            price = int(ceil(price))
-            price_display = f'{price} {currency_code}'
+            price_display = f'{int(ceil(round(price, 2)))} {currency_code}'
         else:
             price_display = f'{round(price, 2):.2f} {currency_code}'
         bundle_data = {
@@ -129,18 +128,15 @@ class DtoMapper:
         bundles = user_profile.bundles
         if not bundles:
             return None
-        # If there's only one bundle, return it directly
         if len(bundles) == 1:
             return bundles[0]
 
-        # Sort bundles by created_at in descending order
         sorted_bundles = sorted(
             bundles,
             key=lambda bundle: datetime.fromisoformat(bundle.created_at) if bundle.created_at else datetime.min,
             reverse=True
         )
 
-        # Find first bundle with plan_started=True and bundle_expired=False
         priority_bundle = next(
             (bundle for bundle in sorted_bundles if bundle.plan_started and not bundle.bundle_expired),
             None
@@ -148,7 +144,6 @@ class DtoMapper:
         if priority_bundle:
             return priority_bundle
 
-        # If no priority bundle found, find first bundle with bundle_expired=False
         unexpired_bundle = next(
             (bundle for bundle in sorted_bundles if not bundle.bundle_expired),
             None
@@ -156,7 +151,6 @@ class DtoMapper:
         if unexpired_bundle:
             return unexpired_bundle
 
-        # If no bundle matches criteria, return the first bundle in the sorted list
         return sorted_bundles[0] if sorted_bundles else None
 
     @staticmethod
@@ -178,19 +172,14 @@ class DtoMapper:
     def to_esim_bundle_response(user_profile: UserProfileModel) -> EsimBundleResponse | None:
         profile_current_bundle: UserProfileBundleModel = DtoMapper.get_profile_current_bundle(user_profile)
         if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
-            # Handle the case where bundle data is missing
             logger.warning(f"Bundle data missing for user profile {user_profile.id}")
             return None
-
-        # Validate bundle data
         bundle_data: BundleDTO = BundleDTO.model_validate(profile_current_bundle.bundle_data)
         bundle_category = bundle_data.bundle_category
 
-        # Set default values
         display_title = bundle_data.display_title
         icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/generic.png"
 
-        # Initialize search variables
         searched_countries_array = []
         searched_region = None
         try:
@@ -200,17 +189,12 @@ class DtoMapper:
                 searched_region = search_field.regions
         except Exception as e:
             logger.debug(f"Exception parsing RelatedSearchRequestDto: {e}")
-            pass
-
-        # Determine display title and icon_url based on available data
         if searched_countries_array and len(searched_countries_array) > 0:
-            # Get first country code from searched_countries
             first_country = searched_countries_array[0]
             display_title = first_country.country_name
             icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(getattr(first_country.iso3_code, 'country_name', 'generic')).lower()}.png"
-            # change countries sorting
+
         elif bundle_category.type.lower() == "region" and searched_region:
-            # No searched countries, check bundle_category.type
             display_title = searched_region.region_name
             icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/{searched_region.iso_code}.png"
         elif bundle_category.type.lower() == "global":
@@ -290,7 +274,8 @@ class DtoMapper:
             "data_allocated_display": f'{data["dataAllocated"]} {data["dataUnit"]}',
             "data_used_display": f'{data["dataUsed"]} {data["dataUnit"]}',
             "data_remaining_display": f'{data["dataRemaining"]} {data["dataUnit"]}',
-            "plan_status": data["planStatus"]
+            "plan_status": data["planStatus"],
+            "expiry_date": data["profileExpiryDate"],
         }
         return ConsumptionResponse.model_validate(consumption_data)
 
@@ -304,9 +289,6 @@ class DtoMapper:
         bundle_display_name = bundle.label
 
         bundle_data = bundle.bundles[0]
-        for bundle_profile in bundle.bundles:
-            if bundle_profile.iccid == iccid:
-                bandle_data = bundle_profile
 
         if not bundle_display_name and bundle and bundle_data.bundle_data:
             bundle_display_name = bundle_data.bundle_data.get("display_title")
@@ -352,9 +334,10 @@ class DtoMapper:
         return PageContentResponse.model_validate(data)
 
     @staticmethod
-    def to_auth_response(supabase_response: AuthResponse, user_wallet: UserWalletResponse = None) -> AuthResponseDTO:
+    def to_auth_response(supabase_response: AuthResponse, user_wallet: UserWalletResponse = None,
+                         currency: str = os.getenv("DEFAULT_CURRENCY")) -> AuthResponseDTO:
         user_metadata = supabase_response.user.user_metadata
-        fullname = user_metadata.get("full_name", "").strip()  # Ensure it's a string and remove extra spaces
+        fullname = user_metadata.get("full_name", "").strip()
 
         first_name = user_metadata.get("first_name", "")
         last_name = user_metadata.get("last_name", "")
@@ -378,7 +361,7 @@ class DtoMapper:
             should_notify=user_metadata.get("should_notify", False),
             referral_code=referral_code,
             balance=user_wallet.balance if user_wallet else 0,
-            currency_code=user_wallet.currency if user_wallet else "",
+            currency_code=currency,
         )
 
         if not hasattr(supabase_response, "session"):
@@ -408,14 +391,14 @@ class DtoMapper:
 
     @staticmethod
     def bundle_currency_update(bundle: BundleDTO, currency: str = None, rate: float = 1.0) -> BundleDTO:
-        if rate == 1.0:
+        if rate == 1:
             currency = os.getenv("DEFAULT_CURRENCY")
         price = bundle.original_price * rate
         bundle.currency_code = currency
         if os.getenv("DISPLAY_PRICE", "normal") == "rounded":
             price = int(ceil(price))
         bundle.price = price
-        bundle.price_display = f'{bundle.price:.2f} {bundle.currency_code}'
+        bundle.price_display = f'{bundle.price:.2f} {currency}'
         return bundle
 
     @staticmethod

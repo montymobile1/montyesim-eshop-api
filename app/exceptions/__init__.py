@@ -30,6 +30,7 @@ class DatabaseException(CustomException):
     def __init__(self, details: str):
         super().__init__(code=400, name="DataException", details=details)
 
+
 class DCBException(CustomException):
     def __init__(self, details: str | dict | Any):
         self.name = "DCB Exception"

@@ -3,7 +3,6 @@ from typing import Optional, List, Dict, Any
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-from app.config.constants import ErrorEnums
 from app.config.db import UserOrderType, OrderStatusEnum, UserBundleType
 
 
@@ -54,7 +53,7 @@ class UserBundleModel(BaseModel):
     user_id: str
     bundle_id: str
     created_at: str
-    label: Optional[str] = None,
+    label: Optional[str] = None
     user_order_id: Optional[str] = None
     bundle_data: Optional[str] = None
     searched_countries: Optional[str] = None
@@ -78,10 +77,10 @@ class UserProfileBundleModel(BaseModel):
     def parse_bundle_data(cls, value):
         if isinstance(value, str):
             try:
-                return json.loads(value)
+                return json.loads(value)  # Convert string to dictionary
             except json.JSONDecodeError:
-                raise ValueError(ErrorEnums.INVALID_JSON_FORMAT_IN_BUNDLE)
-        return value
+                raise ValueError("Invalid JSON format in bundle_data")
+        return value  # If already a dict, return as is
 
 
 class UserProfileModel(BaseModel):
@@ -133,6 +132,6 @@ class UserWalletTransactionModel(BaseModel):
     id: Optional[str] = Field(None, alias="id")
     wallet_id: str = Field(None, alias="wallet_id")
     amount: float = Field(None, alias="amount")
-    status: str = Field(None, alias = "status")
+    status: str = Field(None, alias="status")
     source: str = Field(None, alias="source")
     created_at: Optional[str] = Field(None, alias="created_at")

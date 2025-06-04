@@ -7,8 +7,9 @@ from loguru import logger
 
 from app.config.config import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, \
     esim_hub_service_instance, generate_otp, dcb_service_instance
+from app.config.constants import ErrorMessages
 from app.config.db import DatabaseTables, PaymentTypeEnum
-from app.exceptions import BadRequestException, CustomException, DCBException
+from app.exceptions import BadRequestException, CustomException
 from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
 from app.repo.bundle_repo import BundleRepo
@@ -50,7 +51,7 @@ class UserBundleService:
         if not bundle.is_stockable:
             check_bundle_available = await self.__esim_hub_service.check_bundle_applicable(bundle.bundle_info_code)
             if not check_bundle_available:
-                raise CustomException(code=400, name="Buy Bundle", details="Bundle Not Available Now Try Again Later")
+                raise CustomException(code=400, name="Buy Bundle", details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
 
         rule_id = "0"
         amount = bundle.price
@@ -123,12 +124,6 @@ class UserBundleService:
             "bundle_data": bundle.model_dump_json(),
             "searched_countries": None,
         })
-        payment_type = assign_top_up_request.payment_type
-        if payment_type == PaymentTypeEnum.WALLET:
-            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order)
-        elif payment_type == PaymentTypeEnum.DCB:
-            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
-
         payment_intent = create_payment_intent(user_bundle_order=order, user_email=user.email, metadata={
             "order_id": order.id,
             "user_id": order.user_id,
@@ -188,7 +183,7 @@ class UserBundleService:
             [DtoMapper.to_user_notification_response(data) for data in notifications], 1)
 
     async def read_user_notification(self, user: UserModel, device_id) -> Response:
-        logger.info("read user notification for user {}".format(user.email))
+        logger.info(f"read user notification for user {user.email=} {device_id=}")
         self.__notification_repo.update_by(where={"user_id": user.id}, data={"status": True})
         return ResponseHelper.success_response()
 
@@ -235,11 +230,11 @@ class UserBundleService:
     async def get_topup_related_bundle(self, bundle_code: str, iccid: str, user: UserModel, accept_language: str = "en",
                                        currency_code: str = os.getenv("DEFAULT_CURRENCY")) -> Response[
         List[BundleDTO]]:
+        logger.info(f"get_topup_related_bundle {bundle_code=} {iccid=} {user=}")
         profile = self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
         if not profile:
             raise BadRequestException(details="This ICCID is not linked to this user")
-        bundles = await self.__esim_hub_service.get_topup_related_bundles(bundle_code=bundle_code,
-                                                                          order_id=profile.esim_hub_order_id)
+        bundles = await self.__esim_hub_service.get_topup_related_bundles(order_id=profile.esim_hub_order_id)
         all_bundles = []
         for bundle in bundles:
             local_bundle = await self.__bundle_service.get_bundle(bundle_id=bundle.bundle_code,
@@ -253,17 +248,17 @@ class UserBundleService:
     async def get_user_esim_by_order_id(self, order_id: str, user: UserModel) -> Response[EsimBundleResponse]:
         user_order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
         if not user_order:
-            raise CustomException(code=404, name=f"Order Not Found", details="Order not found")
+            raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND, details=ErrorMessages.ORDER_NOT_FOUND)
         if user_order.payment_status != OrderStatusEnum.SUCCESS:
             raise CustomException(code=400, name=f"Payment {user_order.payment_status}",
-                                  details="Payment Failed Please try again")
+                                  details=ErrorMessages.PAYMENT_FAILED)
         if user_order.order_status != OrderStatusEnum.SUCCESS:
             raise CustomException(code=400, name=f"Order {user_order.order_status}",
-                                  details="Order Failed Please try again")
+                                  details=ErrorMessages.ORDER_FAILED)
         profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                    where={"user_id": user.id, "user_order_id": order_id})
         if len(profiles) == 0:
-            raise CustomException(code=404, name="Not Found", details="Order Not Found")
+            raise CustomException(code=404, name="Not Found", details=ErrorMessages.ORDER_NOT_FOUND)
         return ResponseHelper.success_data_response(DtoMapper.to_esim_bundle_response(profiles[0]), 0)
 
     async def get_order_history(self, user_id: str, page_index: int, page_size: int) -> Response[
@@ -286,45 +281,27 @@ class UserBundleService:
         try:
             order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
             if not order:
-                raise CustomException(code=404, name=f"Order Not Found", details="Order not found")
+                raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND,
+                                      details=ErrorMessages.ORDER_NOT_FOUND)
             self.__user_order_repo.update(order_id, {"order_status": OrderStatusEnum.CANCELED})
             stripe.PaymentIntent.cancel(order.payment_intent_code)
             return ResponseHelper.success_response()
         except Exception as e:
             raise CustomException(code=400, name=f" Error While Canceling Order {order_id}", details=str(e))
 
-    async def resend_order_otp(self, user: UserModel, order_id: str) -> Response[None]:
-        order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
-        if not order:
-            raise BadRequestException(f"Order {order_id} not found")
-        await self.__dcb_service.resend_otp(msisdn=user.msisdn, transaction_id=order.id)
-        return ResponseHelper.success_response()
-
-    async def verify_order_otp(self, user: UserModel, request: VerifyOtpRequestDto) -> Response[None]:
+    async def verify_order_otp(self, user: UserModel, request: VerifyOtpRequestDto) -> Response[bool]:
         logger.info(f"receiving verification otp request {request}")
         user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=request.order_id)
         if not user_order:
             raise BadRequestException("Order not found")
+        if user_order.otp != request.otp:
+            raise BadRequestException("Invalid OTP")
 
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
-
-        try:
-            await self.__dcb_service.verify_otp(msisdn=user.msisdn, order_id=user_order.id, otp=request.otp)
-            if user_order.order_type == UserOrderType.ASSIGN:
-                return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                              payment_status=OrderStatusEnum.SUCCESS, user=user)
-            elif user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
-                return await self.__bundle_service.top_up_bundle(bundle=bundle, user_id=user.id,
-                                                                 payment_status=OrderStatusEnum.SUCCESS,
-                                                                 user_order=user_order,
-                                                                 iccid=request.iccid, user=user)
-            else:
-                raise BadRequestException("Invalid Order Type")
-        except Exception as e:
-            logger.error("Failed to get content tag: {}".format(e))
-            if isinstance(e, DCBException):
-                raise e
-            raise BadRequestException(f"failed to verify otp: {e}")
+        response = self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=user_order.amount)
+        payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
+        return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
+                                                      payment_status=payment_status, user=user)
 
     async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel) -> Response[
         PaymentIntentResponse]:
@@ -343,13 +320,14 @@ class UserBundleService:
 
     async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO) -> Response[
         PaymentIntentResponse]:
-        otp = generate_otp()
-        self.__user_order_repo.update_by(where={"id": user_order.id}, data={"otp": otp})
-        msisdn = user.msisdn
-        logger.info(f"requesting new otp for msisdn: {msisdn}")
-        await self.__dcb_service.payment_request(user_msisdn=user.msisdn,
-                                                 merchant_msisdn="0992164444",
-                                                 order_id=user_order.id, amount=bundle.price)
-
-        response = PaymentIntentResponse(order_id=user_order.id)
-        return ResponseHelper.success_data_response(response, 0)
+        logger.info(f"handle_dcb_payment request {user=} {bundle=} {user_order=}")
+        try:
+            otp = generate_otp()
+            self.__user_order_repo.update_by(where={"id": user_order.id}, data={"otp": otp})
+            msisdn = user.msisdn
+            logger.info(f"requesting new otp for msisdn: {msisdn}")
+            self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
+            response = PaymentIntentResponse(order_id=user_order.id)
+            return ResponseHelper.success_data_response(response, 0)
+        except Exception as e:
+            raise CustomException(code=400, name="Error Creating Order", details=f"Error while creating order: {e}")

@@ -29,17 +29,34 @@ STRIPE_WEBHOOK_SECRET: str = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PUBLIC_KEY = os.getenv("STRIPE_PUBLIC_KEY")
 
-# Gmail SMTP configuration
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = os.getenv("SMTP_PORT", 587)
 
-# Login credentials
 USERNAME = os.getenv("SMTP_USERNAME", "<EMAIL>")
 PASSWORD = os.getenv("SMTP_PASSWORD", "<PASSWORD>")
 
 if not any([SUPABASE_URL, SUPABASE_KEY, STRIPE_PUBLIC_KEY, STRIPE_WEBHOOK_SECRET, STRIPE_SECRET_KEY]):
     logger.error(
         "missing environment variables: SUPABASE_URL,SUPABASE_KEY,STRIPE_PUBLIC_KEY,STRIPE_WEBHOOK_SECRET,STRIPE_SECRET_KEY are required to run the project")
+
+
+def validate_required_env_vars():
+    required_vars = {
+        "SUPABASE_URL": SUPABASE_URL,
+        "SUPABASE_KEY": SUPABASE_KEY,
+        "STRIPE_PUBLIC_KEY": STRIPE_PUBLIC_KEY,
+        "STRIPE_WEBHOOK_SECRET": STRIPE_WEBHOOK_SECRET,
+        "STRIPE_SECRET_KEY": STRIPE_SECRET_KEY
+    }
+
+    missing_vars = [var for var, value in required_vars.items() if not value]
+    if missing_vars:
+        error_msg = f"Missing required environment variables: {', '.join(missing_vars)}"
+        logger.error(error_msg)
+        raise EnvironmentError(error_msg)
+
+
+validate_required_env_vars()
 
 stripe.api_key = STRIPE_SECRET_KEY
 
@@ -57,11 +74,7 @@ def esim_hub_service_instance():
 
 
 def dcb_service_instance():
-    send_otp_url = os.getenv("DCB_SEND_OTP_API")
-    charge_url = os.getenv("DCB_CHARGE_API")
-    verify_otp_url = os.getenv("DCB_VERIFY_CHARGE_API")
-    return DCBService(send_otp_url=send_otp_url, charge_url=charge_url, verify_otp_url=verify_otp_url,
-                      api_key=os.getenv("DCB_API_KEY"))
+    return DCBService(send_otp_url="", verify_otp_url="", api_key="", charge_url="")
 
 
 def authenticate(email: str, referral_code: str):
@@ -168,26 +181,60 @@ def stripe_get_payment_details(intent_code) -> PaymentDetailsDTO | None:
 
 
 def send_email(subject: str, html_content: str, recipients: str, attachment: BytesIO = None):
-    import smtplib
-    from email.message import EmailMessage
+    """
+    Send an email with optional attachment.
+    
+    Args:
+        subject (str): Email subject
+        html_content (str): HTML content of the email
+        recipients (str): Comma-separated list of recipient email addresses
+        attachment (BytesIO, optional): Optional attachment to include in the email
+        
+    Raises:
+        ValueError: If required email configuration is missing
+        smtplib.SMTPException: If there's an error sending the email
+    """
+    if not all([SMTP_SERVER, SMTP_PORT, USERNAME, PASSWORD]):
+        raise ValueError("Missing required email configuration")
 
-    msg = EmailMessage()
-    msg['Subject'] = subject
-    msg['From'] = os.getenv("SMTP_SENDER", "noreply@esim.com")
-    msg['To'] = recipients
-    msg.set_content(html_content)
-    msg.add_alternative(html_content, subtype='html')
-    if attachment:
-        msg.get_payload()[1].add_related(attachment.read(), maintype='image', subtype='png', cid='qr_code')
+    import smtplib
+    from email.utils import formatdate
+    from email.mime.text import MIMEText
+    from email.mime.multipart import MIMEMultipart
 
     try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        # Create message
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = os.getenv("SMTP_SENDER", "noreply@esim.com")
+        msg['To'] = recipients
+        msg['Date'] = formatdate(localtime=True)
+
+        # Add text and HTML content
+        text_content = "Please view this email in an HTML-compatible email client."
+        msg.attach(MIMEText(text_content, 'plain'))
+        msg.attach(MIMEText(html_content, 'html'))
+
+        # Add attachment if provided
+        if attachment:
+            from email.mime.image import MIMEImage
+            img = MIMEImage(attachment.read())
+            img.add_header('Content-ID', '<qr_code>')
+            msg.attach(img)
+
+        # Send email
+        with smtplib.SMTP(SMTP_SERVER, int(SMTP_PORT)) as server:
             server.starttls()
             server.login(USERNAME, PASSWORD)
             server.send_message(msg)
-            logger.info("Email sent successfully.")
+            logger.info(f"Email sent successfully to {recipients}")
+
+    except smtplib.SMTPException as e:
+        logger.error(f"Failed to send email: {str(e)}")
+        raise
     except Exception as e:
-        logger.info(f"Failed to send email: {e}")
+        logger.error(f"Unexpected error while sending email: {str(e)}")
+        raise
 
 
 def generate_qr_code(qr_data: str) -> BytesIO:

@@ -35,12 +35,12 @@ class AssignRequest(BaseModel):
 class VerifyOtpRequestDto(BaseModel):
     otp: str
     order_id: str
-    iccid: Optional[str] = None
+
 
 class AssignTopUpRequest(BaseModel):
     iccid: str
     bundle_code: str
-    payment_type: Optional[PaymentTypeEnum] = PaymentTypeEnum.CARD
+    payment_type: Optional[str] = "Card"
 
 
 class PaymentRequest(BaseModel):
@@ -158,6 +158,7 @@ class ConsumptionResponse(BaseModel):
     data_used_display: str
     data_remaining_display: str
     plan_status: str
+    expiry_date: str
 
 
 class PaymentDetailsDTO(BaseModel):
@@ -165,7 +166,7 @@ class PaymentDetailsDTO(BaseModel):
     description: str
     payment_method: str
     card_number: str
-    receipt_email: str
+    receipt_email: Optional[str] = None
     address: str
     display_brand: str
     country: str

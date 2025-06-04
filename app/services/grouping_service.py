@@ -5,7 +5,6 @@ from deep_translator import GoogleTranslator
 from app.models.app import TagModel
 from app.repo.bundle_repo import BundleRepo
 from app.repo.bundle_tage_repo import BundleTagRepo
-from app.repo.tag_group_repo import tagGroupRepo
 from app.repo.tag_repo import TagRepo, TagTranslationRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import CountryDTO, RegionDTO, BundleDTO
@@ -13,7 +12,6 @@ from app.schemas.home import CountryDTO, RegionDTO, BundleDTO
 
 class GroupingService:
     def __init__(self):
-        self.__tag_group_repo = tagGroupRepo()
         self.__tag_repo = TagRepo()
         self.__bundle_tag_repo = BundleTagRepo()
         self.__bundle_repo = BundleRepo()
@@ -53,7 +51,6 @@ class GroupingService:
             )
 
             for bundle_tag in bundler_tags:
-                # Assuming bundle_tag has `bundle_id` field (not `id`)
                 bundle = self.__bundle_repo.get_by_id(record_id=bundle_tag.bundle_id)
 
                 if bundle and bundle.data:
@@ -85,9 +82,7 @@ class GroupingService:
             )
 
             for bundle_tag in bundler_tags:
-                # Assuming bundle_tag has `bundle_id` field (not `id`)
                 bundle = self.__bundle_repo.get_by_id(record_id=bundle_tag.bundle_id)
-
                 if bundle and bundle.data:
                     bundle_dto = BundleDTO(**bundle.data)
                     tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]

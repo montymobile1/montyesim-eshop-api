@@ -229,8 +229,8 @@ class EsimHubService:
                 continue
         return bundles
 
-    async def get_topup_related_bundles(self, bundle_code: str, order_id: str,
-                                        currency_code: str = os.getenv("DEFAULT_CURRENCY")) -> List[BundleDTO]:
+    async def get_topup_related_bundles(self, order_id: str, currency_code: str = os.getenv("DEFAULT_CURRENCY")) -> \
+    List[BundleDTO]:
         params = {
             "orderId": order_id,
             "CurrencyCode": currency_code,
@@ -355,9 +355,8 @@ class EsimHubService:
                 headers["Api-Key"] = self.__api_key
                 response = client.request(method=method, url=base_url + path, headers=headers, params=params,
                                           json=body, timeout=120)
-                safe_headers = {k: '***' if k.lower() in ['api-key', 'tenant'] else v for k, v in headers.items()}
                 logger.debug("Request: curl -X {} {} {} Response: {}".format(method, response.url, " ".join(
-                    [f'--header "{key}: {value}"' for key, value in safe_headers.items()]), response))
+                    [f'--header "{key}: {value}"' for key, value in headers.items()]), response))
                 if response.status_code != httpx.codes.OK:
                     try:
                         json_response = response.json()

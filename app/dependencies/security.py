@@ -7,31 +7,30 @@ from gotrue import AuthResponse
 from loguru import logger
 
 from app.config.config import supabase_client
-from app.config.constants import ErrorEnums
+from app.config.constants import ErrorMessages
 from app.exceptions import CustomException
 from app.models.user import UserModel
 
 security = HTTPBearer()
 
 
-def refresh_token(x_refresh_token: str = Header(..., description="X-Refresh-Token is missing")) -> str:
+def refresh_token(x_refresh_token: str = Header(..., description=ErrorMessages.REFRESH_TOKEN_MISSING)) -> str:
     if not x_refresh_token:
-        raise CustomException(code=401, name="Refresh Token Required",
-                              details="X-Refresh-Token required for this operation")
+        raise CustomException(code=401, name="X-Refresh-Token", details=ErrorMessages.REFRESH_TOKEN_MISSING)
     return x_refresh_token
 
 
 def bearer_token(credentials: HTTPAuthorizationCredentials = Security(security)) -> UserModel:
     if not credentials or not credentials.credentials:
-        raise HTTPException(status_code=401, detail=ErrorEnums.BEARER_TOKEN_REQUIRED)
+        raise HTTPException(status_code=401, detail=ErrorMessages.BEARER_TOKEN_REQUIRED)
     try:
-        decoded_token = jwt.decode(credentials.credentials, options={"verify_signature": False})
+        decoded_token = jwt.decode(credentials.credentials, options={"verify_signature": True})
         expiry_time = datetime.fromtimestamp(decoded_token['exp'], tz=timezone.utc)
         if expiry_time < datetime.now(tz=timezone.utc):
-            raise HTTPException(status_code=401, detail=ErrorEnums.BEARER_TOKEN_EXPIRED)
+            raise HTTPException(status_code=401, detail="Bearer Token is expired")
         response: AuthResponse = supabase_client().auth.get_user(jwt=credentials.credentials)
         if response.user.is_anonymous and not response.user.email:
-            raise HTTPException(status_code=401, detail=ErrorEnums.ANONYMOUS_USER_NOT_ALLOWED)
+            raise HTTPException(status_code=401, detail="Anonymous user is not allowed")
         return UserModel(id=response.user.id, email=response.user.email,
                          token=credentials.credentials,
                          msisdn=response.user.user_metadata.get("msisdn", None),
@@ -40,12 +39,12 @@ def bearer_token(credentials: HTTPAuthorizationCredentials = Security(security))
                          )
     except Exception as ex:
         logger.error(f"Token Introspection Exception: {ex}")
-        raise HTTPException(status_code=401, detail=ErrorEnums.BEARER_TOKEN_REQUIRED)
+        raise HTTPException(status_code=401, detail=ErrorMessages.BEARER_TOKEN_REQUIRED)
 
 
 def bearer_token_anonymous(credentials: HTTPAuthorizationCredentials = Security(security)) -> UserModel:
     if not credentials or not credentials.credentials:
-        raise CustomException(code=401, name="Token is required", details=ErrorEnums.BEARER_TOKEN_REQUIRED)
+        raise CustomException(code=401, name="Token is required", details="Bearer Token is required for this operation")
     try:
         response: AuthResponse = supabase_client().auth.get_user(jwt=credentials.credentials)
         metadata = response.user.user_metadata
@@ -60,7 +59,7 @@ def bearer_token_anonymous(credentials: HTTPAuthorizationCredentials = Security(
         )
     except Exception as ex:
         logger.error(f"Token Introspection Exception: {ex}")
-        raise HTTPException(status_code=401, detail=ErrorEnums.BEARER_TOKEN_REQUIRED)
+        raise HTTPException(status_code=401, detail="Bearer Token is required for this operation")
 
 
 def optional_bearer_token(credentials: HTTPAuthorizationCredentials = Security(security)) -> UserModel | None:
@@ -91,8 +90,7 @@ def get_user_from_token(jwt_token: str) -> UserModel | None:
         return None
 
 
-def device_token(x_device_id: str = Header(..., description="X-Device-ID is missing")) -> str:
+def device_token(x_device_id: str = Header(..., description=ErrorMessages.DEVICE_ID_MISSING)) -> str:
     if not x_device_id:
-        raise CustomException(code=400, name="X-Device-ID is required",
-                              details="X-Device-ID is required for this operation")
+        raise CustomException(code=400, name="X-Device-ID is missing", details=ErrorMessages.DEVICE_ID_MISSING)
     return x_device_id

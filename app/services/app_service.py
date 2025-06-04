@@ -40,7 +40,7 @@ class AppService:
         )
 
         device_model = DeviceModel(
-            **device_request.model_dump(),  # This will unpack all fields from device_request
+            **device_request.model_dump(),
             is_logged_in=True if user else False,
             originated_ip=ip,
             ip_location="New York, USA",
@@ -64,7 +64,8 @@ class AppService:
         logger.info("Upsert successful:", upsert_response)
         return ResponseHelper.success_response()
 
-    async def delete_device(self, user: UserModel, delete_device_request: DeleteDeviceRequest) -> Response:
+    async def delete_device(self, delete_device_request: DeleteDeviceRequest) -> Response:
+        logger.info(f"deleting device {delete_device_request.device_id}")
         return ResponseHelper.success_response()
 
     async def faq(self, accepted_language: str) -> Response[List[FaqResponse]]:

@@ -90,6 +90,7 @@ def get_notification_content(category: NotificationCategoryType, **kwargs) -> No
             message=f"Dear {kwargs.get('user_name', '0')}, Your {kwargs.get('bundle_name', 'Bundle')} plan has expired. You have reached your consumption limit. You can check available top ups to activate your plan.",
             data={
                 "category": str(NotificationCategoryType.CONSUMPTION_80_BUNDLE_DETAIL.value),
+                # keep CONSUMPTION_80_BUNDLE_DETAIL to be handled by mobile
                 "message": "Bundle usage update",
                 "iccid": kwargs.get('iccid', '0'),
             }
@@ -133,6 +134,7 @@ def get_notification_content(category: NotificationCategoryType, **kwargs) -> No
     return notifications.get(category)
 
 
+# Example usage:
 def send_buy_bundle_notification(bundle_name: str, iccid: str) -> NotificationContent:
     return get_notification_content(
         category=NotificationCategoryType.BUY_BUNDLE,

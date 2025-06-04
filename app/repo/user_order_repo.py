@@ -21,3 +21,6 @@ class UserProfileBundleRepo(BaseRepository):
 class UserRepo(BaseRepository):
     def __init__(self):
         super().__init__(DatabaseTables.TABLE_USER_COPY, UsersCopyModel)
+
+    def referral_code_key(self):
+        return "metadata ->> referral_code"

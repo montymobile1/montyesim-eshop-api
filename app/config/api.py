@@ -30,3 +30,11 @@ class EsimHubEndpoint(StrEnum):
 class DCBEndpoint(StrEnum):
     API_SEND_OTP = "/otp"
     API_DEDUCT = "/deduct"
+
+
+class DcbErrors(StrEnum):
+    INEFFICIENT_BALANCE = "Customer MSISDN doesn’t have enough balance"
+    REACHED_LIMIT = "Customer MSISDN will exceed the expenditure limit per day which is 550,000 SYP"
+    INVALID_OTP = "Invalid OTP"
+    EXPIRED_TRANSACTION = "Expired transaction (1 day has been passed), this case occurs in retry process"
+    TECHNICAL_ERROR = "Technical error"

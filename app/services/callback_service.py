@@ -10,13 +10,14 @@ from jinja2 import Environment, FileSystemLoader
 from loguru import logger
 
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email
+from app.config.constants import PaymentIntentEvents
 from app.config.db import DatabaseTables
 from app.config.notification_types import send_consumption_80_bundle_notification, \
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
 from app.config.push_notification_manager import fcm_service
-from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel
-from app.repo import UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
+from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel
+from app.repo import UserOrderRepo, UserProfileRepo, UserRepo
 from app.schemas.callback import ConsumptionLimitRequest
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
@@ -34,7 +35,6 @@ class CallbackService:
         self.__user_repo = UserRepo()
         self.__user_order_repo = UserOrderRepo()
         self.__user_profile_repo = UserProfileRepo()
-        self.__user_profile_bundle_repo = UserProfileBundleRepo()
         self.__sync_service = SyncService()
         self.__user_wallet_service = UserWalletService()
         self.__promotion_service = PromotionService()
@@ -48,7 +48,6 @@ class CallbackService:
             event_type = request.event_type
             iccid = request.iccid
 
-            # Get user profile information
             orders = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                      where={"esim_hub_order_id": request.order_id, "iccid": iccid})
 
@@ -59,21 +58,19 @@ class CallbackService:
             order_info = orders[0]
             orders = []
 
-            # Get primary user info
             primary_user_id = order_info.user_id
             if primary_user_id:
                 primary_user_metadata = {}
                 primary_user = self.__user_repo.get_by_id(
-                    record_id=primary_user_id)  # get_user(primary_user_id)
+                    record_id=primary_user_id)
                 if primary_user:
                     primary_user_metadata = primary_user.metadata
                 model = DtoMapper.to_order_notification_model(order_info, primary_user_id, primary_user_metadata, iccid)
                 orders.append(model)
-            # Get shared user info if exists
             shared_user_id = order_info.shared_user_id
             if shared_user_id:
                 shared_user_metadata = {}
-                shared_user = self.__user_repo.get_by_id(record_id=shared_user_id)  # get_user(shared_user_id)
+                shared_user = self.__user_repo.get_by_id(record_id=shared_user_id)
                 if shared_user:
                     shared_user_metadata = shared_user.metadata
                 model = DtoMapper.to_order_notification_model(order_info, shared_user_id, shared_user_metadata, iccid)
@@ -83,61 +80,14 @@ class CallbackService:
                 logger.warning(f"No users found for ICCID: {iccid}")
                 return
 
-            # Send notification to all associated users
             for order in orders:
-                try:
-                    # Get bundle info from user profile
-                    # Prepare notification data based on event type
-                    if event_type in ["limit_80", "PLAN-80", "Eighty"]:
-                        notification_data = send_consumption_80_bundle_notification(
-                            user_name=order.user_display_name,
-                            bundle_name=order.bundle_display_name,
-                            iccid=iccid
-                        )
-                        user = self.__user_repo.get_by_id(record_id=order.user_id)
-                        await self.__send_email_80_consumption(
-                            user=user,
-                            bundle_name=order.bundle_display_name,
-                            iccid=iccid
-                        )
-                    elif event_type in ["limit_100", "PLAN-100", "DATA_LIMIT", "PREPAID_PLAN_COMPLETION"]:
-                        notification_data = send_consumption_100_bundle_notification(
-                            user_name=order.user_display_name,
-                            bundle_name=order.bundle_display_name,
-                            iccid=iccid
-                        )
-                        user = self.__user_repo.get_by_id(record_id=order.user_id)
-                        await self.__send_email_100_consumption(
-                            user=user,
-                            bundle_name=order.bundle_display_name,
-                            iccid=iccid
-                        )
-                    elif event_type in ["StartBundle", "PLAN-STARTED", "thing activated", "Plan Started and Selected",
-                                        "SESSION_START", "Started"]:
-                        datetime_str = order_info.validity
-                        dt_object = datetime.strptime(datetime_str, "%Y-%m-%dT%H:%M:%S")
-                        date_only_str = dt_object.strftime("%Y-%m-%d")
-                        notification_data = send_plan_started_notification(
-                            bundle_name=order.bundle_display_name,
-                            validity_date=date_only_str
-                        )
-                    else:
-                        logger.warning(f"Unsupported event type for plan status callback: {event_type}")
-                        return
-
-                    fcm_service.send_notification_to_user_from_template(
-                        content_template=notification_data,
-                        user_id=order.user_id
-                    )
-                except Exception as e:
-                    logger.error(f"Failed to send notification to user {order.user_id}: {str(e)}")
+                await self.__handle_event_for_order(order=order, iccid=iccid, event_type=event_type)
 
         except Exception as e:
             logger.error(f"Error in handle_plan_event_callback: {str(e)}")
             raise HTTPException(status_code=500, detail=str(e))
 
     async def handle_payment_webhook(self, request: Request):
-        # Extract and parse the payload
         payload = await request.body()
         sig_header = request.headers.get("stripe-signature")
         try:
@@ -190,37 +140,35 @@ class CallbackService:
     def __run_one_sync(self, bundle_id: str, operation: str, reseller_id: str = None):
         import asyncio
         try:
-            if operation == "delete":
-                if reseller_id and reseller_id == os.getenv("RESELLER_ID"):
+            if reseller_id and reseller_id == os.getenv("RESELLER_ID"):
+                if operation == "delete":
                     logger.info(f"deleting bundle {bundle_id} for reseller {reseller_id}")
                     asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
-                else:
-                    logger.info(f"ignoring delete bundle {bundle_id}, no reseller provided")
-                    return
-            elif operation == "update":
-                logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
-                bundle = asyncio.run(
-                    self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
-                                                             currency_code=os.getenv("DEFAULT_CURRENCY")))
-                asyncio.run(self.__sync_service.sync_bundle(bundle))
-            elif operation == "assign" or operation == "edit_price":
-                if reseller_id and reseller_id == os.getenv("RESELLER_ID"):
+                elif operation == "assign" or operation == "edit_price":
+                    logger.info(f"{operation} for bundle {bundle_id} for reseller {reseller_id}")
                     bundle = asyncio.run(
                         self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
                                                                  currency_code=os.getenv("DEFAULT_CURRENCY")))
                     asyncio.run(self.__sync_service.sync_bundle(bundle))
-                else:
-                    logger.info(f"ignoring assign bundle {bundle_id}, no reseller provided")
-                    return
-            elif operation == "unassign":
-                if not reseller_id:
-                    logger.info(f"ignoring assign bundle {bundle_id}, no reseller provided")
-                    return
-                if reseller_id == os.getenv("RESELLER_ID"):
+                elif operation == "unassign":
                     logger.info(f"unassigning bundle {bundle_id} for reseller {reseller_id}")
                     asyncio.run(self.__sync_service.delete_bundle(bundle_id))
+                elif operation == "activate":
+                    logger.info(f"activating bundle {bundle_id} for reseller {reseller_id}")
+                    asyncio.run(self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=True))
+                elif operation == "deactivate":
+                    logger.info(f"deactivating bundle {bundle_id} for reseller {reseller_id}")
+                    asyncio.run(self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=False))
+            if operation == "update":
+                bundle = asyncio.run(
+                    self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
+                                                             currency_code=os.getenv("DEFAULT_CURRENCY")))
+                exists = asyncio.run(self.__bundle_service.bundle_exists(bundle_id=bundle_id))
+                if exists:
+                    logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
+                    asyncio.run(self.__sync_service.sync_bundle(bundle))
                 else:
-                    logger.info(f"reseller id not matching")
+                    logger.info(f"ignoring bundle update, bundle {bundle_id} does not exist")
             asyncio.run(self.__sync_service.update_sync_version())
         except Exception as e:
             logger.error(f"error while syncing bundle {id}: {str(e)}")
@@ -231,16 +179,14 @@ class CallbackService:
         asyncio.run(self.__sync_service.update_sync_version())
 
     async def __handle_payment_webhook_data(self, event: dict):
-        # Extract payment intent data
         logger.debug(f"Received payment webhook.{event.get('type')}")
-        if event.get("type") not in ["payment_intent.succeeded", "payment_intent.failed"]:
+        if event.get("type") not in [PaymentIntentEvents.SUCCEEDED, PaymentIntentEvents.FAILED]:
             logger.info(f"Ignoring payment intent {event.get('type')}")
             return ResponseHelper.success_response()
 
         payment_intent = event.get("data").get("object", {})
         metadata = payment_intent.get("metadata", {})
 
-        # Validate required metadata fields
         environment = metadata.get("env")
         if environment != os.getenv("ENVIRONMENT", "DEV"):
             logger.info(
@@ -359,3 +305,49 @@ class CallbackService:
             content = send_wallet_top_up_failed_notification()
             fcm_service.send_notification_to_user_from_template(content, user_id=user_id)
             return ResponseHelper.success_response()
+
+    async def __handle_event_for_order(self, order: UserOrderModel, iccid: str, event_type: str):
+        try:
+            if event_type in ["limit_80", "PLAN-80", "Eighty"]:
+                notification_data = send_consumption_80_bundle_notification(
+                    user_name=order.user_display_name,
+                    bundle_name=order.bundle_display_name,
+                    iccid=iccid
+                )
+                user = self.__user_repo.get_by_id(record_id=order.user_id)
+                await self.__send_email_80_consumption(
+                    user=user,
+                    bundle_name=order.bundle_display_name,
+                    iccid=iccid
+                )
+            elif event_type in ["limit_100", "PLAN-100", "DATA_LIMIT", "PREPAID_PLAN_COMPLETION"]:
+                notification_data = send_consumption_100_bundle_notification(
+                    user_name=order.user_display_name,
+                    bundle_name=order.bundle_display_name,
+                    iccid=iccid
+                )
+                user = self.__user_repo.get_by_id(record_id=order.user_id)
+                await self.__send_email_100_consumption(
+                    user=user,
+                    bundle_name=order.bundle_display_name,
+                    iccid=iccid
+                )
+            elif event_type in ["StartBundle", "PLAN-STARTED", "thing activated", "Plan Started and Selected",
+                                "SESSION_START", "Started"]:
+                datetime_str = order.validity
+                dt_object = datetime.strptime(datetime_str, "%Y-%m-%dT%H:%M:%S")
+                date_only_str = dt_object.strftime("%Y-%m-%d")
+                notification_data = send_plan_started_notification(
+                    bundle_name=order.bundle_display_name,
+                    validity_date=date_only_str
+                )
+            else:
+                logger.warning(f"Unsupported event type for plan status callback: {event_type}")
+                return
+
+            fcm_service.send_notification_to_user_from_template(
+                content_template=notification_data,
+                user_id=order.user_id
+            )
+        except Exception as e:
+            logger.error(f"Failed to send notification to user {order.user_id}: {str(e)}")

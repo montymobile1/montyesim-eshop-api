@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.config.constants import ErrorEnums
+from app.config.constants import ErrorMessages
 
 
 class AppConfigModel(BaseModel):
@@ -40,6 +40,7 @@ class DeviceModel(DeviceBase):
     timestamp_login: Optional[str] = Field(None, alias="timestamp_login")
     timestamp_logout: Optional[str] = Field(None, alias="timestamp_logout")
 
+
 class BundleModel(BaseModel):
     id: Optional[str] = Field(None, alias="id")
     data: Optional[Dict[str, Any]] = Field(None, alias="data")
@@ -54,7 +55,7 @@ class BundleModel(BaseModel):
             try:
                 return json.loads(value)
             except json.JSONDecodeError:
-                raise ValueError(ErrorEnums.INVALID_JSON_FORMAT_IN_BUNDLE)
+                raise ValueError(ErrorMessages.INVALID_JSON_DATA)
         return value
 
 
@@ -74,8 +75,9 @@ class TagModel(BaseModel):
             try:
                 return json.loads(value)
             except json.JSONDecodeError:
-                raise ValueError(ErrorEnums.INVALID_JSON_FORMAT_IN_BUNDLE)
+                raise ValueError("Invalid JSON format in bundle_data")
         return value
+
 
 class TagTranslationModel(BaseModel):
     id: Optional[int] = Field(None, alias="id")
@@ -93,7 +95,7 @@ class TagTranslationModel(BaseModel):
             try:
                 return json.loads(value)
             except json.JSONDecodeError:
-                raise ValueError(ErrorEnums.INVALID_JSON_FORMAT_IN_BUNDLE)
+                raise ValueError("Invalid JSON format in bundle_data")
         return value
 
 
@@ -112,6 +114,7 @@ class TagGroupModel(BaseModel):
     is_active: Optional[bool] = Field(True, alias="is_active")
     updated_at: Optional[str] = None
     created_at: Optional[str] = None
+
 
 class CurrencyModel(BaseModel):
     id: Optional[int] = Field(None, alias="id")

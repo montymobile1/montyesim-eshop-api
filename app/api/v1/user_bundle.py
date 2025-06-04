@@ -39,12 +39,6 @@ async def verify_order_otp(request: VerifyOtpRequestDto, user: Annotated[UserMod
     return await service.verify_order_otp(user, request)
 
 
-@router.post("/bundle/resend_order_otp/{order_id}", response_model=Response,
-             dependencies=[Depends(bearer_token), Depends(device_token)])
-async def resend_order_otp(order_id: str, user: Annotated[UserModel, Depends(bearer_token)]):
-    return await service.resend_order_otp(user=user, order_id=order_id)
-
-
 @router.post("/bundle/assign-top-up", response_model=Response[PaymentIntentResponse],
              dependencies=[Depends(bearer_token), Depends(device_token)])
 async def assign_top_up(assign_top_up_request: AssignTopUpRequest, user: Annotated[UserModel, Depends(bearer_token)],

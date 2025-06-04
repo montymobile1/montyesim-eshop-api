@@ -24,13 +24,11 @@ async def health_check():
 async def __check_supabase_connection():
     try:
         client = supabase_client()
-        response = client.table("users_copy").select("id").limit(1).execute()
-        if response.data is not None:
-            logger.info("Supabase connection successful")
-            return "ok"
-        return "failed"
+        response = (client.table("users_copy").select("*").limit(1).execute())
+        logger.info(response)
+        return "ok"
     except Exception as e:
-        logger.error(f"Supabase connection health check failed: {str(e)}")
+        logger.error(f"error on healthcheck for supabase connection: {e}")
         return "failed"
 
 

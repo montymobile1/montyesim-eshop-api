@@ -1,22 +1,27 @@
-from typing import Optional, Generic, TypeVar
 from datetime import datetime
+from typing import Optional
 
-from pydantic import BaseModel, ConfigDict ,field_validator
+from pydantic import BaseModel, field_validator
+
 
 class PromotionCodeDetailsResponse(BaseModel):
     code_type: str
     rule_id: str
 
+
 class PromotionValidationRequest(BaseModel):
     promo_code: str
     bundle_code: str
+
 
 class PromotionCheck(BaseModel):
     amount: float
     message: str
 
+
 class ReferralRewardRequest(BaseModel):
     referral_code: str
+
 
 class PromotionHistoryDto(BaseModel):
     is_referral: bool
@@ -32,4 +37,3 @@ class PromotionHistoryDto(BaseModel):
             return None
         dt = datetime.fromisoformat(value)
         return str(int(dt.timestamp()))
-

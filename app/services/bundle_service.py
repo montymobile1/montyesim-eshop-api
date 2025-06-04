@@ -39,9 +39,15 @@ class BundleService:
         self.__user_profile_repo = UserProfileRepo()
         self.__user_profile_bundle_repo = UserProfileBundleRepo()
 
+    async def bundle_exists(self, bundle_id: str) -> bool:
+        try:
+            bundle = self.__bundle_repo.get_by_id(record_id=bundle_id)
+            return bundle is not None
+        except Exception as e:
+            logger.error(f"error while getting bundle {e}")
+            return False
+
     async def get_bundle(self, bundle_id: str, currency_name: str, locale: str = "en") -> Response[BundleDTO]:
-        # bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id)
-        # todo check if currency needed to be checked
         bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=bundle_id)
         rate = self.__currency_service.get_rate_by_currency(currency_name)
 
@@ -72,7 +78,6 @@ class BundleService:
 
         if not tags:
             raise BadRequestException("country_codes not found")
-
 
         results = self.__bundle_tag_repo.table \
             .select("bundle_id, tag_id") \
@@ -112,21 +117,15 @@ class BundleService:
                 bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency_name, rate))
 
         filtered_bundles = self.__filter_by_gprs_limit(bundles)
-        # bundles = await self.__esim_hub_service.get_bundles_by_country(country_codes.split(","))
         return ResponseHelper.success_data_response(filtered_bundles, len(filtered_bundles))
 
     async def get_bundles_by_region(self, region_code: str, currency: str, locale: str) -> Response[List[BundleDTO]]:
-        # regions = await self.__esim_hub_service.get_regions()
         regions = await self.__grouping_service.get_all_regions(locale)
 
         searched_regions = [region for region in regions if region.region_code == region_code]
 
-        if searched_regions is None or len(searched_regions) == 0:
+        if len(searched_regions) == 0:
             raise BadRequestException("Region Not Found")
-
-        # todo is currency code needed
-        # bundles = await self.__esim_hub_service.get_bundles_by_zone(zone=searched_regions[0].guid,
-        #                                                             currency_code=currency)
 
         bundle_tags = self.__bundle_tag_repo.list(where={"tag_id": searched_regions[0].guid})
 
@@ -167,8 +166,13 @@ class BundleService:
         return ResponseHelper.success_data_response(countries, len(countries))
 
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
-                         payment_status: str, user: UserModel = None):
-        msisdn = user.msisdn if user else ""
+                         payment_status: str, user: UserModel | UsersCopyModel = None):
+        if isinstance(user, UsersCopyModel):
+            msisdn = user.metadata.get("msisdn", "")
+        elif isinstance(user, UserModel):
+            msisdn = user.msisdn
+        else:
+            msisdn = ""
         order_id = f"{msisdn}|{user_order.id}"
         esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
                                                                              order_id=order_id)
@@ -310,5 +314,5 @@ class BundleService:
             if key not in filtered_bundles_dict or price < filtered_bundles_dict[key].price:
                 filtered_bundles_dict[key] = bundle
         items = list(filtered_bundles_dict.values())
-        sorted(items, key=lambda item: item.price, reverse=False)
-        return items
+        sorted_bundles = sorted(items, key=lambda item: item.price, reverse=False)
+        return sorted_bundles
