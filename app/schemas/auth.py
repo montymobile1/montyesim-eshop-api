@@ -10,6 +10,8 @@ class LoginRequest(BaseModel):
 
     @field_validator("email", mode="before")
     def extract_email(cls, value):
+        if value is None:
+            return value
         local_part = value.split('@')[0]
         if "+" in local_part:
             raise ValidationError(f"Invalid email: {local_part}")
