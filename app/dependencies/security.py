@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 
 import jwt
@@ -24,7 +25,8 @@ def bearer_token(credentials: HTTPAuthorizationCredentials = Security(security))
     if not credentials or not credentials.credentials:
         raise HTTPException(status_code=401, detail=ErrorMessages.BEARER_TOKEN_REQUIRED)
     try:
-        decoded_token = jwt.decode(credentials.credentials, options={"verify_signature": True})
+        decoded_token = jwt.decode(jwt=credentials.credentials, key=os.getenv("SUPABASE_JWT_SECRET"),
+                                   algorithms=["HS256"], audience="authenticated")
         expiry_time = datetime.fromtimestamp(decoded_token['exp'], tz=timezone.utc)
         if expiry_time < datetime.now(tz=timezone.utc):
             raise HTTPException(status_code=401, detail="Bearer Token is expired")
