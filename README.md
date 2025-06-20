@@ -94,6 +94,50 @@ Ensure you have the following:
    export $(cat .env | xargs)  # On Windows, set variables manually or use dotenv
    ```
 
+## Environment Variables (.env)
+
+The project uses a `.env` file for configuration. Copy `.env.example` to `.env` and fill in the required values. Below is a detailed explanation of each variable and how to obtain the necessary keys:
+
+### Supabase Configuration
+- **SUPABASE_URL**: Your Supabase project URL.  
+  Find it in your Supabase dashboard under Project Settings > API > Project URL.
+- **SUPABASE_KEY**: Service role key for server-side access.  
+  In Supabase dashboard, go to Project Settings > API > Service Role Key.
+- **SUPABASE_ANON_KEY**: Public (anon) key for client-side access.  
+  In Supabase dashboard, go to Project Settings > API > anon public.
+
+### Stripe Configuration
+- **STRIPE_SECRET_KEY**: Your Stripe secret key (test or live).  
+  In Stripe dashboard, go to Developers > API keys > Secret key.
+- **STRIPE_PUBLIC_KEY**: Your Stripe publishable key for frontend use.  
+  In Stripe dashboard, go to Developers > API keys > Publishable key.
+- **STRIPE_WEBHOOK_SECRET**: The webhook signing secret for Stripe.  
+  In Stripe dashboard, go to Developers > Webhooks, select your webhook, and copy the Signing secret.
+- **MERCHANT_ID**: Your Stripe merchant ID (optional, for transaction context).
+- **MERCHANT_DISPLAY_NAME**: The display name for your merchant in Stripe transactions.
+
+### eSIM Hub Configuration
+- **ESIM_HUB_BASE_URL / ESIM_HUB_BASE_URL2**: The base URLs for the eSIM hub APIs.
+- **ESIM_HUB_API_KEY**: The API key for accessing the eSIM hub (provided by your eSIM hub provider).
+- **ESIM_HUB_TENANT_KEY**: The tenant key for eSIM hub integration (provided by your eSIM hub provider).
+
+### Firebase Cloud Messaging
+- **FCM_CONFIG_FILE**: Path to your Firebase service account JSON file.  
+  Download this from Firebase Console > Project Settings > Service Accounts > Generate new private key.
+
+### Email / SMTP Configuration
+- **SMTP_SERVER, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, SMTP_SENDER, SUPPORT_EMAIL**:  
+  These are your email server settings, provided by your email service provider (e.g., Gmail, SendGrid, etc.).
+
+### App Defaults
+- **DEFAULT_CURRENCY**: The default currency code (e.g., USD, GBP).
+- **ENVIRONMENT**: The environment type (DEV, QA, PROD).
+- **PAYMENT_METHODS**: Comma-separated list of enabled payment methods (e.g., otp, card).
+
+#### Example: How to get Stripe and Supabase keys
+- **Supabase**: Go to https://supabase.com/dashboard/project/{project_id}/settings/api-keys
+- **Stripe**: Go to https://dashboard.stripe.com/apikeys for API keys, and https://dashboard.stripe.com/webhooks for webhook secrets.
+
 ## Database Schema
 
 This project uses **Supabase** as the database provider. The database schema is managed under the **public** schema. You
@@ -196,4 +240,3 @@ Or use a process manager like **Gunicorn** with **Uvicorn**:
 ## License
 
 This project is licensed under the MIT License. See `LICENSE` for details.
-
