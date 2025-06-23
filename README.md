@@ -204,6 +204,26 @@ Run the FastAPI server:
 |--------|------------------------------|--------------------------------------------|
 | `GET`  | `/health`                   | Check API health status                    |
 
+## 🔄 Data Synchronization
+
+**Sync all bundles from the eSIM hub to your database**
+
+To keep your local database up-to-date with the latest bundles from the eSIM hub, you can trigger a full sync at any time. This is especially useful after initial setup, deployments, or when new bundles are added to the eSIM hub.
+
+**How to sync:**
+
+Send a POST request to:
+
+    /api/v1/callback/bundle/sync-all
+
+This will fetch all bundles from the eSIM hub and update your database accordingly.
+
+You can use tools like `curl`, Postman, or your own integration to call this endpoint:
+
+```sh
+curl -X POST http://localhost:8000/api/v1/callback/bundle/sync-all
+```
+
 ## Error Handling
 
 The application implements comprehensive error handling for:
