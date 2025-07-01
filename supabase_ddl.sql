@@ -526,3 +526,251 @@ SELECT
 
 END;
 $$ LANGUAGE plpgsql;
+
+
+create or replace function delete_group_if_no_bundle(_group_id integer)
+returns json
+language plpgsql
+as $$
+declare
+  conflicting_bundles json;
+begin
+  -- Get all bundles associated via bundle_tag → tag → group
+ select json_agg(json_build_object(
+  'bundle_id', b.id,
+  'bundle_name', b.data->>'display_title'
+)) into conflicting_bundles
+from bundle_tag bt
+join tag t on t.id = bt.tag_id
+join bundle b on b.id = bt.bundle_id
+where t.tag_group_id = _group_id;
+
+  -- If bundles are found, return error
+  if conflicting_bundles is not null then
+    return json_build_object(
+      'error', 'Cannot delete group: some tags are associated with bundles',
+      'code', 500,
+      'bundles', conflicting_bundles
+    );
+  end if;
+
+  -- Safe to delete group
+  delete from tag_group where id = _group_id;
+
+  return json_build_object('success', true);
+exception
+  when others then
+    return json_build_object('error', sqlerrm, 'code', 500);
+end;
+$$;
+
+
+
+create or replace function edit_tag_group(
+  p_id integer,
+  p_name text,
+  p_type integer,
+  p_group_category text,
+  p_new_tags jsonb,
+  p_updated_tags jsonb,
+  p_deleted_tag_ids uuid[]
+)
+returns void
+language plpgsql
+as $$
+begin
+  -- Step 1: Update the tag group
+  update tag_group
+  set name = p_name,
+      type = p_type,
+      group_category = p_group_category
+  where id = p_id;
+
+  -- Step 2: Delete tags by IDs
+  if array_length(p_deleted_tag_ids, 1) is not null then
+    delete from tag
+    where id = any(p_deleted_tag_ids);
+  end if;
+
+  -- Step 3: Insert new tags
+  insert into tag (name, icon, tag_group_id)
+  select
+    t->>'name',
+    t->>'icon',
+    p_id
+  from jsonb_array_elements(p_new_tags) as t;
+
+  -- Step 4: Update existing tags
+  update tag
+  set
+    name = t.value->>'name',
+    icon = t.value->>'icon'
+  from jsonb_array_elements(p_updated_tags) with ordinality as t(value, idx)
+  where tag.id::text = t.value->>'id';
+
+end;
+$$;
+
+
+create or replace function get_tags_with_group_all(
+  search text,
+  page integer,
+  page_size integer
+)
+returns json
+language sql
+as $$
+  select json_build_object(
+    'total', (
+      select count(*)
+      from tag t
+      join tag_group tg on tg.id = t.tag_group_id
+      where t.name ilike '%' || search || '%'
+    ),
+    'items', (
+      select json_agg(item)
+      from (
+        select
+          t.id,
+          t.name || ' (' || tg.name || ')' as title
+        from tag t
+        join tag_group tg on tg.id = t.tag_group_id
+        where t.name ilike '%' || search || '%'
+        order by t.name
+        limit page_size
+        offset (page - 1) * page_size
+      ) as item
+    )
+  );
+$$;
+
+
+create or replace function insert_group_with_tags(
+  _name text,
+  _group_category text,
+  _type integer,
+  _tags jsonb
+)
+returns json
+language plpgsql
+as $$
+declare
+  inserted_group tag_group;
+  tag jsonb;
+begin
+  insert into tag_group (name, group_category, type)
+  values (_name, _group_category, _type)
+  returning * into inserted_group;
+
+  -- Insert tags
+  for tag in select * from jsonb_array_elements(_tags)
+  loop
+    insert into tag (name, icon, tag_group_id)
+    values (
+      tag->>'name',
+      tag->>'icon',
+      inserted_group.id
+    );
+  end loop;
+
+  return json_build_object('group', inserted_group);
+
+exception
+  when others then
+    raise notice 'Rollback due to error: %', sqlerrm;
+    -- No need for explicit ROLLBACK; PostgreSQL will auto-rollback the function on exception
+    return json_build_object('error', sqlerrm);
+end;
+$$;
+
+
+/*
+  # Search Bundles with Pagination
+
+  1. Function Purpose
+     - Searches bundles table across multiple fields including JSON data
+     - Returns paginated results with total count for pagination
+     - Supports case-insensitive partial matching
+
+  2. Parameters
+     - p_search_term: Text to search for
+     - p_page: Page number (0-based)
+     - p_page_size: Number of items per page
+
+  3. Return Value
+     - JSON object with "items" array and "total_count" integer
+*/
+
+CREATE OR REPLACE FUNCTION search_bundles(
+  p_search_term TEXT,
+  p_page INTEGER DEFAULT 0,
+  p_page_size INTEGER DEFAULT 10,
+  p_tag_ids UUID[] DEFAULT NULL -- New parameter
+)
+RETURNS JSON AS $$
+DECLARE
+  v_offset INTEGER := p_page * p_page_size;
+  v_items JSON;
+  v_total_count INTEGER;
+BEGIN
+  -- Get matching records with optional tag filtering
+  SELECT
+    json_agg(t)
+  INTO
+    v_items
+  FROM (
+    SELECT DISTINCT b.*
+    FROM bundle b
+    LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+    WHERE
+      (
+        p_search_term IS NULL OR
+        b.id::text ILIKE '%' || p_search_term || '%' OR
+        b.bundle_name ILIKE '%' || p_search_term || '%' OR
+        b.data->>'bundle_name' ILIKE '%' || p_search_term || '%' OR
+        b.data->>'bundle_info_code' ILIKE '%' || p_search_term || '%'
+      )
+      AND (
+        p_tag_ids IS NULL OR cardinality(p_tag_ids) = 0 OR bt.tag_id = ANY(p_tag_ids)
+      )
+    ORDER BY b.bundle_name
+    LIMIT p_page_size
+    OFFSET v_offset
+  ) t;
+
+  -- Get total count with the same filtering
+  SELECT
+    COUNT(DISTINCT b.id)
+  INTO
+    v_total_count
+  FROM bundle b
+  LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+  WHERE
+    (
+      p_search_term IS NULL OR
+      b.id::text ILIKE '%' || p_search_term || '%' OR
+      b.bundle_name ILIKE '%' || p_search_term || '%' OR
+      b.data->>'bundle_name' ILIKE '%' || p_search_term || '%' OR
+      b.data->>'bundle_info_code' ILIKE '%' || p_search_term || '%'
+    )
+    AND (
+        p_tag_ids IS NULL OR cardinality(p_tag_ids) = 0 OR bt.tag_id = ANY(p_tag_ids)
+    );
+
+  -- Handle no result case
+  IF v_items IS NULL THEN
+    v_items := '[]';
+  END IF;
+
+  -- Return results
+  RETURN json_build_object(
+    'items', v_items,
+    'total_count', v_total_count
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+
+ALTER TABLE tag
+ADD CONSTRAINT unique_tag_name_per_group
+UNIQUE (name, tag_group_id);
