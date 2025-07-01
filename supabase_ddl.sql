@@ -124,7 +124,8 @@ CREATE TABLE IF NOT EXISTS user_order
     searched_countries  VARCHAR,
     anonymous_user_id   UUID      DEFAULT auth.uid()
         CONSTRAINT user_bundle_order_anonymous_user_fkey REFERENCES auth.users (id),
-    payment_intent_code VARCHAR
+    payment_intent_code VARCHAR,
+    otp                VARCHAR,
 );
 
 ALTER TABLE user_order
