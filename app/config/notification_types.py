@@ -177,7 +177,7 @@ def send_consumption_100_bundle_notification(user_name: str, bundle_name: str, i
     return get_notification_content(
         user_name=user_name,
         bundle_name=bundle_name,
-        category=NotificationCategoryType.CONSUMPTION_80_BUNDLE_DETAIL,
+        category=NotificationCategoryType.CONSUMPTION_100_BUNDLE_DETAIL,
         iccid=iccid,
     )
 
