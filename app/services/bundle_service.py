@@ -169,11 +169,14 @@ class BundleService:
                          payment_status: str, user: UserModel | UsersCopyModel = None):
         if isinstance(user, UsersCopyModel):
             msisdn = user.metadata.get("msisdn", "")
+            email = user.email
         elif isinstance(user, UserModel):
             msisdn = user.msisdn
+            email = user.email
         else:
             msisdn = ""
-        order_id = f"{msisdn}|{user_order.id}"
+            email = ""
+        order_id = f"{msisdn if msisdn else email}|{user_order.id}"
         esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
                                                                              order_id=order_id)
         user_order.payment_status = payment_status

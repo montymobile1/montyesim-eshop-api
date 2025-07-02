@@ -122,6 +122,12 @@ class PromotionService:
             raise CustomException(code=400, name="INVALID_INPUT",
                                   details="code is promotion code, should have promotion model")
 
+        if promotion_model.bundle_code:
+            logger.info(f"promotion model bundle code: {promotion_model.bundle_code}")
+            if bundle_id != promotion_model.bundle_code:
+                raise CustomException(code=400, name="INVALID_BUNDLE_CODE",
+                                      details="Bundle code does not match with promotion bundle code")
+
         amount = promotion_model.amount
 
         if action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
