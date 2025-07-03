@@ -82,7 +82,8 @@ class CallbackService:
                 return
 
             for order in orders:
-                await self.__handle_event_for_order(order=order, iccid=iccid, event_type=event_type)
+                await self.__handle_event_for_order(order=order, iccid=iccid, event_type=event_type,
+                                                    esim_order_id=request.order_id)
 
         except Exception as e:
             logger.error(f"Error in handle_plan_event_callback: {str(e)}")
@@ -307,7 +308,8 @@ class CallbackService:
             fcm_service.send_notification_to_user_from_template(content, user_id=user_id)
             return ResponseHelper.success_response()
 
-    async def __handle_event_for_order(self, order: UserOrderModel, iccid: str, event_type: str):
+    async def __handle_event_for_order(self, order: UserOrderModel, iccid: str, event_type: str,
+                                       esim_order_id: str = None):
         try:
             if event_type in ["limit_80", "PLAN-80", "Eighty"]:
                 notification_data = send_consumption_80_bundle_notification(
@@ -333,7 +335,7 @@ class CallbackService:
                     bundle_name=order.bundle_display_name,
                     iccid=iccid
                 )
-                self.__update_bundle_expired(iccid=iccid, esim_hub_order_id=order.esim_order_id, bundle_expired=True)
+                self.__update_bundle_expired(iccid=iccid, esim_hub_order_id=esim_order_id, bundle_expired=True)
             elif event_type in ["StartBundle", "PLAN-STARTED", "thing activated", "Plan Started and Selected",
                                 "SESSION_START", "Started"]:
                 datetime_str = order.validity
@@ -343,7 +345,7 @@ class CallbackService:
                     bundle_name=order.bundle_display_name,
                     validity_date=date_only_str
                 )
-                self.__update_bundle_plan_started(iccid=iccid, esim_hub_order_id=order.esim_order_id,
+                self.__update_bundle_plan_started(iccid=iccid, esim_hub_order_id=esim_order_id,
                                                   plan_started=True)
             else:
                 logger.warning(f"Unsupported event type for plan status callback: {event_type}")
