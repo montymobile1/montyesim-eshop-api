@@ -82,7 +82,8 @@ def authenticate(email: str, referral_code: str):
         "email": email,
         "options": {
             "data": {
-                "referral_code": referral_code
+                "referral_code": referral_code,
+                "display_name": email,
             }
         }
     })

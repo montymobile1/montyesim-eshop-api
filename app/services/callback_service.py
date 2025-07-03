@@ -17,7 +17,7 @@ from app.config.notification_types import send_consumption_80_bundle_notificatio
     send_wallet_top_up_failed_notification
 from app.config.push_notification_manager import fcm_service
 from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel
-from app.repo import UserOrderRepo, UserProfileRepo, UserRepo
+from app.repo import UserOrderRepo, UserProfileRepo, UserRepo, UserProfileBundleRepo
 from app.schemas.callback import ConsumptionLimitRequest
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
@@ -35,6 +35,7 @@ class CallbackService:
         self.__user_repo = UserRepo()
         self.__user_order_repo = UserOrderRepo()
         self.__user_profile_repo = UserProfileRepo()
+        self.__user_profile_bundle_repo = UserProfileBundleRepo()
         self.__sync_service = SyncService()
         self.__user_wallet_service = UserWalletService()
         self.__promotion_service = PromotionService()
@@ -332,6 +333,7 @@ class CallbackService:
                     bundle_name=order.bundle_display_name,
                     iccid=iccid
                 )
+                self.__update_bundle_expired(iccid=iccid, esim_hub_order_id=order.esim_order_id, bundle_expired=True)
             elif event_type in ["StartBundle", "PLAN-STARTED", "thing activated", "Plan Started and Selected",
                                 "SESSION_START", "Started"]:
                 datetime_str = order.validity
@@ -341,6 +343,8 @@ class CallbackService:
                     bundle_name=order.bundle_display_name,
                     validity_date=date_only_str
                 )
+                self.__update_bundle_plan_started(iccid=iccid, esim_hub_order_id=order.esim_order_id,
+                                                  plan_started=True)
             else:
                 logger.warning(f"Unsupported event type for plan status callback: {event_type}")
                 return
@@ -351,3 +355,13 @@ class CallbackService:
             )
         except Exception as e:
             logger.error(f"Failed to send notification to user {order.user_id}: {str(e)}")
+
+    def __update_bundle_expired(self, iccid: str, esim_hub_order_id: str, bundle_expired: bool):
+        logger.info(f"Updating bundle {esim_hub_order_id} {iccid} bundle_expired to {bundle_expired}")
+        self.__user_profile_bundle_repo.update_by(where={"esim_hub_order_id": esim_hub_order_id, "iccid": iccid},
+                                                  data={"bundle_expired": bundle_expired})
+
+    def __update_bundle_plan_started(self, iccid: str, esim_hub_order_id: str, plan_started: bool):
+        logger.info(f"Updating bundle {esim_hub_order_id} {iccid} plan_started to {plan_started}")
+        self.__user_profile_bundle_repo.update_by(where={"esim_hub_order_id": esim_hub_order_id, "iccid": iccid},
+                                                  data={"plan_started": plan_started})
