@@ -99,7 +99,10 @@ class AppService:
             <p><b>From</b>: {contact_us_request.email}</p>
             <p><b>Content</b>: {contact_us_request.content}</p>
         """
-        send_email(subject="New Email Received", html_content=content, recipients=os.getenv("SUPPORT_EMAIL"))
+        try:
+            send_email(subject="New Email Received", html_content=content, recipients=os.getenv("SUPPORT_EMAIL"))
+        except Exception as e:
+            logger.error(f"Error sending email: {e}")
         return ResponseHelper.success_response()
 
     async def terms_and_conditions(self, accepted_language) -> Response[PageContentResponse]:
