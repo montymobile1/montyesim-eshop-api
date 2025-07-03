@@ -229,8 +229,16 @@ class BundleService:
 
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,
                             payment_status: str, user: UserModel = None):
-        msisdn = user.msisdn if user else ""
-        order_id = f"{msisdn}|{user_order.id}"
+        if isinstance(user, UsersCopyModel):
+            msisdn = user.metadata.get("msisdn", "")
+            email = user.email
+        elif isinstance(user, UserModel):
+            msisdn = user.msisdn
+            email = user.email
+        else:
+            msisdn = ""
+            email = ""
+        order_id = f"{msisdn if msisdn else email}|{user_order.id}"
         user_profile = self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
         try:
             esim_hub_topup = await self.__esim_hub_service.create_reseller_topup(
