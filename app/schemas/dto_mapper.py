@@ -280,7 +280,7 @@ class DtoMapper:
         return ConsumptionResponse.model_validate(consumption_data)
 
     @staticmethod
-    def to_order_notification_model(bundle: UserProfileBundleWithProfileModel, user_id: str,
+    def to_order_notification_model(bundle: UserProfileModel, user_id: str,
                                     user_metadata: dict, iccid: str) -> CallBackNotificationInfoModel:
         first_name = user_metadata.get("first_name", "")
         last_name = user_metadata.get("last_name", "")

@@ -11,12 +11,12 @@ from loguru import logger
 
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email
 from app.config.constants import PaymentIntentEvents
-from app.config.db import DatabaseTables
 from app.config.notification_types import send_consumption_80_bundle_notification, \
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
 from app.config.push_notification_manager import fcm_service
-from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel
+from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel, UserProfileBundleModel, \
+    UserProfileModel
 from app.repo import UserOrderRepo, UserProfileRepo, UserRepo, UserProfileBundleRepo
 from app.schemas.callback import ConsumptionLimitRequest
 from app.schemas.dto_mapper import DtoMapper
@@ -49,14 +49,18 @@ class CallbackService:
             event_type = request.event_type
             iccid = request.iccid
 
-            orders = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
-                                                     where={"esim_hub_order_id": request.order_id, "iccid": iccid})
-
-            if len(orders) == 0:
-                logger.warning(f"No user profile found for esim_hub_order_id {request.order_id} and iccid {iccid}")
+            user_profile_bundle: UserProfileBundleModel = self.__user_profile_bundle_repo.get_first_by(
+                where={"iccid": iccid, "esim_hub_order_id": request.order_id})
+            if not user_profile_bundle:
+                logger.warning(f"No user profile bundle found for iccid {iccid} and order_id {request.order_id}")
+                return
+            user_profile: UserProfileModel = self.__user_profile_repo.get_by_id(
+                record_id=user_profile_bundle.user_profile_id)
+            if not user_profile:
+                logger.warning(f"No user profile found for user_profile_id {user_profile_bundle.user_profile_id}")
                 return
 
-            order_info = orders[0]
+            order_info = user_profile
             orders = []
 
             primary_user_id = order_info.user_id
