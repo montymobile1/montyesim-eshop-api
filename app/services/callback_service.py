@@ -56,6 +56,9 @@ class CallbackService:
                 return
             user_profile: UserProfileModel = self.__user_profile_repo.get_by_id(
                 record_id=user_profile_bundle.user_profile_id)
+            bundles = []
+            bundles.append(user_profile_bundle)
+            user_profile.bundles = bundles
             if not user_profile:
                 logger.warning(f"No user profile found for user_profile_id {user_profile_bundle.user_profile_id}")
                 return
@@ -70,7 +73,8 @@ class CallbackService:
                     record_id=primary_user_id)
                 if primary_user:
                     primary_user_metadata = primary_user.metadata
-                model = DtoMapper.to_order_notification_model(order_info, primary_user_id, primary_user_metadata, iccid)
+                model = DtoMapper.to_order_notification_model(bundle=order_info, user_id=primary_user_id,
+                                                              user_metadata=primary_user_metadata, iccid=iccid)
                 orders.append(model)
             shared_user_id = order_info.shared_user_id
             if shared_user_id:
