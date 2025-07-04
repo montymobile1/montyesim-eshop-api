@@ -52,13 +52,14 @@ class BundleService:
         rate = self.__currency_service.get_rate_by_currency(currency_name)
 
         tags_id = [bundle_country.id for bundle_country in bundle.countries]
-        country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
-                                                        where={"tag_ids": tags_id,
-                                                               "locale_param": locale})
-        for country_tag in country_tags:
-            country_tag.data["country"] = country_tag.name
-        countries = [CountryDTO(**tag.data) for tag in country_tags]
-        bundle.countries = countries
+        if locale != os.getenv("DEFAULT_LOCALE", "en"):
+            country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
+                                                            where={"tag_ids": tags_id,
+                                                                   "locale_param": locale})
+            for country_tag in country_tags:
+                country_tag.data["country"] = country_tag.name
+            countries = [CountryDTO(**tag.data) for tag in country_tags]
+            bundle.countries = countries
 
         return ResponseHelper.success_data_response(DtoMapper.bundle_currency_update(bundle, currency_name, rate), 1)
 
@@ -106,13 +107,14 @@ class BundleService:
                 bundle_dto = BundleDTO(**bundle.data)
                 bundle_dto.icon = country.icon
                 tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
-                country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
-                                                                where={"tag_ids": tags_id,
-                                                                       "locale_param": locale})
-                for country_tag in country_tags:
-                    country_tag.data["country"] = country_tag.name
-                countries = [CountryDTO(**tag.data) for tag in country_tags]
-                bundle_dto.countries = countries
+                if locale != os.getenv("DEFAULT_LOCALE", "en"):
+                    country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
+                                                                    where={"tag_ids": tags_id,
+                                                                           "locale_param": locale})
+                    for country_tag in country_tags:
+                        country_tag.data["country"] = country_tag.name
+                    countries = [CountryDTO(**tag.data) for tag in country_tags]
+                    bundle_dto.countries = countries
 
                 bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency_name, rate))
 
