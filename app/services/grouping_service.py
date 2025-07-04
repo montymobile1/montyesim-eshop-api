@@ -1,5 +1,5 @@
 from typing import List
-
+import os
 from deep_translator import GoogleTranslator
 
 from app.models.app import TagModel
@@ -55,14 +55,15 @@ class GroupingService:
 
                 if bundle and bundle.data:
                     bundle_dto = BundleDTO(**bundle.data)
-                    tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
-                    country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
-                                                                    where={"tag_ids": tags_id,
-                                                                           "locale_param": locale})
-                    for country_tag in country_tags:
-                        country_tag.data["country"] = country_tag.name
-                    countries = [tag.data for tag in country_tags]
-                    bundle_dto.countries = countries
+                    if locale != os.getenv("DEFAULT_LOCALE", "en"):
+                        tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
+                        country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
+                                                                        where={"tag_ids": tags_id,
+                                                                               "locale_param": locale})
+                        for country_tag in country_tags:
+                            country_tag.data["country"] = country_tag.name
+                        countries = [tag.data for tag in country_tags]
+                        bundle_dto.countries = countries
                     bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency_name, rate))
 
         return bundles
@@ -85,14 +86,15 @@ class GroupingService:
                 bundle = self.__bundle_repo.get_by_id(record_id=bundle_tag.bundle_id)
                 if bundle and bundle.data:
                     bundle_dto = BundleDTO(**bundle.data)
-                    tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
-                    country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
-                                                                    where={"tag_ids": tags_id,
-                                                                           "locale_param": locale})
-                    for country_tag in country_tags:
-                        country_tag.data["country"] = country_tag.name
-                    countries = [tag.data for tag in country_tags]
-                    bundle_dto.countries = countries
+                    if locale != os.getenv("DEFAULT_LOCALE", "en"):
+                        tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
+                        country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
+                                                                        where={"tag_ids": tags_id,
+                                                                               "locale_param": locale})
+                        for country_tag in country_tags:
+                            country_tag.data["country"] = country_tag.name
+                        countries = [tag.data for tag in country_tags]
+                        bundle_dto.countries = countries
                     bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency_name, rate))
         return bundles
 
