@@ -120,6 +120,7 @@ class BundleService:
         return ResponseHelper.success_data_response(filtered_bundles, len(filtered_bundles))
 
     async def get_bundles_by_region(self, region_code: str, currency: str, locale: str) -> Response[List[BundleDTO]]:
+        start_time = datetime.now()
         regions = await self.__grouping_service.get_all_regions(locale)
 
         searched_regions = [region for region in regions if region.region_code == region_code]
@@ -142,14 +143,15 @@ class BundleService:
             if bundle and bundle.data:
                 bundle_dto = BundleDTO(**bundle.data)
                 bundle_dto.icon = searched_regions[0].icon
-                tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
-                country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
-                                                                where={"tag_ids": tags_id,
-                                                                       "locale_param": locale})
-                for country_tag in country_tags:
-                    country_tag.data["country"] = country_tag.name
-                countries = [tag.data for tag in country_tags]
-                bundle_dto.countries = countries
+                if locale != os.getenv("DEFAULT_LOCALE", "en"):
+                    tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
+                    country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
+                                                                    where={"tag_ids": tags_id,
+                                                                           "locale_param": locale})
+                    for country_tag in country_tags:
+                        country_tag.data["country"] = country_tag.name
+                    countries = [tag.data for tag in country_tags]
+                    bundle_dto.countries = countries
 
                 bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency, rate))
 
@@ -159,6 +161,8 @@ class BundleService:
                 filtered_bundles.append(bundle)
 
         filtered = self.__filter_by_gprs_limit(filtered_bundles)
+        duration = (datetime.now() - start_time).total_seconds()
+        logger.info(f"get_bundles_by_region executed in {duration} seconds")
         return ResponseHelper.success_data_response(filtered, len(filtered))
 
     async def get_countries(self, locale: str):

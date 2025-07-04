@@ -11,8 +11,8 @@ from app.config.db import PaymentTypeEnum
 from app.models.app import CurrencyModel
 from app.models.notification import NotificationModel
 from app.models.promotion import PromotionUsageModel
-from app.models.user import UserProfileModel, UserProfileBundleModel, UserProfileBundleWithProfileModel, \
-    CallBackNotificationInfoModel, UserOrderModel, UserWalletModel
+from app.models.user import UserProfileModel, UserProfileBundleModel, CallBackNotificationInfoModel, UserOrderModel, \
+    UserWalletModel
 from app.schemas.app import UserNotificationResponse, PageContentResponse, ExchangeRate
 from app.schemas.auth import AuthResponseDTO, UserInfo
 from app.schemas.bundle import EsimBundleResponse, ConsumptionResponse, TransactionHistoryResponse, \
@@ -351,6 +351,8 @@ class DtoMapper:
         user_email = user_metadata.get("email") if not supabase_response.user.email else supabase_response.user.email
         if user_email.startswith(msisdn):
             user_email = user_metadata.get("display_email", None)
+        if user_email is None or user_email == "":
+            user_email = user_metadata.get("email", None)
         user_info = UserInfo(
             is_verified=user_metadata.get("email_verified", False),
             first_name=first_name,
