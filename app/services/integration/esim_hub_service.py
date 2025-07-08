@@ -243,6 +243,9 @@ class EsimHubService:
                                            base_url=os.getenv("ESIM_HUB_BASE_URL2"), params=params)
         if "success" not in response:
             raise EsimHubException(response)
+        # Handle invalid order id or empty items
+        if not response["success"] or not response["data"] or not response["data"].get("items"):
+            return []
         bundles = []
         for bundle in response["data"]["items"]:
             bundles.append(DtoMapper.to_bundle_dto(bundle=bundle, currency=currency_code))
