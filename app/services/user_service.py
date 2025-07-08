@@ -237,11 +237,12 @@ class UserBundleService:
         bundles = await self.__esim_hub_service.get_topup_related_bundles(order_id=profile.esim_hub_order_id)
         all_bundles = []
         for bundle in bundles:
-            local_bundle = await self.__bundle_service.get_bundle(bundle_id=bundle.bundle_code,
-                                                                  currency_name=currency_code,
-                                                                  locale=accept_language)
-            logger.debug(f"local bundle {local_bundle.data}")
-            all_bundles.append(local_bundle.data)
+            if await self.__bundle_service.bundle_exists(bundle.bundle_code):
+                local_bundle = await self.__bundle_service.get_bundle(bundle_id=bundle.bundle_code,
+                                                                      currency_name=currency_code,
+                                                                      locale=accept_language)
+                logger.debug(f"local bundle {local_bundle.data}")
+                all_bundles.append(local_bundle.data)
 
         return ResponseHelper.success_data_response(all_bundles, len(all_bundles))
 
