@@ -18,6 +18,7 @@ from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundle
 from app.repo.bundle_repo import BundleRepo
 from app.repo.bundle_tage_repo import BundleTagRepo
 from app.repo.tag_repo import TagRepo
+from app.schemas.bundle import RelatedSearchRequestDto
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO, RegionDTO, CountryDTO
 from app.schemas.response import Response, ResponseHelper
@@ -287,14 +288,17 @@ class BundleService:
     async def __send_email(self, user: UsersCopyModel, user_profile: UserProfileModel, bundle: BundleDTO):
         try:
             qr = generate_qr_code(f"LPA:1${user_profile.smdp_address}${user_profile.activation_code}")
-            msisdn = os.getenv("WHATSAPP_NUMBER").replace("+", "").replace("-", "").replace(" ", "")
+            msisdn = os.getenv("WHATSAPP_NUMBER")
+            if msisdn:
+                msisdn = msisdn.replace("+", "").replace("-", "").replace(" ", "")
+            coverage = self.__get_coverage(user_profile=user_profile, bundle=bundle)
             display_email = user.metadata.get("display_email", None)
             email = user.metadata.get("email", user.email) if display_email is None else display_email
             data = {
                 "bundle_name": bundle.bundle_name,
                 "gprs_limit_display": bundle.gprs_limit_display,
                 "price": bundle.price_display,
-                "coverage": bundle.countries[0].country_code,
+                "coverage": coverage,
                 "validity": bundle.validity_display,
                 "iccid": user_profile.iccid,
                 "smdp_address": user_profile.smdp_address,
@@ -333,3 +337,23 @@ class BundleService:
         items = list(filtered_bundles_dict.values())
         sorted_bundles = sorted(items, key=lambda item: item.price, reverse=False)
         return sorted_bundles
+
+    def __get_coverage(self, user_profile: UserProfileModel, bundle: BundleDTO):
+        try:
+            searched_countries = RelatedSearchRequestDto.model_validate_json(user_profile.searched_countries)
+        except Exception as e:
+            logger.error(f"error while validating searched_countries {str(e)}")
+            searched_countries = None
+        bundle_countries = bundle.countries
+        more_countries = f"+{len(bundle_countries)} more countries " if len(bundle_countries) > 1 else ""
+        if len(bundle_countries) > 1:
+            coverage = f"{bundle_countries[0].country_code} {more_countries}"
+        else:
+            coverage = bundle_countries[0].country_name if bundle_countries else "No coverage"
+
+        if searched_countries:
+            if searched_countries.countries:
+                coverage = f"{searched_countries.countries[0].country_name} {more_countries}"
+            if searched_countries.region:
+                coverage = searched_countries.region.region_name
+        return coverage
