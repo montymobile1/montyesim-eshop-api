@@ -1,5 +1,6 @@
-from typing import List
 import os
+from typing import List
+
 from deep_translator import GoogleTranslator
 
 from app.models.app import TagModel
@@ -27,14 +28,20 @@ class GroupingService:
         return tags
 
     async def get_all_countries(self, locale: str) -> List[CountryDTO]:
-        tags = await self.__get_all_tags_by_group_id_with_language(group_id=1, locale=locale)
+        if locale == os.getenv("DEFAULT_LOCALE", "en"):
+            tags = await self.__get_all_tags_by_group_id(group_id=1)
+        else:
+            tags = await self.__get_all_tags_by_group_id_with_language(group_id=1, locale=locale)
         tags = sorted(tags, key=lambda tag: tag.name)
         for tag in tags:
             tag.data["country"] = tag.name
         return [CountryDTO.model_validate(tag.data) for tag in tags]
 
     async def get_all_regions(self, locale: str) -> List[RegionDTO]:
-        tags = await self.__get_all_tags_by_group_id_with_language(group_id=2, locale=locale)
+        if locale == os.getenv("DEFAULT_LOCALE", "en"):
+            tags = await self.__get_all_tags_by_group_id(group_id=2)
+        else:
+            tags = await self.__get_all_tags_by_group_id_with_language(group_id=2, locale=locale)
         for tag in tags:
             tag.data["region_name"] = tag.name
         return [RegionDTO.model_validate(tag.data) for tag in tags]
@@ -57,9 +64,10 @@ class GroupingService:
                     bundle_dto = BundleDTO(**bundle.data)
                     if locale != os.getenv("DEFAULT_LOCALE", "en"):
                         tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
-                        country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
-                                                                        where={"tag_ids": tags_id,
-                                                                               "locale_param": locale})
+                        country_tags = self.__tag_repo.select_procedure(
+                            function_name="get_translated_tag_by_tag_id_list",
+                            where={"tag_ids": tags_id,
+                                   "locale_param": locale})
                         for country_tag in country_tags:
                             country_tag.data["country"] = country_tag.name
                         countries = [tag.data for tag in country_tags]
@@ -88,9 +96,10 @@ class GroupingService:
                     bundle_dto = BundleDTO(**bundle.data)
                     if locale != os.getenv("DEFAULT_LOCALE", "en"):
                         tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
-                        country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
-                                                                        where={"tag_ids": tags_id,
-                                                                               "locale_param": locale})
+                        country_tags = self.__tag_repo.select_procedure(
+                            function_name="get_translated_tag_by_tag_id_list",
+                            where={"tag_ids": tags_id,
+                                   "locale_param": locale})
                         for country_tag in country_tags:
                             country_tag.data["country"] = country_tag.name
                         countries = [tag.data for tag in country_tags]
@@ -101,6 +110,9 @@ class GroupingService:
     async def translate_tags(self, locale: str):
         tags = self.__tag_repo.list(where={})
         for tag in tags:
+            old_translation = self.__tag_translation_repo.get_first_by(where={"tag_id": tag.id, "locale": locale})
+            if old_translation:
+                continue
             translated = GoogleTranslator(source='en', target=locale).translate(tag.name)
             data = {
                 "tag_id": tag.id,

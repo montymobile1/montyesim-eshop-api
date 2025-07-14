@@ -24,7 +24,7 @@ class EsimHubEndpoint(StrEnum):
 
     API_CHECK_BUNDLE_APPLICABLE = "/core/api/v1/order/check-bundle-availability"
 
-    API_EXCHANGE_RATE = "/api-gateway/billing/api/v1/exchangerate/get-all"
+    API_EXCHANGE_RATE = "/billing/api/reseller/v1/exchangerate/get-all"
 
 
 class DCBEndpoint(StrEnum):
