@@ -14,5 +14,15 @@ service = HomeService()
 
 @router.get("/", response_model=Response[HomeResponseDto], dependencies=[Depends(device_token)])
 async def home(x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")), accept_language: str = Header("en"), ) -> \
-Response[HomeResponseDto]:
+        Response[HomeResponseDto]:
     return await service.home_v2(currency=x_currency, locale=accept_language)
+
+
+async def get_cruise_bundles(x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
+                             accept_language: str = Header("en")) -> Response[HomeResponseDto]:
+    return await service.get_cruise_bundles(currency=x_currency, locale=accept_language)
+
+
+async def get_land_bundles(x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
+                           accept_language: str = Header("en")) -> Response[HomeResponseDto]:
+    return await service.get_land_bundles(currency=x_currency, locale=accept_language)

@@ -35,25 +35,64 @@ class HomeService:
         }
         return ResponseHelper.success_data_response(HomeResponseDto(**home_response), 0)
 
-    async def home_v2(self,currency: str, locale : str) -> Response[HomeResponseDto]:
+    async def home_v2(self, currency: str, locale: str) -> Response[HomeResponseDto]:
         all_countries = await self.__get_countries_v2(locale)
         regions = await self.__get_regions_v2(locale)
         rate = self.__currency_service.get_rate_by_currency(currency)
-        cruise_bundles = await self.__grouping_service.get_cruise_bundle(rate= rate,currency_name= currency,locale=locale)
+        cruise_bundles = await self.__grouping_service.get_cruise_bundle(rate=rate, currency_name=currency,
+                                                                         locale=locale)
         cruise_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
-        all_global_bundles = await self.__grouping_service.get_global_bundle(rate=rate,currency_name=currency,locale=locale)
+        all_global_bundles = await self.__grouping_service.get_global_bundle(rate=rate, currency_name=currency,
+                                                                             locale=locale)
         all_global_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
         global_bundles = []
         for bundle in all_global_bundles:
             if len(bundle.countries) >= os.getenv("GLOBAL_COUNTRIES_COUNT", 50):
                 global_bundles.append(bundle)
-        global_bundles = await self.__grouping_service.get_global_bundle(rate=rate,currency_name=currency,locale=locale)
+        global_bundles = await self.__grouping_service.get_global_bundle(rate=rate, currency_name=currency,
+                                                                         locale=locale)
         global_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
 
         home_response = {
             "countries": all_countries,
             "regions": regions,
             "cruise_bundles": cruise_bundles,
+            "global_bundles": global_bundles
+        }
+        return ResponseHelper.success_data_response(HomeResponseDto(**home_response), 0)
+
+    async def get_cruise_bundles(self, currency: str, locale: str) -> Response[HomeResponseDto]:
+        rate = self.__currency_service.get_rate_by_currency(currency)
+        cruise_bundles = await self.__grouping_service.get_cruise_bundle(rate=rate, currency_name=currency,
+                                                                         locale=locale)
+        cruise_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
+        home_response = {
+            "countries": [],
+            "regions": [],
+            "cruise_bundles": cruise_bundles,
+            "global_bundles": []
+        }
+        return ResponseHelper.success_data_response(HomeResponseDto(**home_response), 0)
+
+    async def get_land_bundles(self, currency: str, locale: str) -> Response[HomeResponseDto]:
+        all_countries = await self.__get_countries_v2(locale)
+        regions = await self.__get_regions_v2(locale)
+        rate = self.__currency_service.get_rate_by_currency(currency)
+        all_global_bundles = await self.__grouping_service.get_global_bundle(rate=rate, currency_name=currency,
+                                                                             locale=locale)
+        all_global_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
+        global_bundles = []
+        for bundle in all_global_bundles:
+            if len(bundle.countries) >= os.getenv("GLOBAL_COUNTRIES_COUNT", 50):
+                global_bundles.append(bundle)
+        global_bundles = await self.__grouping_service.get_global_bundle(rate=rate, currency_name=currency,
+                                                                         locale=locale)
+        global_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
+
+        home_response = {
+            "countries": all_countries,
+            "regions": regions,
+            "cruise_bundles": [],
             "global_bundles": global_bundles
         }
         return ResponseHelper.success_data_response(HomeResponseDto(**home_response), 0)
@@ -79,14 +118,14 @@ class HomeService:
             logger.error(f"error while getting cruise bundles: {str(e)}")
             return []
 
-    async def __get_countries_v2(self,locale :str):
+    async def __get_countries_v2(self, locale: str):
         try:
             return await self.__grouping_service.get_all_countries(locale)
         except Exception as e:
             logger.error(f"error while getting countries: {str(e)}")
             return []
 
-    async def __get_regions_v2(self,locale :str):
+    async def __get_regions_v2(self, locale: str):
         try:
             return await self.__grouping_service.get_all_regions(locale)
         except Exception as e:
