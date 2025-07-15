@@ -1,5 +1,4 @@
 import os
-from functools import cache
 
 from fastapi import APIRouter, Depends, Header
 
@@ -13,7 +12,6 @@ router = APIRouter()
 service = HomeService()
 
 
-@cache
 @router.get("/", response_model=Response[HomeResponseDto], dependencies=[Depends(device_token)])
 async def home(x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")), accept_language: str = Header("en"), ) -> \
         Response[HomeResponseDto]:
