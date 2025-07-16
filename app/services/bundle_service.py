@@ -347,7 +347,7 @@ class BundleService:
         if len(bundle_countries) > 1:
             coverage = f"{bundle_countries[0].country_code} {more_countries}"
         else:
-            coverage = bundle_countries[0].country_name if bundle_countries else "No coverage"
+            coverage = bundle_countries[0].country_code if bundle_countries else "No coverage"
 
         if searched_countries:
             if searched_countries.countries:
