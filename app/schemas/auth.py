@@ -14,7 +14,7 @@ class LoginRequest(BaseModel):
             return value
         local_part = value.split('@')[0]
         if "+" in local_part:
-            raise ValidationError(f"Invalid email: {local_part}")
+            raise ValueError(f"Invalid email: {value}")
         return value
 
 
