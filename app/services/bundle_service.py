@@ -5,10 +5,9 @@ from datetime import datetime
 from typing import List
 
 from coverage.html import os
-from jinja2 import Environment, FileSystemLoader
 from loguru import logger
 
-from app.config.config import esim_hub_service_instance, send_email, generate_qr_code
+from app.config.config import esim_hub_service_instance, send_email, generate_qr_code, get_email_template
 from app.config.db import UserBundleType, OrderStatusEnum
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
@@ -307,8 +306,7 @@ class BundleService:
                 "user": email
             }
 
-            env = Environment(loader=FileSystemLoader(os.getenv("EMAIL_TEMPLATES_PATH","app/email_templates")))
-            template = env.get_template('send_qr_email_template.htm')
+            template = get_email_template('send_qr_email_template.htm')
             html_content = template.render(data=data)
             send_email(subject="Activate Your Esim", html_content=html_content,
                        recipients=user.metadata.get("email", email), attachment=qr)

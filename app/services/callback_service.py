@@ -6,10 +6,9 @@ from typing import Dict
 
 import stripe
 from fastapi import Request, HTTPException
-from jinja2 import Environment, FileSystemLoader
 from loguru import logger
 
-from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email
+from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email, get_email_template
 from app.config.constants import PaymentIntentEvents
 from app.config.notification_types import send_consumption_80_bundle_notification, \
     send_consumption_100_bundle_notification, send_plan_started_notification, \
@@ -258,8 +257,7 @@ class CallbackService:
                 "iccid": iccid
             }
 
-            env = Environment(loader=FileSystemLoader('app/email_templates'))
-            template = env.get_template('80_percent_email_template.htm')
+            template = get_email_template('eighty_percent_email_template.htm')
             html_content = template.render(data=data)
             send_email(subject="80% Consumption", html_content=html_content,
                        recipients=email)
@@ -279,8 +277,7 @@ class CallbackService:
                 "iccid": iccid
             }
 
-            env = Environment(loader=FileSystemLoader('app/email_templates'))
-            template = env.get_template('expiry_email_template.htm')
+            template = get_email_template('expiry_email_template.htm')
             html_content = template.render(data=data)
             send_email(subject="100% Consumption", html_content=html_content,
                        recipients=user.metadata.get("email", email))

@@ -5,6 +5,7 @@ from io import BytesIO
 import qrcode
 import stripe
 from dotenv import load_dotenv
+from jinja2 import Environment, FileSystemLoader, Template
 from loguru import logger
 from stripe import PaymentIntent, Charge
 from supabase import create_client, Client
@@ -248,3 +249,15 @@ def generate_qr_code(qr_data: str) -> BytesIO:
 
 def generate_otp():
     return str(secrets.randbelow(900000) + 100000)
+
+
+def get_email_template(template_name: str) -> Template | None:
+    """
+    Load an email template from the template's directory.
+    """
+    try:
+        env = Environment(loader=FileSystemLoader(os.getenv("EMAIL_TEMPLATES_PATH", "app/email_templates")))
+        return env.get_template(template_name)
+    except Exception as e:
+        logger.error(f"Error loading email template {template_name}: {str(e)}")
+        return None
