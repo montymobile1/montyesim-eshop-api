@@ -307,7 +307,7 @@ class BundleService:
                 "user": email
             }
 
-            env = Environment(loader=FileSystemLoader('app/email_templates'))
+            env = Environment(loader=FileSystemLoader(os.getenv("EMAIL_TEMPLATES_PATH","app/email_templates")))
             template = env.get_template('send_qr_email_template.htm')
             html_content = template.render(data=data)
             send_email(subject="Activate Your Esim", html_content=html_content,
