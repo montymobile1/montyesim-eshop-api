@@ -46,7 +46,7 @@ class BundleDTO(BaseModel):
     price_display: str
     unlimited: bool
     validity: int
-    validity_label: Optional[str] =None
+    validity_label: Optional[str] = None
     plan_type: str = "Data only"
     activity_policy: str = "The validity period starts when the eSIM connects to any supported networks."
     validity_display: str
@@ -55,6 +55,7 @@ class BundleDTO(BaseModel):
     label: Optional[str] = None
     is_stockable: Optional[bool] = True
     bundle_info_code: Optional[str] = None
+    is_active: Optional[bool] = True
 
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 
@@ -83,6 +84,7 @@ class HomeResponseDto(BaseModel):
 class AllBundleResponse(BaseModel):
     total_rows: int
     bundles: List[BundleDTO]
+
 
 class CurrencyDto(BaseModel):
     currency: str

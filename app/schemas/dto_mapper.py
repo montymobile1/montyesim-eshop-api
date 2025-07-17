@@ -70,7 +70,8 @@ class DtoMapper:
             "countries": countries,
             "is_stockable": bundle_info.get("isStockable"),
             "bundle_info_code": bundle_info.get("bundleCode"),
-            "bundle_region": bundle_regions
+            "bundle_region": bundle_regions,
+            "is_active": bundle.get("isActive", True),
         }
         bundle_data[
             "icon"] = f'{SUPABASE_URL}/storage/v1/object/public/media/bundle_{bundle_data.get("bundle_code", "generic")}.png'

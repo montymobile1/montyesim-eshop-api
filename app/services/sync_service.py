@@ -57,6 +57,7 @@ class SyncService:
                 await self.__handle_create_bundle(bundle=bundle, countries=countries, regions=regions)
             else:
                 await self.__handle_update_bundle(bundle=bundle, countries=countries, regions=regions)
+            await self.update_bundle_status(bundle_id=bundle.bundle_code, status=bundle.is_active)
         except Exception as e:
             logger.error(e)
 
