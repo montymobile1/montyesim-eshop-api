@@ -200,7 +200,7 @@ def send_email(subject: str, html_content: str, recipients: str, attachment: Byt
         raise ValueError("Missing required email configuration")
 
     import smtplib
-    from email.utils import formatdate
+    from email.utils import formatdate, formataddr
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
 
@@ -208,7 +208,9 @@ def send_email(subject: str, html_content: str, recipients: str, attachment: Byt
         # Create message
         msg = MIMEMultipart('alternative')
         msg['Subject'] = subject
-        msg['From'] = os.getenv("SMTP_SENDER", "noreply@esim.com")
+        sender_email = os.getenv("SMTP_SENDER", "noreply@esim.com")
+        sender_name = os.getenv("SMTP_SENDER_NAME", "Esim Support")
+        msg['From'] = formataddr((sender_name, sender_email))
         msg['To'] = recipients
         msg['Date'] = formatdate(localtime=True)
 
