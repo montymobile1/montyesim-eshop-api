@@ -204,10 +204,12 @@ def send_email(subject: str, html_content: str, recipients: str, attachment: Byt
     from email.utils import formatdate, formataddr
     from email.mime.text import MIMEText
     from email.mime.multipart import MIMEMultipart
+    from email.mime.base import MIMEBase
+    from email import encoders
 
     try:
         # Create message
-        msg = MIMEMultipart('alternative')
+        msg = MIMEMultipart('mixed')  # Use 'mixed' for attachments
         msg['Subject'] = subject
         sender_email = os.getenv("SMTP_SENDER", "noreply@esim.com")
         sender_name = os.getenv("SMTP_SENDER_NAME", "Esim Support")
@@ -215,16 +217,20 @@ def send_email(subject: str, html_content: str, recipients: str, attachment: Byt
         msg['To'] = recipients
         msg['Date'] = formatdate(localtime=True)
 
-        # Add text and HTML content
+        # Add text and HTML content as a subpart
+        alt_part = MIMEMultipart('alternative')
         text_content = "Please view this email in an HTML-compatible email client."
-        msg.attach(MIMEText(text_content, 'plain'))
-        msg.attach(MIMEText(html_content, 'html'))
+        alt_part.attach(MIMEText(text_content, 'plain'))
+        alt_part.attach(MIMEText(html_content, 'html'))
+        msg.attach(alt_part)
 
         # Add attachment if provided
         if attachment:
-            from email.mime.image import MIMEImage
-            img = MIMEImage(attachment.read())
-            img.add_header('Content-ID', '<qr_code>')
+            attachment.seek(0)
+            img = MIMEBase('image', 'png')
+            img.set_payload(attachment.read())
+            encoders.encode_base64(img)
+            img.add_header('Content-Disposition', 'attachment', filename='qr_code.png')
             msg.attach(img)
         logger.info(f"opening SMTP connection to {SMTP_SERVER}:{SMTP_PORT}")
         # Send email
