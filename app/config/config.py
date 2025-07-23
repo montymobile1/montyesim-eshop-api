@@ -32,6 +32,7 @@ STRIPE_PUBLIC_KEY = os.getenv("STRIPE_PUBLIC_KEY")
 
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = os.getenv("SMTP_PORT", 587)
+SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "false").lower() in ("true", "1", "yes")
 
 USERNAME = os.getenv("SMTP_USERNAME", "<EMAIL>")
 PASSWORD = os.getenv("SMTP_PASSWORD", "<PASSWORD>")
@@ -225,14 +226,19 @@ def send_email(subject: str, html_content: str, recipients: str, attachment: Byt
             img = MIMEImage(attachment.read())
             img.add_header('Content-ID', '<qr_code>')
             msg.attach(img)
-
+        logger.info(f"opening SMTP connection to {SMTP_SERVER}:{SMTP_PORT}")
         # Send email
-        with smtplib.SMTP(SMTP_SERVER, int(SMTP_PORT)) as server:
-            server.starttls()
-            server.login(USERNAME, PASSWORD)
-            server.send_message(msg)
-            logger.info(f"Email sent successfully to {recipients}")
-
+        if SMTP_USE_TLS:
+            with smtplib.SMTP_SSL(SMTP_SERVER, int(SMTP_PORT), timeout=10) as server:
+                server.login(USERNAME, PASSWORD)
+                server.send_message(msg)
+                logger.info(f"Email sent successfully to {recipients}")
+        else:
+            with smtplib.SMTP(SMTP_SERVER, int(SMTP_PORT), timeout=10) as server:
+                server.starttls()
+                server.login(USERNAME, PASSWORD)
+                server.send_message(msg)
+                logger.info(f"Email sent successfully to {recipients}")
     except smtplib.SMTPException as e:
         logger.error(f"Failed to send email: {str(e)}")
         raise
