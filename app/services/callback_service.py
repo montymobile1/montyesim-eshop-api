@@ -175,7 +175,7 @@ class CallbackService:
                 exists = asyncio.run(self.__bundle_service.bundle_exists(bundle_id=bundle_id))
                 if exists:
                     logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
-                    asyncio.run(self.__sync_service.sync_bundle(bundle))
+                    asyncio.run(self.__sync_service.resync_bundles(bundle))
                 else:
                     logger.info(f"ignoring bundle update, bundle {bundle_id} does not exist")
             asyncio.run(self.__sync_service.update_sync_version())
