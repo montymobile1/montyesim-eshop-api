@@ -118,7 +118,7 @@ class CallbackService:
             raise HTTPException(status_code=400, detail="Invalid payload")
         await self.__handle_payment_webhook_data(payload_json)
 
-    async def handle_sync_all_bundles(self, page_index=1):
+    def handle_sync_all_bundles(self, page_index=1):
         thread = threading.Thread(target=self.__run_full_sync, args=(page_index,))
         thread.start()
         return ResponseHelper.success_response()
@@ -140,7 +140,7 @@ class CallbackService:
         thread.start()
         return ResponseHelper.success_response()
 
-    async def handle_sync_one_bundle_by_id(self, request: Request, id: str):
+    def handle_sync_one_bundle_by_id(self, request: Request, id: str):
         logger.info(f"receiving bundle sync request {id}")
         thread = threading.Thread(target=self.__run_one_sync, args=(id, "update"))
         thread.start()

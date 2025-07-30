@@ -122,9 +122,13 @@ class PromotionService:
             raise CustomException(code=400, name="INVALID_INPUT",
                                   details="code is promotion code, should have promotion model")
 
-        if promotion_model.bundle_code:
+        bundle_codes = promotion_model.bundle_code.split(",") if promotion_model.bundle_code else []
+
+        if len(bundle_codes) > 0:
             logger.info(f"promotion model bundle code: {promotion_model.bundle_code}")
-            if bundle_id != promotion_model.bundle_code:
+            if bundle_id not in bundle_codes:
+                logger.error(
+                    f"Bundle code {bundle_id} does not match with promotion bundle code {promotion_model.bundle_code}")
                 raise CustomException(code=400, name="INVALID_BUNDLE_CODE",
                                       details="Bundle code does not match with promotion bundle code")
 

@@ -26,8 +26,8 @@ async def consumption_limit(request: Request):
 
 
 @router.post("/bundle/sync-all")
-async def bundle_sync_all(request: Request, page_index=Query(default=1, description="Page Index")):
-    return await service.handle_sync_all_bundles(page_index=page_index)
+def bundle_sync_all(request: Request, page_index=Query(default=1, description="Page Index")):
+    return service.handle_sync_all_bundles(page_index=page_index)
 
 
 @router.post("/bundle/sync-one")
@@ -36,8 +36,8 @@ async def bundle_sync_all(request: Request):
 
 
 @router.post("/bundle/sync-one-by-id/{id}")
-async def bundle_sync_all(request: Request, id: str):
-    return await service.handle_sync_one_bundle_by_id(request=request, id=id)
+def bundle_sync_all(request: Request, id: str):
+    return service.handle_sync_one_bundle_by_id(request=request, id=id)
 
 
 @router.post("/currency/exchange_rate")
