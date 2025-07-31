@@ -39,11 +39,14 @@ class AppService:
                 or request.headers.get("X-Real-IP")
                 or request.client.host
         )
-        if ip.index(",") > -1:
+        if ip.index(".") > -1:
             ip = ip.split(",")[0].strip()
             try:
                 response = await self.__get_location(ip)
-                location = f"{response['city']}, {response['region']}, {response['country']}"
+                if response:
+                    location = f"{response['city']}, {response['region']}, {response['country']}"
+                else:
+                    location = "-"
             except Exception as e:
                 logger.error(f"Error fetching location for IP {ip}: {e}")
                 location = "-"
@@ -157,4 +160,6 @@ class AppService:
                 "latitude": data.get("latitude"),
                 "longitude": data.get("longitude")
             }
+        else:
+            logger.error(f"Failed to fetch location for IP {ip}: {response.status_code} {response.text}")
         return None
