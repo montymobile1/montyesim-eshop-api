@@ -39,19 +39,23 @@ class AppService:
                 or request.headers.get("X-Real-IP")
                 or request.client.host
         )
-        if ip.index(".") > -1:
-            ip = ip.split(",")[0].strip()
-            try:
-                response = await self.__get_location(ip)
-                if response:
-                    location = f"{response['city']}, {response['region']}, {response['country']}"
-                else:
-                    location = "-"
-            except Exception as e:
-                logger.error(f"Error fetching location for IP {ip}: {e}")
-                location = "-"
+        old_device = self.__device_repo.get_first_by({"device_id": device_id})
+        if old_device:
+            location = old_device.ip_location
         else:
-            location = "-"
+            if ip.index(".") > -1:
+                ip = ip.split(",")[0].strip()
+                try:
+                    response = await self.__get_location(ip)
+                    if response:
+                        location = f"{response['city']}, {response['region']}, {response['country']}"
+                    else:
+                        location = "-"
+                except Exception as e:
+                    logger.error(f"Error fetching location for IP {ip}: {e}")
+                    location = "-"
+            else:
+                location = "-"
 
         device_model = DeviceModel(
             **device_request.model_dump(),
