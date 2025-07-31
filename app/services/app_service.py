@@ -2,6 +2,7 @@ import os
 from typing import List
 
 import bleach
+import httpx
 from fastapi import Request
 from loguru import logger
 
@@ -38,12 +39,22 @@ class AppService:
                 or request.headers.get("X-Real-IP")
                 or request.client.host
         )
+        if ip.index(",") > -1:
+            ip = ip.split(",")[0].strip()
+            try:
+                response = await self.__get_location(ip)
+                location = f"{response['city']}, {response['region']}, {response['country']}"
+            except Exception as e:
+                logger.error(f"Error fetching location for IP {ip}: {e}")
+                location = "-"
+        else:
+            location = "-"
 
         device_model = DeviceModel(
             **device_request.model_dump(),
             is_logged_in=True if user else False,
             originated_ip=ip,
-            ip_location="New York, USA",
+            ip_location=location,
             device_id=device_id,
             user_id=user_id,
         )
@@ -131,3 +142,19 @@ class AppService:
                                                                                          f"{PaymentTypeEnum.CARD.value},{PaymentTypeEnum.WALLET.value},{PaymentTypeEnum.DCB.value}")))
         response.append(GlobalConfiguration(key="login_type", value=os.getenv("LOGIN_TYPE", "email")))
         return ResponseHelper.success_data_response(response, len(response))
+
+    async def __get_location(self, ip: str):
+        url = f"https://ipapi.co/{ip}/json/"
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return {
+                "ip": data.get("ip"),
+                "city": data.get("city"),
+                "region": data.get("region"),
+                "country": data.get("country_name"),
+                "latitude": data.get("latitude"),
+                "longitude": data.get("longitude")
+            }
+        return None

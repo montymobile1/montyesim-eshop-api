@@ -27,7 +27,7 @@ async def temporary_login(login_request: LoginRequest, x_device_id: str = Header
 @router.get("/validate-token", response_model=Response[bool],
             dependencies=[Depends(device_token)])
 async def validate_token(request: Request) -> Response[bool]:
-    return await service.validate_token(request)
+    return service.validate_token(request)
 
 
 @router.get("/user-info", response_model=Response[AuthResponseDTO], dependencies=[Depends(bearer_token)])
@@ -60,10 +60,10 @@ async def refresh_token(x_refresh_token: Annotated[str, Depends(refresh_token)],
 
 @router.post("/logout", response_model=Response, dependencies=[Depends(bearer_token), Depends(device_token)])
 async def logout(user: Annotated[UserModel, Depends(bearer_token)], x_device_id: str = Header(None)) -> Response[None]:
-    return await service.logout(user, x_device_id)
+    return service.logout(user, x_device_id)
 
 
 @router.delete("/delete-account", response_model=Response,
                dependencies=[Depends(bearer_token), Depends(device_token)])
 async def delete_account(user: Annotated[UserModel, Depends(bearer_token)]) -> Response[None]:
-    return await service.delete_account(user)
+    return service.delete_account(user)

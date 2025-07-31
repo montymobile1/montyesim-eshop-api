@@ -77,7 +77,7 @@ class AuthService:
                 return None
         return user_wallet
 
-    async def validate_token(self, request: Request) -> Response[bool]:
+    def validate_token(self, request: Request) -> Response[bool]:
         try:
             authorization: str = request.headers.get("Authorization")
 
@@ -103,7 +103,7 @@ class AuthService:
             logger.error(f"exception on verify otp: {e}")
             raise CustomException(code=400, name="Verify Failed", details=str(e))
 
-    async def logout(self, user: UserModel, device_id: str) -> Response[None]:
+    def logout(self, user: UserModel, device_id: str) -> Response[None]:
         logger.info(f"logging out user {user} device {device_id}")
         try:
             supabase_client().auth.sign_out(options={
@@ -113,9 +113,11 @@ class AuthService:
 
         except Exception as e:
             logger.error(f"exception on logout: {e}")
+        finally:
+            self.__upsert_device(user_id=user.id, device_id=device_id, is_logged_in=False)
         return ResponseHelper.success_response()
 
-    async def delete_account(self, user: UserModel) -> Response[None]:
+    def delete_account(self, user: UserModel) -> Response[None]:
         try:
             supabase_client().auth.admin.delete_user(id=user.id)
             return ResponseHelper.success_response()
@@ -239,7 +241,7 @@ class AuthService:
                 "type": "email"
             }
         )
-        self.__upsert_device(response.user.id, device_id)
+        self.__upsert_device(user_id=response.user.id, device_id=device_id, is_logged_in=True)
         user_wallet = await self.create_wallet_if_not_exists(user_id=response.user.id,
                                                              currency_code=os.getenv("DEFAULT_CURRENCY"))
         return ResponseHelper.success_data_response(
@@ -259,16 +261,18 @@ class AuthService:
             "email": user_email,
             "password": f"static_password_{verify_otp_request.phone}",
         })
-        self.__upsert_device(response.user.id, device_id)
+        self.__upsert_device(user_id=response.user.id, device_id=device_id, is_logged_in=True)
         user_wallet = await self.create_wallet_if_not_exists(user_id=response.user.id,
                                                              currency_code=os.getenv("DEFAULT_CURRENCY"))
         return ResponseHelper.success_data_response(
             DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet), 0)
 
-    def __upsert_device(self, user_id: str, device_id: str):
+    def __upsert_device(self, user_id: str, device_id: str, is_logged_in: bool = False):
         self.__device_repo.upsert({
-            "is_logged_in": False,
+            "is_logged_in": is_logged_in,
             "user_id": user_id,
             "device_id": device_id,
-            "timestamp_logout": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
+            "timestamp_logout": datetime.now(timezone.utc).strftime(
+                '%Y-%m-%d %H:%M:%S.%f') if not is_logged_in else None,
+            "timestamp_login": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f') if is_logged_in else None,
         }, "device_id,user_id")
