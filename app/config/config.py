@@ -106,7 +106,8 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
             payment_method_types=["card"],
             description=f"Bundle order ({user_bundle_order.order_type}) for bundle {user_bundle_order.bundle_id}",
             metadata=metadata,
-            customer=customer.id
+            customer=customer.id,
+            automatic_tax=os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() in ("true", "1", "yes"),
         )
         logger.debug(f"Payment intent:  {payment_intent}")
         return payment_intent
@@ -130,7 +131,8 @@ def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, m
             payment_method_types=["card"],
             description=f"Topup for user {user_email} for amount {amount} {currency}",
             metadata=metadata,
-            customer=customer.id
+            customer=customer.id,
+            automatic_tax=os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() in ("true", "1", "yes"),
         )
         logger.debug(f"Payment intent:  {payment_intent}")
         return payment_intent
