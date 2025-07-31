@@ -321,6 +321,10 @@ class DtoMapper:
             "order_type": user_order.order_type,
             "bundle_details": BundleDTO.model_validate_json(user_order.bundle_data),
             "company_name": os.getenv("MERCHANT_DISPLAY_NAME", "Company Name"),
+            "company_address": os.getenv("MERCHANT_ADDRESS", "Company Address"),
+            "company_phone": os.getenv("MERCHANT_PHONE", "Company Phone"),
+            "company_email": os.getenv("MERCHANT_EMAIL", "Company Email"),
+            "company_website": os.getenv("MERCHANT_WEBSITE", "https://example.com"),
             "payment_type": os.getenv("PAYMENT_METHODS", PaymentTypeEnum.CARD)
         }
         return UserOrderHistoryResponse.model_validate(data)

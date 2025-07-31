@@ -183,6 +183,10 @@ class UserOrderHistoryResponse(BaseModel):
     order_type: str
     quantity: Optional[int] = 1
     company_name: Optional[str] = None
+    company_address: Optional[str] = None
+    company_phone: Optional[str] = None
+    company_email: Optional[str] = None
+    company_website: Optional[str] = None
     payment_details: Optional[PaymentDetailsDTO] = None
     payment_type: Optional[PaymentTypeEnum] = PaymentTypeEnum.CARD
     bundle_details: BundleDTO
