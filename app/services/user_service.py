@@ -80,6 +80,13 @@ class UserBundleService:
             "anonymous_user_id": user.anonymous_user_id
         })
         payment_type = assign_request.payment_type
+
+        if modified_amount == 0:
+            await self.__bundle_service.buy_bundle(user_order=order, bundle=bundle, user_id=user.id,
+                                                   payment_status=OrderStatusEnum.SUCCESS, user=user)
+            response = PaymentIntentResponse(order_id=order.id)
+            return ResponseHelper.success_data_response(response, 0)
+
         if payment_type == PaymentTypeEnum.WALLET:
             return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.DCB:

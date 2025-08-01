@@ -73,7 +73,11 @@ class PromotionService:
                                                         False)
 
         rate = self.__currency_service.get_rate_by_currency(x_currency)
-        if promotion_check.amount > 0:
+
+        if promotion_check.amount < 0:
+            promotion_check.amount = 0
+
+        if promotion_check.amount >= 0:
             bundle.original_price = promotion_check.amount
             bundle.price_display = f'{round(promotion_check.amount, 2):.2f} {x_currency}'
             logger.info(f"applying promotion code for bundle with {promotion_check.amount=} {promotion_check}")
