@@ -139,7 +139,7 @@ class PromotionService:
         amount = promotion_model.amount
 
         if action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
-            response = PromotionCheck(amount=bundle.original_price - amount, message=f"Discount Amount {amount}")
+            response = PromotionCheck(amount=max(bundle.original_price - amount,0), message=f"Discount Amount {amount}")
             return response
 
         if action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
@@ -229,7 +229,7 @@ class PromotionService:
         if beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
             self._insert_promotion_usage(referrer_user_id, discount, "pending", code, is_referral, bundle)
 
-        return original_price - discount
+        return max(original_price - discount, 0)
 
     def _insert_promotion_usage(self, user_id, amount, status, code, is_referral, bundle):
         bundle_id = None
