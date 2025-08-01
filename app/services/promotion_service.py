@@ -258,9 +258,15 @@ class PromotionService:
         if promotion_usage:
             amount = float(os.getenv("REFERRAL_CODE_AMOUNT"))
             rule_id = os.getenv("DEFAULT_REFERRAL_RULE_ID")
+            if promotion_usage.referral_code is None:
+                logger.error("Referral code is missing in promotion usage")
+                return
             user = self.__user_repo.get_first_by(where={},
                                                  filters={
                                                      self.__user_repo.referral_code_key(): promotion_usage.referral_code})
+            if user is None:
+                logger.error("User not found for the given referral code")
+                return
             referrer_user_id = user.id
 
             promotion_rule = self.__promotion_rule_repo.get_first_by({"id": rule_id})
