@@ -19,7 +19,20 @@ class VoucherService:
         if not voucher:
             raise CustomException(code=404, name="Voucher Redeem",
                                   details="Voucher Code Invalid")
-
+        # Check if voucher is expired using timezone-aware UTC datetime and parsing string
+        from datetime import datetime, timezone
+        if voucher.expired_at:
+            try:
+                expired_at_dt = datetime.fromisoformat(voucher.expired_at)
+                if expired_at_dt.tzinfo is None:
+                    expired_at_dt = expired_at_dt.replace(tzinfo=timezone.utc)
+                if expired_at_dt < datetime.now(timezone.utc):
+                    raise CustomException(code=400, name="Voucher Redeem",
+                                          details="Voucher Expired")
+            except Exception as e:
+                logger.error(f"Invalid expired_at format: {voucher.expired_at}, error: {e}")
+                raise CustomException(code=400, name="Voucher Redeem",
+                                      details="Invalid voucher expiration date format")
         try:
             await self.__user_wallet_service.add_wallet_transaction(voucher.amount,user.id,"voucher")
             self.__voucher_repo.update_by(where={"id" : voucher.id},data={"used_by":user.id,"is_used" : True})

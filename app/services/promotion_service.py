@@ -69,8 +69,10 @@ class PromotionService:
         bundle_response = await self.__bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
                                                                  currency_name=x_currency, locale="en")
         bundle: BundleDTO = bundle_response.data
-        promotion_check = self.__check_promotion_reward(response.data.rule_id, promotion_validation_request.bundle_code,
-                                                        False)
+        promotion_check = self.__check_promotion_reward(rule_id=response.data.rule_id,
+                                                        bundle_id=promotion_validation_request.bundle_code,
+                                                        promo_code=promotion_validation_request.promo_code,
+                                                        is_referral=False)
 
         rate = self.__currency_service.get_rate_by_currency(x_currency)
 
@@ -109,7 +111,8 @@ class PromotionService:
     def convert_timestamp(date_str: str, date_format: str = "%Y-%m-%dT%H:%M:%S") -> datetime:
         return datetime.strptime(date_str, date_format)
 
-    def __check_promotion_reward(self, rule_id: str, bundle_id, is_referral: bool) -> PromotionCheck | None:
+    def __check_promotion_reward(self, rule_id: str, bundle_id, promo_code: str,
+                                 is_referral: bool) -> PromotionCheck | None:
         promotion_rule = self.__promotion_rule_repo.get_first_by({"id": rule_id})
         if promotion_rule is None:
             raise CustomException(code=400, name="PROMOTION_RULE_MISSING", details="promotion rule is missing")
@@ -121,7 +124,7 @@ class PromotionService:
         bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=bundle_id) if bundle_id else None
         self.__validate_rule_constraints(event_id, action_id, bundle, is_referral, beneficiary)
 
-        promotion_model: PromotionModel = self.__promotion_repo.get_first_by({"rule_id": rule_id})
+        promotion_model: PromotionModel = self.__promotion_repo.get_first_by({"code": promo_code})
         if promotion_model is None:
             raise CustomException(code=400, name="INVALID_INPUT",
                                   details="code is promotion code, should have promotion model")
@@ -139,7 +142,8 @@ class PromotionService:
         amount = promotion_model.amount
 
         if action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
-            response = PromotionCheck(amount=max(bundle.original_price - amount,0), message=f"Discount Amount {amount}")
+            response = PromotionCheck(amount=max(bundle.original_price - amount, 0),
+                                      message=f"Discount Amount {amount}")
             return response
 
         if action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
