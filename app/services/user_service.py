@@ -40,10 +40,7 @@ class UserBundleService:
         self.__dcb_service = dcb_service_instance()
 
     async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
-                     locale: str) -> Response[
-                                         PaymentIntentResponse] | \
-                                     Response[
-                                         bool]:
+                     locale: str) -> Response[PaymentIntentResponse] | Response[bool]:
         bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_request.bundle_code,
                                                                  currency_name=x_currency, locale=locale)
         bundle = bundle_response.data
@@ -65,10 +62,10 @@ class UserBundleService:
                                                                                  user.id).data
             rule_id = promo_code_details.rule_id
 
-            promotion_reward = await self.__promotion_service.check_promotion_reward(rule_id=promo_code_details.rule_id,
-                                                                                     bundle_id=bundle.bundle_code,
-                                                                                     promo_code=assign_request.promo_code,
-                                                                                     is_referral=False)
+            promotion_reward = self.__promotion_service.check_promotion_reward(rule_id=promo_code_details.rule_id,
+                                                                               bundle_id=bundle.bundle_code,
+                                                                               promo_code=assign_request.promo_code,
+                                                                               is_referral=False)
             if promotion_reward.type in [PromotionRuleAction.DISCOUNT_PERCENTAGE.value,
                                          PromotionRuleAction.DISCOUNT_AMOUNT.value]:
                 modified_amount = promotion_reward.amount
