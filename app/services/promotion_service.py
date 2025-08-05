@@ -69,17 +69,18 @@ class PromotionService:
         bundle_response = await self.__bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
                                                                  currency_name=x_currency, locale="en")
         bundle: BundleDTO = bundle_response.data
-        promotion_check = self.__check_promotion_reward(rule_id=response.data.rule_id,
-                                                        bundle_id=promotion_validation_request.bundle_code,
-                                                        promo_code=promotion_validation_request.promo_code,
-                                                        is_referral=False)
+        promotion_check = self.check_promotion_reward(rule_id=response.data.rule_id,
+                                                      bundle_id=promotion_validation_request.bundle_code,
+                                                      promo_code=promotion_validation_request.promo_code,
+                                                      is_referral=False)
 
         rate = self.__currency_service.get_rate_by_currency(x_currency)
 
         if promotion_check.amount < 0:
             promotion_check.amount = 0
 
-        if promotion_check.amount >= 0:
+        if promotion_check.amount >= 0 and promotion_check.type in [PromotionRuleAction.DISCOUNT_AMOUNT.value,
+                                                                    PromotionRuleAction.DISCOUNT_PERCENTAGE.value]:
             bundle.original_price = promotion_check.amount
             bundle.price_display = f'{round(promotion_check.amount, 2):.2f} {x_currency}'
             logger.info(f"applying promotion code for bundle with {promotion_check.amount=} {promotion_check}")
@@ -111,8 +112,8 @@ class PromotionService:
     def convert_timestamp(date_str: str, date_format: str = "%Y-%m-%dT%H:%M:%S") -> datetime:
         return datetime.strptime(date_str, date_format)
 
-    def __check_promotion_reward(self, rule_id: str, bundle_id, promo_code: str,
-                                 is_referral: bool) -> PromotionCheck | None:
+    def check_promotion_reward(self, rule_id: str, bundle_id, promo_code: str,
+                               is_referral: bool) -> PromotionCheck | None:
         promotion_rule = self.__promotion_rule_repo.get_first_by({"id": rule_id})
         if promotion_rule is None:
             raise CustomException(code=400, name="PROMOTION_RULE_MISSING", details="promotion rule is missing")
@@ -160,7 +161,7 @@ class PromotionService:
                 cashback_amount = round(cashback_amount, 2)
                 response = PromotionCheck(amount=0, message=f"Cash Back Amount {cashback_amount}")
                 return response
-            response = PromotionCheck(amount=0, message=f"Cash Back Amount {cashback_amount}")
+            response = PromotionCheck(amount=0, message=f"Cash Back Amount {cashback_amount}", type=action_id)
             return response
         return None
 

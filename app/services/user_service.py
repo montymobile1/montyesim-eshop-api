@@ -8,7 +8,7 @@ from loguru import logger
 from app.config.config import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, \
     esim_hub_service_instance, generate_otp, dcb_service_instance
 from app.config.constants import ErrorMessages
-from app.config.db import DatabaseTables, PaymentTypeEnum
+from app.config.db import DatabaseTables, PaymentTypeEnum, PromotionRuleAction
 from app.exceptions import BadRequestException, CustomException
 from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
@@ -64,9 +64,14 @@ class UserBundleService:
             promo_code_details = self.__promotion_service.code_type_and_get_rule(assign_request.promo_code,
                                                                                  user.id).data
             rule_id = promo_code_details.rule_id
-            modified_amount = await self.__promotion_service.add_reward(promo_code_details.rule_id, user.id,
-                                                                        bundle.bundle_code,
-                                                                        assign_request.promo_code, False)
+
+            promotion_reward = await self.__promotion_service.check_promotion_reward(rule_id=promo_code_details.rule_id,
+                                                                                     bundle_id=bundle.bundle_code,
+                                                                                     promo_code=assign_request.promo_code,
+                                                                                     is_referral=False)
+            if promotion_reward.type in [PromotionRuleAction.DISCOUNT_PERCENTAGE.value,
+                                         PromotionRuleAction.DISCOUNT_AMOUNT.value]:
+                modified_amount = promotion_reward.amount
 
         order = self.__user_order_repo.create(data={
             "user_id": user.id,

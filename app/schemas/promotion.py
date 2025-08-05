@@ -3,6 +3,8 @@ from typing import Optional
 
 from pydantic import BaseModel, field_validator
 
+from app.config.db import PromotionRuleAction
+
 
 class PromotionCodeDetailsResponse(BaseModel):
     code_type: str
@@ -17,6 +19,7 @@ class PromotionValidationRequest(BaseModel):
 class PromotionCheck(BaseModel):
     amount: float
     message: str
+    type: Optional[int] = PromotionRuleAction.DISCOUNT_AMOUNT.value
 
 
 class ReferralRewardRequest(BaseModel):

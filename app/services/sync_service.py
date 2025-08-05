@@ -89,7 +89,7 @@ class SyncService:
 
     async def __sync_country_tags(self, countries: List[CountryDTO]):
         for country in countries:
-            if not self.__tag_repo.get_first_by({"name": country.country}):
+            if not self.__tag_repo.get_first_by({"id": country.id}):
                 self.__tag_repo.create(
                     TagModel(name=country.country, icon=country.icon, tag_group_id=1, data=country.model_dump(),
                              id=country.id).model_dump(
@@ -99,7 +99,7 @@ class SyncService:
         for region in regions:
             if region.region_code == "GLOBAL":
                 continue
-            if not self.__tag_repo.get_first_by({"name": region.region_name}):
+            if not self.__tag_repo.get_first_by({"id": region.guid}):
                 self.__tag_repo.create(
                     TagModel(name=region.region_name, icon=region.icon, tag_group_id=2, data=region.model_dump(),
                              id=region.guid).model_dump(
