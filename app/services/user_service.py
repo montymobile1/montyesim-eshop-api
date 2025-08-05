@@ -79,7 +79,8 @@ class UserBundleService:
             "currency": os.getenv("DEFAULT_CURRENCY"),
             "bundle_data": bundle.model_dump_json(),
             "searched_countries": assign_request.related_search.model_dump_json(),
-            "anonymous_user_id": user.anonymous_user_id
+            "anonymous_user_id": user.anonymous_user_id,
+            "promo_code": assign_request.promo_code,
         })
         payment_type = assign_request.payment_type
 

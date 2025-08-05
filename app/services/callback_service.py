@@ -225,6 +225,7 @@ class CallbackService:
         if payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.ASSIGN:
             await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
             if promo_code:
+                logger.info(f"updating promotion usage for user {user_id} with promo code {promo_code}")
                 self.__promotion_service.update_promotion_usage(user_id, promo_code, "completed", rule_id, amount)
             return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
                                                           payment_status=payment_status,

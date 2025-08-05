@@ -220,9 +220,11 @@ class PromotionService:
     async def __handle_cashback_after_success_create_order(self, amount: float, beneficiary: int, user_id: str,
                                                            referrer_user_id: str):
         if beneficiary in [Beneficiary.REFERRER.value, Beneficiary.BOTH.value]:
+            logger.info(f"Adding cashback for user {user_id} with amount {amount}")
             await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
 
         if beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
+            logger.info(f"Adding cashback for user {user_id} with amount {amount}")
             await self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
 
     async def __handle_discount(self, original_price: float, discount: float, beneficiary: str,
