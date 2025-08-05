@@ -53,22 +53,22 @@ class UserBundleService:
         rule_id = "0"
         amount = bundle.price
         modified_amount = bundle.price
-        # if assign_request.promo_code:
-        #     promo_code_request = PromotionValidationRequest(promo_code=assign_request.promo_code,
-        #                                                     bundle_code=assign_request.bundle_code)
-        #     bundle = await self.__promotion_service.validate_promotion_code(promo_code_request, x_currency, user.id)
-        #     bundle = bundle.data
-        #     promo_code_details = self.__promotion_service.code_type_and_get_rule(assign_request.promo_code,
-        #                                                                          user.id).data
-        #     rule_id = promo_code_details.rule_id
+        if assign_request.promo_code:
+            promo_code_request = PromotionValidationRequest(promo_code=assign_request.promo_code,
+                                                            bundle_code=assign_request.bundle_code)
+            bundle = await self.__promotion_service.validate_promotion_code(promo_code_request, x_currency, user.id)
+            bundle = bundle.data
+            promo_code_details = self.__promotion_service.code_type_and_get_rule(assign_request.promo_code,
+                                                                                 user.id).data
+            rule_id = promo_code_details.rule_id
 
-        #     promotion_reward = self.__promotion_service.check_promotion_reward(rule_id=promo_code_details.rule_id,
-        #                                                                        bundle_id=bundle.bundle_code,
-        #                                                                        promo_code=assign_request.promo_code,
-        #                                                                        is_referral=False)
-        #     if promotion_reward.type in [PromotionRuleAction.DISCOUNT_PERCENTAGE.value,
-        #                                  PromotionRuleAction.DISCOUNT_AMOUNT.value]:
-        #         modified_amount = promotion_reward.amount
+            promotion_reward = self.__promotion_service.check_promotion_reward(rule_id=promo_code_details.rule_id,
+                                                                               bundle_id=bundle.bundle_code,
+                                                                               promo_code=assign_request.promo_code,
+                                                                               is_referral=False)
+            if promotion_reward.type in [PromotionRuleAction.DISCOUNT_PERCENTAGE.value,
+                                         PromotionRuleAction.DISCOUNT_AMOUNT.value]:
+                modified_amount = promotion_reward.amount
 
         order = self.__user_order_repo.create(data={
             "user_id": user.id,
@@ -79,8 +79,8 @@ class UserBundleService:
             "currency": os.getenv("DEFAULT_CURRENCY"),
             "bundle_data": bundle.model_dump_json(),
             "searched_countries": assign_request.related_search.model_dump_json(),
-            "anonymous_user_id": user.anonymous_user_id,
-            "promo_code": assign_request.promo_code,
+            "anonymous_user_id": user.anonymous_user_id
+            # "promo_code": assign_request.promo_code or null,
         })
         payment_type = assign_request.payment_type
 
