@@ -186,7 +186,7 @@ class PromotionService:
                                                  filters={self.__user_repo.referral_code_key(): code})
             referrer_user_id = user.id
         else:
-            promotion_model: PromotionModel = self.__promotion_repo.get_first_by({"rule_id": rule_id})
+            promotion_model: PromotionModel = self.__promotion_repo.get_first_by({"rule_id": rule_id, "code": code})
             if promotion_model is None:
                 raise CustomException(code=400, name="INVALID_INPUT",
                                       details="code is promotion code, should have promotion model")
