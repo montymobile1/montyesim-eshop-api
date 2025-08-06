@@ -57,9 +57,13 @@ class UserBundleService:
             promo_code_request = PromotionValidationRequest(promo_code=assign_request.promo_code,
                                                             bundle_code=assign_request.bundle_code)
             bundle = await self.__promotion_service.validate_promotion_code(promo_code_request, x_currency, user.id)
+
             bundle = bundle.data
             promo_code_details = self.__promotion_service.code_type_and_get_rule(assign_request.promo_code,
                                                                                  user.id).data
+            await self.__promotion_service.add_reward(promo_code_details.rule_id, user.id,
+                                                      bundle.bundle_code,
+                                                      assign_request.promo_code, False)
             rule_id = promo_code_details.rule_id
 
             promotion_reward = self.__promotion_service.check_promotion_reward(rule_id=promo_code_details.rule_id,
@@ -79,8 +83,8 @@ class UserBundleService:
             "currency": os.getenv("DEFAULT_CURRENCY"),
             "bundle_data": bundle.model_dump_json(),
             "searched_countries": assign_request.related_search.model_dump_json(),
-            "anonymous_user_id": user.anonymous_user_id
-            # "promo_code": assign_request.promo_code or null,
+            "anonymous_user_id": user.anonymous_user_id,
+            "promo_code": assign_request.promo_code or None,
         })
         payment_type = assign_request.payment_type
 
