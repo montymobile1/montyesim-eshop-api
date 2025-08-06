@@ -24,6 +24,7 @@ class PromotionCheck(BaseModel):
 
 class ReferralRewardRequest(BaseModel):
     referral_code: str
+    bundle_code: str
 
 
 class PromotionHistoryDto(BaseModel):

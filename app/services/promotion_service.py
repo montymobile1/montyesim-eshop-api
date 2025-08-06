@@ -35,8 +35,9 @@ class PromotionService:
     async def referral_code_rewards(self, referral_reward_request: ReferralRewardRequest, user_id: str):
         promotion_code_details = self.code_type_and_get_rule(referral_reward_request.referral_code,
                                                              user_id)
-        await self.add_reward(promotion_code_details.data.rule_id, user_id,
-                              None, referral_reward_request.referral_code, True)
+        await self.add_reward(rule_id=promotion_code_details.data.rule_id, user_id=user_id,
+                              bundle_id=referral_reward_request.bundle_code, code=referral_reward_request.referral_code,
+                              is_referral=True)
         return ResponseHelper.success_data_response_with_message(None,
                                                                  "Success",
                                                                  0)
