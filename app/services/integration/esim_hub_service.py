@@ -366,10 +366,13 @@ class EsimHubService:
                         raise EsimHubException(
                             json_response["message"] if "message" in json_response else str(json_response))
                     except Exception as e:
+                        logger.debug(f"failed to parse response as JSON: {str(e)}")
                         raise EsimHubException(f"eSIM Hub API request failed: {response.status_code}")
                 return response.json()
         except Exception as e:
-            if type(e).__name__ == "CustomException":
+            # Raise CustomException as is, otherwise wrap in EsimHubException
+            from app.exceptions import CustomException
+            if isinstance(e, CustomException):
                 raise e
             raise EsimHubException(str(e))
 

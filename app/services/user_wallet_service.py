@@ -52,17 +52,20 @@ class UserWalletService:
             if user_wallet is None:
                 raise CustomException(code=400, name="wallet not found", details="user wallet not found")
 
-            user_wallet.amount += amount
+            current_amount = float(user_wallet.amount)
+            add_amount = float(amount)
+            new_amount = current_amount + add_amount
+            user_wallet.amount = new_amount
             self.__user_wallet_repo.update_by(where={"user_id": user_id},
                                               data=user_wallet.model_dump())
 
             self.__user_wallet_transaction_repo.create(data={
                 "wallet_id": user_wallet.id,
-                "amount": amount,
+                "amount": add_amount,
                 "source": source,
                 "status": "success"
             })
-            thread = threading.Thread(target=self.__send_push, args=(amount, user_wallet.currency, user_id,))
+            thread = threading.Thread(target=self.__send_push, args=(new_amount, user_wallet.currency, user_id,))
             thread.start()
             dto = DtoMapper.to_user_wallet_response(user_wallet)
             return ResponseHelper.success_data_response(dto, 1)
