@@ -219,14 +219,14 @@ class CallbackService:
         if payment_status == OrderStatusEnum.FAILURE:
             logger.info(f"payment failed for order {order_id}")
             if promo_code:
-                await self.__promotion_service.update_promotion_usage(user_id, promo_code, "failed", rule_id, amount)
+                await self.__promotion_service.update_promotion_usage(user_id, promo_code, "failed", rule_id)
             return HTTPException(status_code=200, detail="Payment Failed")
 
         if payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.ASSIGN:
             await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
             if promo_code:
                 logger.info(f"updating promotion usage for user {user_id} with promo code {promo_code}")
-                await self.__promotion_service.update_promotion_usage(user_id, promo_code, "completed", rule_id, amount)
+                await self.__promotion_service.update_promotion_usage(user_id, promo_code, "completed", rule_id)
             return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
                                                           payment_status=payment_status,
                                                           user_id=user_id, user=user)

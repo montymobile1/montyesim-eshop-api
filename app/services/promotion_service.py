@@ -251,14 +251,16 @@ class PromotionService:
             "bundle_id": bundle_id
         })
 
-    async def update_promotion_usage(self, user_id: str, code: str, status: str, rule_id: str, amount: float):
+    async def update_promotion_usage(self, user_id: str, code: str, status: str, rule_id: str):
         data = {"status": status}
         self.__promotion_usage_repo.update_by(where={"user_id": user_id, "promotion_code": code}, data=data)
         if status == "completed" and rule_id != "0":
             rule_promotion = self.__promotion_rule_repo.get_by_id(record_id=rule_id)
             if (rule_promotion.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE
                     or rule_promotion.promotion_rule_action_id == PromotionRuleAction.CASHBACK_AMOUNT):
-                await self.__handle_cashback_after_success_create_order(amount, Beneficiary.REFERRER.value, user_id, "")
+                promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": code})
+                await self.__handle_cashback_after_success_create_order(promotion.amount, Beneficiary.REFERRER.value,
+                                                                        user_id, "")
 
     async def check_referral_rewards_after_buy_bundle(self, user_id: str):
         promotion_usage = self.__promotion_usage_repo.get_first_by(where={"user_id": user_id, "status": "pending"})
@@ -284,7 +286,7 @@ class PromotionService:
 
             if beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
                 await self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
-            await self.update_promotion_usage(user_id, promotion_usage.referral_code, "completed", rule_id, amount)
+            await self.update_promotion_usage(user_id, promotion_usage.referral_code, "completed", rule_id)
 
     @staticmethod
     def __validate_rule_constraints(event_id, action_id, bundle, is_referral, beneficiary):
