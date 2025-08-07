@@ -266,9 +266,9 @@ class PromotionService:
                     or rule_promotion.promotion_rule_action_id == PromotionRuleAction.CASHBACK_AMOUNT):
                 promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": code})
                 if rule_promotion.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE:
-                    amount = paid_amount * promotion.amount / 100
+                    amount = (float(paid_amount) * float(promotion.amount)) / 100
                 else:
-                    amount = promotion.amount
+                    amount = float(promotion.amount)
                 await self.__handle_cashback_after_success_create_order(amount, Beneficiary.REFERRER.value,
                                                                         user_id, "")
 
