@@ -74,7 +74,7 @@ class PromotionService:
         promotion_check = self.check_promotion_reward(rule_id=response.data.rule_id,
                                                       bundle_id=promotion_validation_request.bundle_code,
                                                       promo_code=promotion_validation_request.promo_code,
-                                                      is_referral=False)
+                                                      is_referral=response.data.code_type=="REFERRAL")
 
         rate = self.__currency_service.get_rate_by_currency(x_currency)
 
@@ -127,22 +127,25 @@ class PromotionService:
         bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=bundle_id) if bundle_id else None
         self.__validate_rule_constraints(event_id, action_id, bundle, is_referral, beneficiary)
 
-        promotion_model: PromotionModel = self.__promotion_repo.get_first_by({"code": promo_code})
-        if promotion_model is None:
-            raise CustomException(code=400, name="INVALID_INPUT",
-                                  details="code is promotion code, should have promotion model")
+        if not is_referral:
+            promotion_model: PromotionModel = self.__promotion_repo.get_first_by({"code": promo_code})
+            if promotion_model is None:
+                raise CustomException(code=400, name="INVALID_INPUT",
+                                      details="code is promotion code, should have promotion model")
 
-        bundle_codes = promotion_model.bundle_code.split(",") if promotion_model.bundle_code else []
+            bundle_codes = promotion_model.bundle_code.split(",") if promotion_model.bundle_code else []
 
-        if len(bundle_codes) > 0:
-            logger.info(f"promotion model bundle code: {promotion_model.bundle_code}")
-            if bundle_id not in bundle_codes:
-                logger.error(
-                    f"Bundle code {bundle_id} does not match with promotion bundle code {promotion_model.bundle_code}")
-                raise CustomException(code=400, name="INVALID_BUNDLE_CODE",
-                                      details="Bundle code does not match with promotion bundle code")
+            if len(bundle_codes) > 0:
+                logger.info(f"promotion model bundle code: {promotion_model.bundle_code}")
+                if bundle_id not in bundle_codes:
+                    logger.error(
+                        f"Bundle code {bundle_id} does not match with promotion bundle code {promotion_model.bundle_code}")
+                    raise CustomException(code=400, name="INVALID_BUNDLE_CODE",
+                                          details="Bundle code does not match with promotion bundle code")
 
-        amount = promotion_model.amount
+            amount = promotion_model.amount
+        else:
+            amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
 
         if action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
             response = PromotionCheck(amount=max(bundle.original_price - amount, 0),
@@ -335,6 +338,9 @@ class PromotionService:
             raise CustomException(code=400, name="Referral code already used", details="Referral Code Already Used")
 
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
+        if not rule:
+            raise CustomException(code=404, name="promotion rule not found",
+                                  details="promotion rule not found")
 
         promotion_referral_usage = self.__promotion_usage_repo.list(where={"referral_code": promotion_code})
         if len(promotion_referral_usage) > rule.max_usage:
