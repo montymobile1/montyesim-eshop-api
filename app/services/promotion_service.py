@@ -74,7 +74,7 @@ class PromotionService:
         promotion_check = self.check_promotion_reward(rule_id=response.data.rule_id,
                                                       bundle_id=promotion_validation_request.bundle_code,
                                                       promo_code=promotion_validation_request.promo_code,
-                                                      is_referral=response.data.code_type=="REFERRAL")
+                                                      is_referral=response.data.code_type == "REFERRAL")
 
         rate = self.__currency_service.get_rate_by_currency(x_currency)
 
@@ -164,7 +164,7 @@ class PromotionService:
             if action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
                 cashback_amount = bundle.original_price * amount / 100
                 cashback_amount = round(cashback_amount, 2)
-                response = PromotionCheck(amount=0, message=f"Cash Back Amount {cashback_amount}")
+                response = PromotionCheck(amount=0, message=f"Cash Back Amount {cashback_amount}", type=action_id)
                 return response
             response = PromotionCheck(amount=0, message=f"Cash Back Amount {cashback_amount}", type=action_id)
             return response
