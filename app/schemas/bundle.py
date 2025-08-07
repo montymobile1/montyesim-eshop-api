@@ -3,6 +3,7 @@ from typing import Optional, List
 
 from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
 
+from app.config.constants import PaymentStatusEnum
 from app.config.db import PaymentTypeEnum
 from app.models.user import UserBundleType
 from app.schemas.home import BundleCategoryDTO, CountryDTO, BundleDTO
@@ -66,6 +67,7 @@ class PaymentIntentResponse(BaseModel):
     merchant_display_name: Optional[str] = None
     stripe_url_scheme: Optional[str] = "stripe"
     order_id: str
+    payment_status: Optional[PaymentStatusEnum] = PaymentStatusEnum.PENDING
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 

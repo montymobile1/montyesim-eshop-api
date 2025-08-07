@@ -314,7 +314,7 @@ class DtoMapper:
         data = {
             "order_number": user_order.id,
             "order_status": user_order.payment_status,
-            "order_amount": user_order.amount,
+            "order_amount": user_order.modified_amount,
             "order_currency": user_order.currency,
             "order_display_price": str(float(user_order.amount) / 100) + " " + user_order.currency,
             "order_date": user_order.created_at,

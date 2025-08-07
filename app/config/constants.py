@@ -12,6 +12,12 @@ class ErrorMessages(StrEnum):
     ORDER_FAILED = "Order Failed Please try again"
     BUNDLE_NOT_AVAILABLE = "Bundle Not Available Now Try Again Later"
 
+
 class PaymentIntentEvents(StrEnum):
     SUCCEEDED = "payment_intent.succeeded"
     FAILED = "payment_intent.failed"
+
+
+class PaymentStatusEnum(StrEnum):
+    COMPLETED = "COMPLETED"
+    PENDING = "PENDING"

@@ -169,13 +169,14 @@ class CallbackService:
                     logger.info(f"deactivating bundle {bundle_id} for reseller {reseller_id}")
                     asyncio.run(self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=False))
             if operation == "update":
+                asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
                 bundle = asyncio.run(
                     self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
                                                              currency_code=os.getenv("DEFAULT_CURRENCY")))
                 exists = asyncio.run(self.__bundle_service.bundle_exists(bundle_id=bundle_id))
                 if exists:
                     logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
-                    asyncio.run(self.__sync_service.resync_bundles(bundle))
+                    asyncio.run(self.__sync_service.sync_bundle(bundle))
                 else:
                     logger.info(f"ignoring bundle update, bundle {bundle_id} does not exist")
             asyncio.run(self.__sync_service.update_sync_version())

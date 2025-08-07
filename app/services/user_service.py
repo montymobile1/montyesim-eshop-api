@@ -7,7 +7,7 @@ from loguru import logger
 
 from app.config.config import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, \
     esim_hub_service_instance, generate_otp, dcb_service_instance
-from app.config.constants import ErrorMessages
+from app.config.constants import ErrorMessages, PaymentStatusEnum
 from app.config.db import DatabaseTables, PaymentTypeEnum, PromotionRuleAction
 from app.exceptions import BadRequestException, CustomException
 from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel
@@ -91,7 +91,7 @@ class UserBundleService:
         if modified_amount == 0:
             await self.__bundle_service.buy_bundle(user_order=order, bundle=bundle, user_id=user.id,
                                                    payment_status=OrderStatusEnum.SUCCESS, user=user)
-            response = PaymentIntentResponse(order_id=order.id)
+            response = PaymentIntentResponse(order_id=order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
 
         if payment_type == PaymentTypeEnum.WALLET:
@@ -328,7 +328,7 @@ class UserBundleService:
                                                                     source="Assign_Bundle")
             await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
                                                    payment_status=OrderStatusEnum.SUCCESS, user=user)
-            response = PaymentIntentResponse(order_id=user_order.id)
+            response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
             raise CustomException(code=400, name="Error Creating Order", details=f"Error while creating order: {e}")
@@ -342,7 +342,7 @@ class UserBundleService:
             msisdn = user.msisdn
             logger.info(f"requesting new otp for msisdn: {msisdn}")
             self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
-            response = PaymentIntentResponse(order_id=user_order.id)
+            response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
             raise CustomException(code=400, name="Error Creating Order", details=f"Error while creating order: {e}")
