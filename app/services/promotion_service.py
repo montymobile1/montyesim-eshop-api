@@ -74,7 +74,8 @@ class PromotionService:
         promotion_check = self.check_promotion_reward(rule_id=response.data.rule_id,
                                                       bundle_id=promotion_validation_request.bundle_code,
                                                       promo_code=promotion_validation_request.promo_code,
-                                                      is_referral=response.data.code_type == "REFERRAL")
+                                                      is_referral=response.data.code_type == "REFERRAL",
+                                                      x_currency=x_currency)
 
         rate = self.__currency_service.get_rate_by_currency(x_currency)
 
@@ -115,7 +116,7 @@ class PromotionService:
         return datetime.strptime(date_str, date_format)
 
     def check_promotion_reward(self, rule_id: str, bundle_id, promo_code: str,
-                               is_referral: bool) -> PromotionCheck | None:
+                               is_referral: bool, x_currency: str) -> PromotionCheck | None:
         promotion_rule = self.__promotion_rule_repo.get_first_by({"id": rule_id})
         if promotion_rule is None:
             raise CustomException(code=400, name="PROMOTION_RULE_MISSING", details="promotion rule is missing")
@@ -126,7 +127,7 @@ class PromotionService:
 
         bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=bundle_id) if bundle_id else None
         self.__validate_rule_constraints(event_id, action_id, bundle, is_referral, beneficiary)
-
+        rate = self.__currency_service.get_rate_by_currency(x_currency)
         if not is_referral:
             promotion_model: PromotionModel = self.__promotion_repo.get_first_by({"code": promo_code})
             if promotion_model is None:
@@ -149,7 +150,7 @@ class PromotionService:
 
         if action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
             response = PromotionCheck(amount=max(bundle.original_price - amount, 0),
-                                      message=f"Discount Amount {amount}")
+                                      message=f"Discount Amount {rate * amount}")
             return response
 
         if action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
@@ -164,9 +165,9 @@ class PromotionService:
             if action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
                 cashback_amount = bundle.original_price * amount / 100
                 cashback_amount = round(cashback_amount, 2)
-                response = PromotionCheck(amount=0, message=f"Cash Back Amount {cashback_amount}", type=action_id)
+                response = PromotionCheck(amount=0, message=f"Cash Back Percentage {cashback_amount}", type=action_id)
                 return response
-            response = PromotionCheck(amount=0, message=f"Cash Back Amount {cashback_amount}", type=action_id)
+            response = PromotionCheck(amount=0, message=f"Cash Back Amount {(cashback_amount * rate)}", type=action_id)
             return response
         return None
 
@@ -256,15 +257,19 @@ class PromotionService:
             "bundle_id": bundle_id
         })
 
-    async def update_promotion_usage(self, user_id: str, code: str, status: str, rule_id: str):
+    async def update_promotion_usage(self, user_id: str, code: str, status: str, rule_id: str, paid_amount: float = 0):
         data = {"status": status}
         self.__promotion_usage_repo.update_by(where={"user_id": user_id, "promotion_code": code}, data=data)
         if status == "completed" and rule_id != "0":
-            rule_promotion = self.__promotion_rule_repo.get_by_id(record_id=rule_id)
+            rule_promotion: PromotionRuleModel = self.__promotion_rule_repo.get_by_id(record_id=rule_id)
             if (rule_promotion.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE
                     or rule_promotion.promotion_rule_action_id == PromotionRuleAction.CASHBACK_AMOUNT):
                 promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": code})
-                await self.__handle_cashback_after_success_create_order(promotion.amount, Beneficiary.REFERRER.value,
+                if rule_promotion.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE:
+                    amount = paid_amount * promotion.amount / 100
+                else:
+                    amount = promotion.amount
+                await self.__handle_cashback_after_success_create_order(amount, Beneficiary.REFERRER.value,
                                                                         user_id, "")
 
     async def check_referral_rewards_after_buy_bundle(self, user_id: str):

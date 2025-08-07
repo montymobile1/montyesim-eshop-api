@@ -223,7 +223,7 @@ class CallbackService:
             await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
             if promo_code:
                 logger.info(f"updating promotion usage for user {user_id} with promo code {promo_code}")
-                await self.__promotion_service.update_promotion_usage(user_id, promo_code, "completed", rule_id)
+                await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="completed", rule_id=rule_id,paid_amount=amount)
             return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
                                                           payment_status=payment_status,
                                                           user_id=user_id, user=user)

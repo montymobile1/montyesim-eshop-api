@@ -69,7 +69,8 @@ class UserBundleService:
             promotion_reward = self.__promotion_service.check_promotion_reward(rule_id=promo_code_details.rule_id,
                                                                                bundle_id=bundle.bundle_code,
                                                                                promo_code=assign_request.promo_code,
-                                                                               is_referral=False)
+                                                                               is_referral=False,
+                                                                               x_currency=x_currency)
             if promotion_reward.type in [PromotionRuleAction.DISCOUNT_PERCENTAGE.value,
                                          PromotionRuleAction.DISCOUNT_AMOUNT.value]:
                 modified_amount = promotion_reward.amount
