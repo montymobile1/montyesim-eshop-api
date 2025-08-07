@@ -316,7 +316,7 @@ class DtoMapper:
             "order_status": user_order.payment_status,
             "order_amount": user_order.modified_amount,
             "order_currency": user_order.currency,
-            "order_display_price": str(float(user_order.amount) / 100) + " " + user_order.currency,
+            "order_display_price": str(float(user_order.modified_amount) / 100) + " " + user_order.currency,
             "order_date": user_order.created_at,
             "order_type": user_order.order_type,
             "bundle_details": BundleDTO.model_validate_json(user_order.bundle_data),
