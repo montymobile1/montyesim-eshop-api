@@ -173,12 +173,8 @@ class CallbackService:
                 bundle = asyncio.run(
                     self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
                                                              currency_code=os.getenv("DEFAULT_CURRENCY")))
-                exists = asyncio.run(self.__bundle_service.bundle_exists(bundle_id=bundle_id))
-                if exists:
-                    logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
-                    asyncio.run(self.__sync_service.sync_bundle(bundle))
-                else:
-                    logger.info(f"ignoring bundle update, bundle {bundle_id} does not exist")
+                logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
+                asyncio.run(self.__sync_service.sync_bundle(bundle))
             asyncio.run(self.__sync_service.update_sync_version())
         except Exception as e:
             logger.error(f"error while syncing bundle {id}: {str(e)}")
