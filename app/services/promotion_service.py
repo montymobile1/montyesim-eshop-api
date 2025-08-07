@@ -4,7 +4,8 @@ from typing import List
 
 from loguru import logger
 
-from app.config.db import PromotionRuleAction, Beneficiary, PromotionRuleEvent
+from app.config.db import PromotionRuleAction, Beneficiary, PromotionRuleEvent, ConfigKeysEnum
+from app.config.utils import get_config
 from app.exceptions import CustomException
 from app.models.promotion import PromotionModel
 from app.models.promotion import PromotionRuleModel
@@ -103,7 +104,7 @@ class PromotionService:
                 raise CustomException(code=400, name="code not recorded", details="promotion code not found")
         else:
             code_type = "REFERRAL"
-            rule_id = os.getenv("DEFAULT_REFERRAL_RULE_ID")
+            rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
             self.__validate_referral(user_id=user_id, promotion_code=promotion_code, rule_id=rule_id)
 
         response = PromotionCodeDetailsResponse(code_type=code_type, rule_id=rule_id)
@@ -266,8 +267,8 @@ class PromotionService:
     async def check_referral_rewards_after_buy_bundle(self, user_id: str):
         promotion_usage = self.__promotion_usage_repo.get_first_by(where={"user_id": user_id, "status": "pending"})
         if promotion_usage:
-            amount = float(os.getenv("REFERRAL_CODE_AMOUNT"))
-            rule_id = os.getenv("DEFAULT_REFERRAL_RULE_ID")
+            amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
+            rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
             if promotion_usage.referral_code is None:
                 logger.error("Referral code is missing in promotion usage")
                 return
