@@ -37,8 +37,7 @@ class PromotionService:
         promotion_code_details = self.code_type_and_get_rule(referral_reward_request.referral_code,
                                                              user_id)
         await self.add_reward(rule_id=promotion_code_details.data.rule_id, user_id=user_id,
-                              bundle_id=referral_reward_request.bundle_code, code=referral_reward_request.referral_code,
-                              is_referral=True)
+                              bundle_id=referral_reward_request.bundle_code, code=referral_reward_request.referral_code)
         return ResponseHelper.success_data_response_with_message(None,
                                                                  "Success",
                                                                  0)
@@ -91,8 +90,7 @@ class PromotionService:
             DtoMapper.bundle_currency_update(bundle=bundle, rate=rate, currency=x_currency), promotion_check.message, 1)
 
     def code_type_and_get_rule(self, promotion_code: str, user_id: str) -> Response[PromotionCodeDetailsResponse]:
-        if not self.__user_repo.get_first_by(where={},
-                                             filters={self.__user_repo.referral_code_key(): promotion_code}):
+        if not self.__is_referral_code(promotion_code):
 
             promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": promotion_code})
 
@@ -172,9 +170,9 @@ class PromotionService:
             return response
         return None
 
-    async def add_reward(self, rule_id: str, user_id: str, bundle_id, code: str,
-                         is_referral: bool) -> float:
+    async def add_reward(self, rule_id: str, user_id: str, bundle_id, code: str) -> float:
         promotion_rule = self.__promotion_rule_repo.get_first_by({"id": rule_id})
+        is_referral = self.__is_referral_code(code)
         if promotion_rule is None:
             raise CustomException(code=400, name="PROMOTION_RULE_MISSING", details="promotion rule is missing")
 
@@ -352,3 +350,8 @@ class PromotionService:
         if len(promotion_referral_usage) > rule.max_usage:
             raise CustomException(code=404, name="promotion max usage validation",
                                   details="times used is full")
+
+
+    def __is_referral_code(self, referral_code: str) -> bool:
+            return self.__user_repo.get_first_by(where={},
+                                          filters={self.__user_repo.referral_code_key(): referral_code}) is not None

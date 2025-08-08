@@ -63,7 +63,7 @@ class UserBundleService:
                                                                                  user.id).data
             await self.__promotion_service.add_reward(promo_code_details.rule_id, user.id,
                                                       bundle.bundle_code,
-                                                      assign_request.promo_code, False)
+                                                      assign_request.promo_code)
             rule_id = promo_code_details.rule_id
 
             promotion_reward = self.__promotion_service.check_promotion_reward(rule_id=promo_code_details.rule_id,
