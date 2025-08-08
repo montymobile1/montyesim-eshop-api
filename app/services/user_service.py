@@ -69,13 +69,11 @@ class UserBundleService:
             promotion_reward = self.__promotion_service.check_promotion_reward(rule_id=promo_code_details.rule_id,
                                                                                bundle_id=bundle.bundle_code,
                                                                                promo_code=assign_request.promo_code,
-                                                                               is_referral=False,
                                                                                x_currency=x_currency)
             if promotion_reward.type in [PromotionRuleAction.DISCOUNT_PERCENTAGE.value,
                                          PromotionRuleAction.DISCOUNT_AMOUNT.value]:
                 modified_amount = promotion_reward.amount
-
-        order = self.__user_order_repo.create(data={
+        data = {
             "user_id": user.id,
             "bundle_id": assign_request.bundle_code,
             "order_type": UserOrderType.ASSIGN,
@@ -86,7 +84,12 @@ class UserBundleService:
             "searched_countries": assign_request.related_search.model_dump_json(),
             "anonymous_user_id": user.anonymous_user_id,
             "promo_code": assign_request.promo_code or None,
-        })
+        }
+        if assign_request.promo_code and self.__promotion_service.is_referral_code(assign_request.promo_code):
+            data.setdefault("referral_code", assign_request.promo_code)
+            data.pop("promo_code")
+
+        order = self.__user_order_repo.create(data)
         payment_type = assign_request.payment_type
 
         if modified_amount == 0:
