@@ -155,7 +155,7 @@ class PromotionService:
             discounted = bundle.original_price * amount / 100
             discounted = round(discounted, 2)
             response = PromotionCheck(amount=bundle.original_price - discounted,
-                                      message=f"Discount Amount {amount} {x_currency}")
+                                      message=f"Discount Percentage {amount} %")
             return response
 
         if action_id in [PromotionRuleAction.CASHBACK_AMOUNT.value, PromotionRuleAction.CASHBACK_PERCENTAGE.value]:
@@ -351,7 +351,6 @@ class PromotionService:
             raise CustomException(code=404, name="promotion max usage validation",
                                   details="times used is full")
 
-
     def __is_referral_code(self, referral_code: str) -> bool:
-            return self.__user_repo.get_first_by(where={},
-                                          filters={self.__user_repo.referral_code_key(): referral_code}) is not None
+        return self.__user_repo.get_first_by(where={},
+                                             filters={self.__user_repo.referral_code_key(): referral_code}) is not None
