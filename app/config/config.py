@@ -101,15 +101,16 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
         else:
             customer = customers.get("data")[0]
         order_amount = user_bundle_order.modified_amount if user_bundle_order.modified_amount else user_bundle_order.amount
-        tax = calculate_tax(currency=user_bundle_order.currency, amount=order_amount,
-                            tax_code=os.getenv("STRIPE_TAX_CODE", "txcd_10103101"),
-                            tax_behavior="inclusive", request_ip=ip_address,
-                            reference=f"bundle:{user_bundle_order.bundle_id}")
-
-        if tax:
-            order_amount = tax.amount_total
-            logger.info(
-                f"applying tax calculation: {tax.id} for order {user_bundle_order.id} with amount {order_amount}")
+        if os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() in ("true", "1", "yes"):
+            logger.info(f"Automatic tax calculation enabled, calculating tax for amount {order_amount}")
+            tax = calculate_tax(currency=user_bundle_order.currency, amount=order_amount,
+                                tax_code=os.getenv("STRIPE_TAX_CODE", "txcd_10103101"),
+                                tax_behavior="inclusive", request_ip=ip_address,
+                                reference=f"bundle:{user_bundle_order.bundle_id}")
+            if tax:
+                order_amount = tax.amount_total
+                logger.info(
+                    f"applying tax calculation: {tax.id} for order {user_bundle_order.id} with amount {order_amount}")
         payment_intent = stripe.PaymentIntent.create(
             amount=order_amount,
             currency=user_bundle_order.currency,
