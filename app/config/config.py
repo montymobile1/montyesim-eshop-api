@@ -119,7 +119,6 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
             metadata=metadata,
             customer=customer.id
         )
-        logger.debug(f"Payment intent:  {payment_intent}")
         return payment_intent
 
     except stripe.error.StripeError as e:
