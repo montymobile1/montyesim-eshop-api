@@ -272,19 +272,24 @@ class UserBundleService:
         return ResponseHelper.success_data_response(
             DtoMapper.to_esim_bundle_response(user_profile=profiles[0], rate=rate, x_currency=x_currency), 0)
 
-    async def get_order_history(self, user_id: str, page_index: int, page_size: int) -> Response[
+    async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str) -> Response[
         List[UserOrderHistoryResponse]]:
+        rate = self.__currency_service.get_rate_by_currency(x_currency)
         user_orders = self.__user_order_repo.list(
             where={"user_id": user_id, "payment_status": OrderStatusEnum.SUCCESS,
                    "order_status": OrderStatusEnum.SUCCESS}, limit=page_size,
             offset=((page_index - 1) * page_size))
-        return ResponseHelper.success_data_response([DtoMapper.to_user_order_history(data) for data in user_orders],
-                                                    len(user_orders))
+        return ResponseHelper.success_data_response(
+            [DtoMapper.to_user_order_history(user_order=data, rate=rate, currency=x_currency) for data in
+             user_orders],
+            len(user_orders))
 
-    async def get_order_history_by_id(self, user_id: str, order_id: str) -> Response[UserOrderHistoryResponse]:
+    async def get_order_history_by_id(self, user_id: str, order_id: str, x_currency: str) -> Response[
+        UserOrderHistoryResponse]:
         order = self.__user_order_repo.get_first_by({"user_id": user_id, "id": order_id})
+        rate = self.__currency_service.get_rate_by_currency(x_currency)
         payment_details = stripe_get_payment_details(order.payment_intent_code)
-        user_order_history = DtoMapper.to_user_order_history(order)
+        user_order_history = DtoMapper.to_user_order_history(user_order=order, rate=rate, currency=x_currency)
         user_order_history.payment_details = payment_details
         return ResponseHelper.success_data_response(user_order_history, 1)
 

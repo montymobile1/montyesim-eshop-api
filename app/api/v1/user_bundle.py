@@ -130,15 +130,19 @@ async def get_related_topup(bundle_code: str, iccid: str, user: Annotated[UserMo
             dependencies=[Depends(bearer_token), Depends(device_token)])
 async def get_order_history(user: Annotated[UserModel, Depends(bearer_token)],
                             page_index: int = Query(1, description="Page Index"),
-                            page_size: int = Query(10, description="Page Size"), x_device_id: str = Header(None),
+                            page_size: int = Query(10, description="Page Size"),
+                            x_device_id: str = Header(None),
+                            x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
                             accept_language: str = Header("en"), ) -> Response[
     List[UserOrderHistoryResponse]]:
-    return await service.get_order_history(user_id=user.id, page_index=page_index, page_size=page_size)
+    return await service.get_order_history(user_id=user.id, page_index=page_index, page_size=page_size,
+                                           x_currency=x_currency)
 
 
 @router.get("/order-history/{order_id}", response_model=Response[UserOrderHistoryResponse],
             dependencies=[Depends(bearer_token), Depends(device_token)])
 async def get_order_history_by_id(user: Annotated[UserModel, Depends(bearer_token)], order_id: str,
+                                  x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
                                   x_device_id: str = Header(None)) -> Response[
     UserOrderHistoryResponse]:
-    return await service.get_order_history_by_id(order_id=order_id, user_id=user.id)
+    return await service.get_order_history_by_id(order_id=order_id, user_id=user.id, x_currency=x_currency)

@@ -311,13 +311,14 @@ class DtoMapper:
         )
 
     @staticmethod
-    def to_user_order_history(user_order: UserOrderModel):
+    def to_user_order_history(user_order: UserOrderModel, rate: float = 1.0,
+                              currency: str = None) -> UserOrderHistoryResponse:
         data = {
             "order_number": user_order.id,
             "order_status": user_order.payment_status,
-            "order_amount": user_order.modified_amount,
+            "order_amount": (user_order.modified_amount * rate),
             "order_currency": user_order.currency,
-            "order_display_price": str(float(user_order.modified_amount) / 100) + " " + user_order.currency,
+            "order_display_price": f"{round((float(user_order.modified_amount) / 100) * rate, 2)} {currency}",
             "order_date": user_order.created_at,
             "order_type": user_order.order_type,
             "bundle_details": BundleDTO.model_validate_json(user_order.bundle_data),
