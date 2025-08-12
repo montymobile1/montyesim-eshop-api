@@ -109,6 +109,8 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
                                 reference=f"bundle:{user_bundle_order.bundle_id}")
             if tax:
                 order_amount = tax.amount_total
+                metadata = {**metadata, "tax_calculation": tax.id},
+
                 logger.info(
                     f"applying tax calculation: {tax.id} for order {user_bundle_order.id} with amount {order_amount}")
         payment_intent = stripe.PaymentIntent.create(
