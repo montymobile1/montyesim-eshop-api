@@ -114,8 +114,10 @@ class UserBundleService:
                                   details=f"Payment type {payment_type} is not supported")
 
     async def assign_top_up(self, user: UserModel, assign_top_up_request: AssignTopUpRequest, device_id: str,
-                            request: Request) -> Response:
-        bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=assign_top_up_request.bundle_code)
+                            request: Request, x_currency: str, locale: str) -> Response:
+        bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_top_up_request.bundle_code,
+                                                                 currency_name=x_currency, locale=locale)
+        bundle = bundle_response.data
 
         order = self.__user_order_repo.create({
             "user_id": user.id,

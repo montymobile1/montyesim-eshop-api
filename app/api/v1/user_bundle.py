@@ -44,8 +44,11 @@ async def verify_order_otp(request: VerifyOtpRequestDto, user: Annotated[UserMod
              dependencies=[Depends(bearer_token), Depends(device_token)])
 async def assign_top_up(assign_top_up_request: AssignTopUpRequest, request: Request,
                         user: Annotated[UserModel, Depends(bearer_token)],
+                        x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
+                        accept_language: str = Header("en"),
                         x_device_id: str = Header(None)):
-    return await service.assign_top_up(user, assign_top_up_request, x_device_id, request)
+    return await service.assign_top_up(user=user, assign_top_up_request=assign_top_up_request, device_id=x_device_id,
+                                       request=request, x_currency=x_currency, locale=accept_language)
 
 
 @router.delete("/order/cancel/{id}", response_model=Response,
