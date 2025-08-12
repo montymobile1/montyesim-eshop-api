@@ -102,7 +102,7 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
             customer = customers.get("data")[0]
         order_amount = user_bundle_order.modified_amount if user_bundle_order.modified_amount else user_bundle_order.amount
         tax = calculate_tax(currency=user_bundle_order.currency, amount=order_amount,
-                            tax_code=f"txcd_{user_bundle_order.id}",
+                            tax_code=os.getenv("STRIPE_TAX_CODE", "txcd_10103101"),
                             tax_behavior="inclusive", request_ip=ip_address,
                             reference=f"bundle:{user_bundle_order.bundle_id}")
 
