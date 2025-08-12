@@ -150,13 +150,14 @@ class UserBundleService:
                                          billing_country_code="GB", order_id=order.id)
         return ResponseHelper.success_data_response(response, 0)
 
-    async def get_user_esims(self, user: UserModel) -> Response[List[EsimBundleResponse]]:
+    async def get_user_esims(self, user: UserModel, x_currency: str) -> Response[List[EsimBundleResponse]]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                         where={"user_id": user.id})
         esim_bundle_response = []
+        rate = self.__currency_service.get_rate_by_currency(x_currency)
         for profile in user_profiles:
             try:
-                bundle = DtoMapper.to_esim_bundle_response(profile)
+                bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, x_currency=x_currency, rate=rate)
                 if bundle is not None:
                     esim_bundle_response.append(bundle)
             except Exception as e:

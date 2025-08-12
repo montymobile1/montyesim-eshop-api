@@ -57,8 +57,10 @@ async def cancel_order(id: str, user: Annotated[UserModel, Depends(bearer_token)
 @router.get("/my-esim", response_model=Response[List[EsimBundleResponse]],
             dependencies=[Depends(bearer_token), Depends(device_token)])
 async def get_order_details(user: Annotated[UserModel, Depends(bearer_token)],
-                            x_device_id: str = Header(None)):
-    return await service.get_user_esims(user)
+                            x_device_id: str = Header(None),
+                            x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))
+                            ):
+    return await service.get_user_esims(user, x_currency)
 
 
 @router.get("/my-esim/{iccid}", response_model=Response[EsimBundleResponse],
