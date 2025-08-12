@@ -109,7 +109,8 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
                                 reference=f"bundle:{user_bundle_order.bundle_id}")
             if tax:
                 order_amount = tax.amount_total
-                metadata = {**metadata, "tax_calculation": tax.id},
+                metadata = {str(k): str(v) for k, v in {**metadata, "tax_calculation": tax.id}.items() if
+                            v is not None}
 
                 logger.info(
                     f"applying tax calculation: {tax.id} for order {user_bundle_order.id} with amount {order_amount}")
