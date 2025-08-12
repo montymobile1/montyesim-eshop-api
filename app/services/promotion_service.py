@@ -160,11 +160,11 @@ class PromotionService:
         if action_id in [PromotionRuleAction.CASHBACK_AMOUNT.value, PromotionRuleAction.CASHBACK_PERCENTAGE.value]:
             cashback_amount = amount
             if action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
-                cashback_amount = bundle.original_price * amount / 100
+                cashback_amount = (bundle.original_price * amount) / 100
                 cashback_amount = round(cashback_amount, 2)
-                response = PromotionCheck(amount=0, message=f"Cash Back Percentage {cashback_amount}%", type=action_id)
+                response = PromotionCheck(amount=0, message=f"Cashback Percentage {cashback_amount}%", type=action_id)
                 return response
-            response = PromotionCheck(amount=0, message=f"Cash Back Amount {(cashback_amount * rate)} {x_currency}",
+            response = PromotionCheck(amount=0, message=f"Cashback Amount {(cashback_amount * rate)} {x_currency}",
                                       type=action_id)
             return response
         return None

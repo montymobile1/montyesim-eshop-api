@@ -1,7 +1,7 @@
 import os
 from typing import Annotated, List
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends, Header, Request
 from fastapi.params import Query
 
 from app.dependencies.security import bearer_token, device_token, bearer_token_anonymous
@@ -27,10 +27,11 @@ async def consumption(iccid: str, user: Annotated[UserModel, Depends(bearer_toke
 
 @router.post("/bundle/assign", response_model=Response[PaymentIntentResponse] | Response[bool],
              dependencies=[Depends(bearer_token_anonymous), Depends(device_token)])
-async def assign(assign_request: AssignRequest, user: Annotated[UserModel, Depends(bearer_token_anonymous)],
+async def assign(assign_request: AssignRequest, request: Request,
+                 user: Annotated[UserModel, Depends(bearer_token_anonymous)],
                  x_device_id: str = Header(None), x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
                  accept_language: str = Header("en")):
-    return await service.assign(user, x_device_id, assign_request, x_currency, accept_language)
+    return await service.assign(user, x_device_id, assign_request, x_currency, accept_language, request)
 
 
 @router.post("/bundle/verify_order_otp", response_model=Response[bool],
@@ -41,9 +42,10 @@ async def verify_order_otp(request: VerifyOtpRequestDto, user: Annotated[UserMod
 
 @router.post("/bundle/assign-top-up", response_model=Response[PaymentIntentResponse],
              dependencies=[Depends(bearer_token), Depends(device_token)])
-async def assign_top_up(assign_top_up_request: AssignTopUpRequest, user: Annotated[UserModel, Depends(bearer_token)],
+async def assign_top_up(assign_top_up_request: AssignTopUpRequest, request: Request,
+                        user: Annotated[UserModel, Depends(bearer_token)],
                         x_device_id: str = Header(None)):
-    return await service.assign_top_up(user, assign_top_up_request, x_device_id)
+    return await service.assign_top_up(user, assign_top_up_request, x_device_id, request)
 
 
 @router.delete("/order/cancel/{id}", response_model=Response,
@@ -62,15 +64,17 @@ async def get_order_details(user: Annotated[UserModel, Depends(bearer_token)],
 @router.get("/my-esim/{iccid}", response_model=Response[EsimBundleResponse],
             dependencies=[Depends(bearer_token), Depends(device_token)])
 async def get_order_details(iccid: str, user: Annotated[UserModel, Depends(bearer_token)],
-                            x_device_id: str = Header(None)):
-    return await service.get_user_esim(iccid, user)
+                            x_device_id: str = Header(None),
+                            x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))):
+    return await service.get_user_esim(iccid=iccid, user=user, x_currency=x_currency)
 
 
 @router.get("/my-esim-by-order/{order_id}", response_model=Response[EsimBundleResponse],
             dependencies=[Depends(bearer_token_anonymous), Depends(device_token)])
 async def get_order_details(order_id: str, user: Annotated[UserModel, Depends(bearer_token_anonymous)],
-                            x_device_id: str = Header(None)):
-    return await service.get_user_esim_by_order_id(order_id, user)
+                            x_device_id: str = Header(None),
+                            x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))):
+    return await service.get_user_esim_by_order_id(order_id=order_id, user=user, x_currency=x_currency)
 
 
 @router.get("/user-notification", response_model=Response[List[UserNotificationResponse]],

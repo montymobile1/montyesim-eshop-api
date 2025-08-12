@@ -92,7 +92,7 @@ def authenticate(email: str, referral_code: str):
 
 
 def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
-                          metadata: dict) -> PaymentIntent:
+                          metadata: dict, ip_address: str = None) -> PaymentIntent:
     try:
         logger.info(f"Creating payment intent for request: {user_bundle_order}")
         customers = stripe.Customer.list(email=user_email)
@@ -100,8 +100,18 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
             customer = stripe.Customer.create(email=user_email)
         else:
             customer = customers.get("data")[0]
+        order_amount = user_bundle_order.modified_amount if user_bundle_order.modified_amount else user_bundle_order.amount
+        tax = calculate_tax(currency=user_bundle_order.currency, amount=order_amount,
+                            tax_code=f"txcd_{user_bundle_order.id}",
+                            tax_behavior="inclusive", request_ip=ip_address,
+                            reference=f"bundle:{user_bundle_order.bundle_id}")
+
+        if tax:
+            order_amount = tax.amount_total
+            logger.info(
+                f"applying tax calculation: {tax.id} for order {user_bundle_order.id} with amount {order_amount}")
         payment_intent = stripe.PaymentIntent.create(
-            amount=user_bundle_order.amount,
+            amount=order_amount,
             currency=user_bundle_order.currency,
             payment_method_types=["card"],
             description=f"Bundle order ({user_bundle_order.order_type}) for bundle {user_bundle_order.bundle_id}",
@@ -114,6 +124,29 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
     except stripe.error.StripeError as e:
         raise CustomException(code=400, name="Payment Intent Exception",
                               details=f"Error while creating payment intent {str(e)}")
+
+
+def calculate_tax(currency: str, amount: float, reference: str, tax_code: str,
+                  tax_behavior: str, request_ip: str = None) -> stripe.tax.Calculation | None:
+    try:
+        calc = stripe.tax.Calculation.create(
+            currency=currency,
+            line_items=[{
+                "amount": int(amount),  # smallest currency unit
+                "reference": reference,
+                "tax_code": tax_code,
+                "tax_behavior": tax_behavior,  # "exclusive" => tax added on top
+            }],
+            customer_details={
+                # "address": customer_address,
+                # "address_source": "billing",  # or "billing" depending on your flow
+                "ip_address": request_ip,
+            }
+        )
+        return calc
+    except stripe.error.StripeError as e:
+        logger.error(f"Error calculating tax: {str(e)}")
+        return None
 
 
 def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, metadata: dict) -> PaymentIntent:

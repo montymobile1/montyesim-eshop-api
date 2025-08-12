@@ -3,6 +3,7 @@ from typing import List
 
 import bleach
 import stripe
+from fastapi import Request
 from loguru import logger
 
 from app.config.config import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, \
@@ -21,6 +22,7 @@ from app.schemas.home import BundleDTO
 from app.schemas.promotion import PromotionValidationRequest
 from app.schemas.response import Response, ResponseHelper
 from app.services.bundle_service import BundleService
+from app.services.currency_service import CurrencyService
 from app.services.promotion_service import PromotionService
 from app.services.user_wallet_service import UserWalletService
 
@@ -38,9 +40,10 @@ class UserBundleService:
         self.__promotion_service = PromotionService()
         self.__bundle_service = BundleService()
         self.__dcb_service = dcb_service_instance()
+        self.__currency_service = CurrencyService()
 
     async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
-                     locale: str) -> Response[PaymentIntentResponse] | Response[bool]:
+                     locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
         bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_request.bundle_code,
                                                                  currency_name=x_currency, locale=locale)
         bundle = bundle_response.data
@@ -102,35 +105,16 @@ class UserBundleService:
             return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.DCB:
             return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
+        elif payment_type == PaymentTypeEnum.CARD:
+            return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
+                                                    assign_request=assign_request, rule_id=rule_id,
+                                                    modified_amount=modified_amount, request=request)
+        else:
+            raise CustomException(code=400, name="Payment Type Error",
+                                  details=f"Payment type {payment_type} is not supported")
 
-        payment_intent = create_payment_intent(user_bundle_order=order, user_email=user.email,
-                                               metadata={
-                                                   "order_id": order.id,
-                                                   "user_id": order.user_id,
-                                                   "device_id": device_id,
-                                                   "bundle_code": order.bundle_id,
-                                                   "order_type": order.order_type,
-                                                   "env": os.environ.get("ENVIRONMENT", "DEV"),
-                                                   "promo_code": assign_request.promo_code,
-                                                   "rule_id": rule_id,
-                                                   "amount": round(modified_amount * 100)
-                                               })
-        order.payment_intent_code = payment_intent.id
-        logger.debug(payment_intent)
-        self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
-        ephemeral = create_payment_ephemeral(payment_intent.customer)
-        response = PaymentIntentResponse(publishable_key=os.getenv("STRIPE_PUBLIC_KEY"),
-                                         merchant_identifier=os.getenv("MERCHANT_ID"),
-                                         payment_intent_client_secret=payment_intent.client_secret,
-                                         customer_id=payment_intent.customer,
-                                         customer_ephemeral_key_secret=ephemeral.secret,
-                                         test_env=not payment_intent.livemode,
-                                         merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
-                                         billing_country_code="GB",
-                                         order_id=order.id)
-        return ResponseHelper.success_data_response(response, 0)
-
-    async def assign_top_up(self, user: UserModel, assign_top_up_request: AssignTopUpRequest, device_id) -> Response:
+    async def assign_top_up(self, user: UserModel, assign_top_up_request: AssignTopUpRequest, device_id: str,
+                            request: Request) -> Response:
         bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=assign_top_up_request.bundle_code)
 
         order = self.__user_order_repo.create({
@@ -150,7 +134,7 @@ class UserBundleService:
             "order_type": order.order_type,
             "iccid": assign_top_up_request.iccid,
             "env": os.getenv("ENVIRONMENT", "DEV")
-        })
+        }, ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id
         order.modified_amount = order.amount
         self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
@@ -180,12 +164,14 @@ class UserBundleService:
                 logger.error(f"Failed to map profile {profile.id if hasattr(profile, 'id') else 'unknown'}: {e}")
         return ResponseHelper.success_data_response(esim_bundle_response, len(esim_bundle_response))
 
-    async def get_user_esim(self, iccid: str, user: UserModel) -> Response[EsimBundleResponse | None]:
+    async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str) -> Response[EsimBundleResponse | None]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                         where={"user_id": user.id, "iccid": iccid})
         if len(user_profiles) == 0:
             raise CustomException(code=404, name="Not Found", details="user profile not found")
-        return ResponseHelper.success_data_response(DtoMapper.to_esim_bundle_response(user_profiles[0]), 0)
+        rate = self.__currency_service.get_rate_by_currency(x_currency)
+        return ResponseHelper.success_data_response(
+            DtoMapper.to_esim_bundle_response(user_profiles[0], rate, x_currency), 0)
 
     async def consumption(self, user: UserModel, iccid: str) -> Response[ConsumptionResponse]:
         profile = self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
@@ -264,7 +250,8 @@ class UserBundleService:
 
         return ResponseHelper.success_data_response(all_bundles, len(all_bundles))
 
-    async def get_user_esim_by_order_id(self, order_id: str, user: UserModel) -> Response[EsimBundleResponse]:
+    async def get_user_esim_by_order_id(self, order_id: str, user: UserModel, x_currency: str) -> Response[
+        EsimBundleResponse]:
         user_order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
         if not user_order:
             raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND, details=ErrorMessages.ORDER_NOT_FOUND)
@@ -278,7 +265,9 @@ class UserBundleService:
                                                    where={"user_id": user.id, "user_order_id": order_id})
         if len(profiles) == 0:
             raise CustomException(code=404, name="Not Found", details=ErrorMessages.ORDER_NOT_FOUND)
-        return ResponseHelper.success_data_response(DtoMapper.to_esim_bundle_response(profiles[0]), 0)
+        rate = self.__currency_service.get_rate_by_currency(x_currency)
+        return ResponseHelper.success_data_response(
+            DtoMapper.to_esim_bundle_response(user_profile=profiles[0], rate=rate, x_currency=x_currency), 0)
 
     async def get_order_history(self, user_id: str, page_index: int, page_size: int) -> Response[
         List[UserOrderHistoryResponse]]:
@@ -350,3 +339,33 @@ class UserBundleService:
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
             raise CustomException(code=400, name="Error Creating Order", details=f"Error while creating order: {e}")
+
+    async def __handle_card_payment(self, user: UserModel, order: UserOrderModel, device_id: str,
+                                    assign_request: AssignRequest, rule_id: str, modified_amount: float,
+                                    request: Request) -> Response:
+        payment_intent = create_payment_intent(user_bundle_order=order, user_email=user.email,
+                                               metadata={
+                                                   "order_id": order.id,
+                                                   "user_id": order.user_id,
+                                                   "device_id": device_id,
+                                                   "bundle_code": order.bundle_id,
+                                                   "order_type": order.order_type,
+                                                   "env": os.environ.get("ENVIRONMENT", "DEV"),
+                                                   "promo_code": assign_request.promo_code,
+                                                   "rule_id": rule_id,
+                                                   "amount": round(modified_amount * 100)
+                                               },
+                                               ip_address=request.client.host)
+        order.payment_intent_code = payment_intent.id
+        self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
+        ephemeral = create_payment_ephemeral(payment_intent.customer)
+        response = PaymentIntentResponse(publishable_key=os.getenv("STRIPE_PUBLIC_KEY"),
+                                         merchant_identifier=os.getenv("MERCHANT_ID"),
+                                         payment_intent_client_secret=payment_intent.client_secret,
+                                         customer_id=payment_intent.customer,
+                                         customer_ephemeral_key_secret=ephemeral.secret,
+                                         test_env=not payment_intent.livemode,
+                                         merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
+                                         billing_country_code="GB",
+                                         order_id=order.id)
+        return ResponseHelper.success_data_response(response, 0)

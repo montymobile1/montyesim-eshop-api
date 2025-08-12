@@ -170,7 +170,8 @@ class DtoMapper:
         return matching_countries + non_matching_countries
 
     @staticmethod
-    def to_esim_bundle_response(user_profile: UserProfileModel) -> EsimBundleResponse | None:
+    def to_esim_bundle_response(user_profile: UserProfileModel, rate: float,
+                                x_currency: str) -> EsimBundleResponse | None:
         profile_current_bundle: UserProfileBundleModel = DtoMapper.get_profile_current_bundle(user_profile)
         if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
             logger.warning(f"Bundle data missing for user profile {user_profile.id}")
@@ -233,8 +234,8 @@ class DtoMapper:
             'count_countries': bundle_data.count_countries,
             "currency_code": bundle_data.currency_code,
             "gprs_limit_display": bundle_data.gprs_limit_display,
-            "price": bundle_data.price,
-            "price_display": bundle_data.price_display,
+            "price": round(bundle_data.original_price * rate, 2),
+            "price_display": f"{round(bundle_data.original_price * rate, 2)} {x_currency}",
             "unlimited": bundle_data.unlimited,
             "validity": bundle_data.validity,
             "validity_display": bundle_data.validity_display,
