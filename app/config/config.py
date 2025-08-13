@@ -11,6 +11,8 @@ from stripe import PaymentIntent, Charge
 from supabase import create_client, Client
 from supabase.lib.client_options import SyncClientOptions
 
+from app.config.db import ConfigKeysEnum
+from app.config.utils import get_config
 from app.exceptions import CustomException
 from app.models.user import UserOrderModel
 from app.schemas.bundle import PaymentDetailsDTO
@@ -104,7 +106,7 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
         if os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() in ("true", "1", "yes"):
             logger.info(f"Automatic tax calculation enabled, calculating tax for amount {order_amount}")
             tax = calculate_tax(currency=user_bundle_order.currency, amount=order_amount,
-                                tax_code=os.getenv("STRIPE_TAX_CODE", "txcd_10103101"),
+                                tax_code=get_config(ConfigKeysEnum.STRIPE_TAX_CODE, "txcd_10103101"),
                                 tax_behavior="inclusive", request_ip=ip_address,
                                 reference=f"bundle:{user_bundle_order.bundle_id}")
             if tax:
