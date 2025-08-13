@@ -108,6 +108,9 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
                                 tax_behavior="inclusive", request_ip=ip_address,
                                 reference=f"bundle:{user_bundle_order.bundle_id}")
             if tax:
+                tax_excl = getattr(tax, "tax_amount_exclusive", 0)
+                tax_incl = getattr(tax, "tax_amount_inclusive", 0)
+                logger.info(f"Tax calculation result: exclusive={tax_excl}, inclusive={tax_incl}")
                 order_amount = tax.amount_total
                 metadata = {str(k): str(v) for k, v in {**metadata, "tax_calculation": tax.id}.items() if
                             v is not None}
@@ -132,6 +135,7 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
 def calculate_tax(currency: str, amount: float, reference: str, tax_code: str,
                   tax_behavior: str, request_ip: str = None) -> stripe.tax.Calculation | None:
     try:
+        logger.info(f"calculating tax for request ip {request_ip} and tax code {tax_code}")
         calc = stripe.tax.Calculation.create(
             currency=currency,
             line_items=[{

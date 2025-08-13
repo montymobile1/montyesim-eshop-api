@@ -90,7 +90,7 @@ SQLAlchemy==2.0.41
 starlette==0.45.3
 storage3==0.11.3
 StrEnum==0.4.15
-stripe==11.5.0
+stripe==12.4.0
 supabase==2.13.0
 supafunc==0.9.3
 typing-inspection==0.4.1
