@@ -3,10 +3,10 @@ import threading
 
 from loguru import logger
 
-from app.config.config import create_wallet_top_up_intent, create_payment_ephemeral
 from app.config.db import UserOrderType
 from app.config.notification_types import send_wallet_top_up_succeeded_notification
 from app.config.push_notification_manager import fcm_service
+from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral
 from app.exceptions import CustomException
 from app.models.user import UserWalletModel, UserModel
 from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo
