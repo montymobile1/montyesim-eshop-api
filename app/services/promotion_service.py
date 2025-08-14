@@ -33,9 +33,10 @@ class PromotionService:
         self.__bundle_service = BundleService()
         self.__currency_service = CurrencyService()
 
-    async def referral_code_rewards(self, referral_reward_request: ReferralRewardRequest, user_id: str):
+    async def referral_code_rewards(self, referral_reward_request: ReferralRewardRequest, user_id: str,
+                                    device_id: str = None) -> Response:
         promotion_code_details = self.code_type_and_get_rule(referral_reward_request.referral_code,
-                                                             user_id)
+                                                             user_id, device_id)
         await self.add_reward(rule_id=promotion_code_details.data.rule_id, user_id=user_id,
                               bundle_id=referral_reward_request.bundle_code, code=referral_reward_request.referral_code)
         return ResponseHelper.success_data_response_with_message(None,
@@ -65,8 +66,8 @@ class PromotionService:
         return ResponseHelper.success_data_response(data=promotion_history_dto, total_count=len(promotion_history_dto))
 
     async def validate_promotion_code(self, promotion_validation_request: PromotionValidationRequest, x_currency: str,
-                                      user_id: str) -> Response[BundleDTO]:
-        response = self.code_type_and_get_rule(promotion_validation_request.promo_code, user_id)
+                                      user_id: str, device_id: str) -> Response[BundleDTO]:
+        response = self.code_type_and_get_rule(promotion_validation_request.promo_code, user_id, device_id)
         bundle_response = await self.__bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
                                                                  currency_name=x_currency, locale="en")
         bundle: BundleDTO = bundle_response.data
@@ -88,7 +89,8 @@ class PromotionService:
         return ResponseHelper.success_data_response_with_message(
             DtoMapper.bundle_currency_update(bundle=bundle, rate=rate, currency=x_currency), promotion_check.message, 1)
 
-    def code_type_and_get_rule(self, promotion_code: str, user_id: str) -> Response[PromotionCodeDetailsResponse]:
+    def code_type_and_get_rule(self, promotion_code: str, user_id: str, device_id: str = None) -> Response[
+        PromotionCodeDetailsResponse]:
         if not self.is_referral_code(promotion_code):
 
             promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": promotion_code})
@@ -96,7 +98,8 @@ class PromotionService:
             if promotion is not None:
                 code_type = "PROMOTION"
                 rule_id = promotion.rule_id
-                self.__validate_promotion(promotion=promotion, user_id=user_id, promotion_code=promotion_code)
+                self.__validate_promotion(promotion=promotion, user_id=user_id, promotion_code=promotion_code,
+                                          device_id=device_id)
             else:
                 logger.error("promotion code not found")
                 raise CustomException(code=400, name="code not recorded", details="promotion code not found")
@@ -112,7 +115,8 @@ class PromotionService:
     def convert_timestamp(date_str: str, date_format: str = "%Y-%m-%dT%H:%M:%S") -> datetime:
         return datetime.strptime(date_str, date_format)
 
-    def check_promotion_reward(self, rule_id: str, bundle_id, promo_code: str, x_currency: str) -> PromotionCheck | None:
+    def check_promotion_reward(self, rule_id: str, bundle_id, promo_code: str,
+                               x_currency: str) -> PromotionCheck | None:
         promotion_rule = self.__promotion_rule_repo.get_first_by({"id": rule_id})
         is_referral = self.is_referral_code(promo_code)
         if promotion_rule is None:
@@ -266,7 +270,12 @@ class PromotionService:
                 if rule_promotion.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE:
                     amount = (float(paid_amount) * float(promotion.amount)) / 100
                 else:
-                    amount = float(promotion.amount)
+                    if promotion:
+                        amount = float(promotion.amount)
+                    else:
+                        amount = get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)
+                rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
+                amount = round(amount * rate, 2)
                 await self.__handle_cashback_after_success_create_order(amount, Beneficiary.REFERRER.value,
                                                                         user_id, "")
 
@@ -311,7 +320,7 @@ class PromotionService:
             raise CustomException(code=400, name="INVALID_INPUT",
                                   details="promotion rule for promotion can have beneficiary user only")
 
-    def __validate_promotion(self, promotion: PromotionModel, promotion_code: str, user_id: str):
+    def __validate_promotion(self, promotion: PromotionModel, promotion_code: str, user_id: str, device_id: str = None):
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
         current_date = datetime.now()
 
@@ -326,7 +335,7 @@ class PromotionService:
             raise CustomException(code=404, name="promotion time validation error",
                                   details="promotion not active")
         promotion_usage = self.__promotion_usage_repo.list(
-            where={"user_id": user_id, "promotion_code": promotion_code, "status": "completed"})
+            where={"user_id": user_id, "promotion_code": promotion_code, "status": "completed", "device_id": device_id})
         if promotion_usage:
             raise CustomException(code=404, name="Promotion Already Used",
                                   details="Promotion Already Used")

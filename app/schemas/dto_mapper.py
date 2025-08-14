@@ -313,6 +313,8 @@ class DtoMapper:
     @staticmethod
     def to_user_order_history(user_order: UserOrderModel, rate: float = 1.0,
                               currency: str = None) -> UserOrderHistoryResponse:
+        if currency == user_order.currency:
+            rate = 1.0
         data = {
             "order_number": user_order.id,
             "order_status": user_order.payment_status,

@@ -59,7 +59,9 @@ class UserBundleService:
         if assign_request.promo_code:
             promo_code_request = PromotionValidationRequest(promo_code=assign_request.promo_code,
                                                             bundle_code=assign_request.bundle_code)
-            bundle = await self.__promotion_service.validate_promotion_code(promo_code_request, x_currency, user.id)
+            bundle = await self.__promotion_service.validate_promotion_code(
+                promotion_validation_request=promo_code_request, x_currency=x_currency, user_id=user.id,
+                device_id=device_id)
 
             bundle = bundle.data
             promo_code_details = self.__promotion_service.code_type_and_get_rule(assign_request.promo_code,
@@ -274,7 +276,7 @@ class UserBundleService:
 
     async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str) -> Response[
         List[UserOrderHistoryResponse]]:
-        rate = self.__currency_service.get_rate_by_currency(x_currency)
+        rate = self.__currency_service.get_currency_rate(os.getenv("DEFAULT_CURRENCY"), to_currency=x_currency)
         user_orders = self.__user_order_repo.list(
             where={"user_id": user_id, "payment_status": OrderStatusEnum.SUCCESS,
                    "order_status": OrderStatusEnum.SUCCESS}, limit=page_size,
@@ -287,7 +289,7 @@ class UserBundleService:
     async def get_order_history_by_id(self, user_id: str, order_id: str, x_currency: str) -> Response[
         UserOrderHistoryResponse]:
         order = self.__user_order_repo.get_first_by({"user_id": user_id, "id": order_id})
-        rate = self.__currency_service.get_rate_by_currency(x_currency)
+        rate = self.__currency_service.get_currency_rate(from_currency=order.currency, to_currency=x_currency)
         payment_details = stripe_get_payment_details(order.payment_intent_code)
         user_order_history = DtoMapper.to_user_order_history(user_order=order, rate=rate, currency=x_currency)
         user_order_history.payment_details = payment_details

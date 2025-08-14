@@ -1,5 +1,5 @@
-import asyncio
 import os
+import threading
 from collections import defaultdict
 from datetime import datetime
 from typing import List
@@ -23,6 +23,7 @@ from app.schemas.home import BundleDTO, RegionDTO, CountryDTO
 from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
 from app.services.grouping_service import GroupingService
+from app.services.promotion_service import PromotionService
 
 
 class BundleService:
@@ -38,6 +39,7 @@ class BundleService:
         self.__user_order_repo = UserOrderRepo()
         self.__user_profile_repo = UserProfileRepo()
         self.__user_profile_bundle_repo = UserProfileBundleRepo()
+        self.__promotion_service = PromotionService()
 
     async def bundle_exists(self, bundle_id: str) -> bool:
         try:
@@ -172,7 +174,8 @@ class BundleService:
         return ResponseHelper.success_data_response(countries, len(countries))
 
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
-                         payment_status: str, user: UserModel | UsersCopyModel = None):
+                         payment_status: str, user: UserModel | UsersCopyModel = None, promo_code: str = None,
+                         rule_id: str = None):
         if isinstance(user, UsersCopyModel):
             msisdn = user.metadata.get("msisdn", "")
             email = user.email
@@ -220,16 +223,18 @@ class BundleService:
             "bundle_expired": False,
             "bundle_data": bundle.model_dump(),
         })
+        await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
+        if promo_code:
+            logger.info(f"updating promotion usage for user {user_id} with promo code {promo_code}")
+            await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="completed",
+                                                                  rule_id=rule_id,
+                                                                  paid_amount=(float(user_order.modified_amount) / 100))
+
         await self.__send_buy_notification(bundle_name=bundle.bundle_name, iccid=esim_hub_order.iccid,
                                            user_id=user_order.user_id)
         user = self.__user_repo.get_by_id(record_id=user_order.user_id)
-        asyncio.create_task(
-            self.__send_email(
-                user=user,
-                user_profile=user_profile,
-                bundle=bundle
-            )
-        )
+        thread = threading.Thread(target=self.__send_email, args=(user, user_profile, bundle,))
+        thread.start()
 
         return ResponseHelper.success_response()
 

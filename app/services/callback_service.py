@@ -207,7 +207,6 @@ class CallbackService:
         iccid = metadata.get("iccid", None)
         promo_code = metadata.get("promo_code", None)
         rule_id = metadata.get("rule_id", None)
-        amount = metadata.get("amount", None)
         user_order = self.__user_order_repo.get_by_id(order_id)
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
         user = self.__user_repo.get_by_id(user_id)
@@ -220,13 +219,10 @@ class CallbackService:
             return HTTPException(status_code=200, detail="Payment Failed")
 
         if payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.ASSIGN:
-            await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
-            if promo_code:
-                logger.info(f"updating promotion usage for user {user_id} with promo code {promo_code}")
-                await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="completed", rule_id=rule_id,paid_amount=(float(amount)/100))
             return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
                                                           payment_status=payment_status,
-                                                          user_id=user_id, user=user)
+                                                          user_id=user_id, user=user, promo_code=promo_code,
+                                                          rule_id=rule_id)
 
         elif payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.BUNDLE_TOP_UP:
             if not iccid:
