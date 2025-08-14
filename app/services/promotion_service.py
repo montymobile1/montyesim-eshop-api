@@ -16,7 +16,6 @@ from app.schemas.home import BundleDTO
 from app.schemas.promotion import PromotionCodeDetailsResponse, PromotionValidationRequest, PromotionCheck, \
     ReferralRewardRequest, PromotionHistoryDto
 from app.schemas.response import Response, ResponseHelper
-from app.services.bundle_service import BundleService
 from app.services.currency_service import CurrencyService
 from app.services.user_wallet_service import UserWalletService
 
@@ -30,7 +29,6 @@ class PromotionService:
         self.__user_repo = UserRepo()
         self.__user_wallet_service = UserWalletService()
         self.__bundle_repo = BundleRepo()
-        self.__bundle_service = BundleService()
         self.__currency_service = CurrencyService()
 
     async def referral_code_rewards(self, referral_reward_request: ReferralRewardRequest, user_id: str,
@@ -55,7 +53,9 @@ class PromotionService:
                     self.__user_repo.referral_code_key(): promotion_usage.referral_code})
                 name = referral_user.email
             else:
-                bundle = await self.__bundle_service.get_bundle(promotion_usage.bundle_id,
+                from app.services.bundle_service import BundleService
+                bundle_service = BundleService()
+                bundle = await bundle_service.get_bundle(promotion_usage.bundle_id,
                                                                 os.getenv("DEFAULT_CURRENCY"), "en")
                 name = bundle.data.bundle_name
                 promotion = self.__promotion_repo.get_first_by(where={"code": promotion_usage.promotion_code})
@@ -68,7 +68,9 @@ class PromotionService:
     async def validate_promotion_code(self, promotion_validation_request: PromotionValidationRequest, x_currency: str,
                                       user_id: str, device_id: str) -> Response[BundleDTO]:
         response = self.code_type_and_get_rule(promotion_validation_request.promo_code, user_id, device_id)
-        bundle_response = await self.__bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
+        from app.services.bundle_service import BundleService
+        bundle_service = BundleService()
+        bundle_response = await bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
                                                                  currency_name=x_currency, locale="en")
         bundle: BundleDTO = bundle_response.data
         promotion_check = self.check_promotion_reward(rule_id=response.data.rule_id,
