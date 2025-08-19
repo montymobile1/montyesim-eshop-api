@@ -409,7 +409,7 @@ class PromotionService:
         self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(usage)})
         return await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
 
-    def __apply_referral_rewards(self, user_id: str, referral_code: str, paid_amount: float,
+    async def __apply_referral_rewards(self, user_id: str, referral_code: str, paid_amount: float,
                                  promotion_rule: PromotionRuleModel):
         referrer_user = self.__user_repo.get_first_by(where={},
                                                       filters={self.__user_repo.referral_code_key(): referral_code})
@@ -424,7 +424,7 @@ class PromotionService:
             logger.info(f"Adding cashback for REFERRER user {user_id} with amount {amount}")
             self.__promotion_usage_repo.update_by(where={"user_id": referrer_user_id, "referral_code": referral_code},
                                                   data={"status": "completed"})
-            return self.__user_wallet_service.add_wallet_transaction(amount, user_id)
+            await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
 
         if promotion_rule.beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
             if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
@@ -432,5 +432,5 @@ class PromotionService:
             else:
                 amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
             logger.info(f"Adding cashback for REFERRED user {referrer_user_id} with amount {amount}")
-            return self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
+            await self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
         return None
