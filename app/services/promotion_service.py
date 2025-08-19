@@ -393,10 +393,6 @@ class PromotionService:
             return
         promotion_rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
 
-        if promotion_rule.promotion_rule_action_id not in [PromotionRuleAction.CASHBACK_AMOUNT.value,
-                                                           PromotionRuleAction.CASHBACK_PERCENTAGE]:
-            logger.error(f"promotion action is not a cashback {code}")
-            return
 
         self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
         if is_referral:
