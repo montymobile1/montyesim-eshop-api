@@ -11,8 +11,8 @@ from app.config.constants import ErrorMessages, PaymentStatusEnum
 from app.config.db import DatabaseTables, PaymentTypeEnum, PromotionRuleAction
 from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details
 from app.exceptions import BadRequestException, CustomException
-from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel
-from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
+from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel, UsersCopyModel
+from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
 from app.repo.bundle_repo import BundleRepo
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
@@ -41,6 +41,7 @@ class UserBundleService:
         self.__bundle_service = BundleService()
         self.__dcb_service = dcb_service_instance()
         self.__currency_service = CurrencyService()
+        self.__user_repo = UserRepo()
 
     async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
                      locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
@@ -57,6 +58,8 @@ class UserBundleService:
         amount = bundle.price
         modified_amount = bundle.price
         if assign_request.promo_code:
+            if self.__promotion_service.is_referral_code(assign_request.promo_code):
+                self.__check_if_user_eligible_for_referral(user=user, promo_code=assign_request.promo_code)
             promo_code_request = PromotionValidationRequest(promo_code=assign_request.promo_code,
                                                             bundle_code=assign_request.bundle_code)
             bundle = await self.__promotion_service.validate_promotion_code(
@@ -379,3 +382,13 @@ class UserBundleService:
                                          billing_country_code="GB",
                                          order_id=order.id)
         return ResponseHelper.success_data_response(response, 0)
+
+    def __check_if_user_eligible_for_referral(self, user: UserModel, promo_code: str):
+        old_profiles = self.__user_profile_repo.list(where={"user_id": user.id})
+        if len(old_profiles) > 0:
+            raise CustomException(code=400, name="User Has Previous Esim",
+                                  details="User already purchased esim before, cannot use referral code")
+        user_model: UsersCopyModel = self.__user_repo.get_by_id(user.id)
+        if user_model.metadata["referral_code"] and user_model.metadata["referral_code"] == promo_code:
+            raise CustomException(code=400, name="Own Referral Code Can not be used",
+                                  details="Own Referral Code Can not be used")

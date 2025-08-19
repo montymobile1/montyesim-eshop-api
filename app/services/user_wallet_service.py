@@ -65,8 +65,9 @@ class UserWalletService:
                 "source": source,
                 "status": "success"
             })
-            thread = threading.Thread(target=self.__send_push, args=(amount, user_wallet.currency, user_id,))
-            thread.start()
+            if amount > 0:
+                thread = threading.Thread(target=self.__send_push, args=(amount, user_wallet.currency, user_id,))
+                thread.start()
             dto = DtoMapper.to_user_wallet_response(user_wallet)
             return ResponseHelper.success_data_response(dto, 1)
         except Exception as e:

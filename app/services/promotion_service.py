@@ -56,7 +56,7 @@ class PromotionService:
                 from app.services.bundle_service import BundleService
                 bundle_service = BundleService()
                 bundle = await bundle_service.get_bundle(promotion_usage.bundle_id,
-                                                                os.getenv("DEFAULT_CURRENCY"), "en")
+                                                         os.getenv("DEFAULT_CURRENCY"), "en")
                 name = bundle.data.bundle_name
                 promotion = self.__promotion_repo.get_first_by(where={"code": promotion_usage.promotion_code})
                 promotion_name = promotion.name
@@ -71,7 +71,7 @@ class PromotionService:
         from app.services.bundle_service import BundleService
         bundle_service = BundleService()
         bundle_response = await bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
-                                                                 currency_name=x_currency, locale="en")
+                                                          currency_name=x_currency, locale="en")
         bundle: BundleDTO = bundle_response.data
         promotion_check = self.check_promotion_reward(rule_id=response.data.rule_id,
                                                       bundle_id=promotion_validation_request.bundle_code,
@@ -266,6 +266,8 @@ class PromotionService:
         self.__promotion_usage_repo.update_by(where={"user_id": user_id, "promotion_code": code}, data=data)
         if status == "completed" and rule_id != "0":
             rule_promotion: PromotionRuleModel = self.__promotion_rule_repo.get_by_id(record_id=rule_id)
+            usages = self.__promotion_usage_repo.list(where={"promotion_code": code, "status": "completed"})
+            self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(usages)})
             if (rule_promotion.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE
                     or rule_promotion.promotion_rule_action_id == PromotionRuleAction.CASHBACK_AMOUNT):
                 promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": code})
@@ -297,13 +299,14 @@ class PromotionService:
                 return
             referrer_user_id = user.id
 
-            promotion_rule = self.__promotion_rule_repo.get_first_by({"id": rule_id})
+            promotion_rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by({"id": rule_id})
             beneficiary = promotion_rule.beneficiary
 
             if beneficiary in [Beneficiary.REFERRER.value, Beneficiary.BOTH.value]:
                 await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
 
-            if beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
+            action_id = promotion_rule.promotion_rule_action_id
+            if action_id in [PromotionRuleAction.CASHBACK_AMOUNT.value, PromotionRuleAction.CASHBACK_PERCENTAGE.value]:
                 await self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
             await self.update_promotion_usage(user_id, promotion_usage.referral_code, "completed", rule_id)
 
@@ -327,14 +330,14 @@ class PromotionService:
         current_date = datetime.now()
 
         if not promotion.is_active:
-            raise CustomException(code=404, name="promotion active validation",
+            raise CustomException(code=404, name="Promotion Not Active",
                                   details="promotion not active")
         if promotion.times_used >= rule.max_usage:
-            raise CustomException(code=404, name="promotion max usage validation",
+            raise CustomException(code=404, name="Promotion Reached Max Usage",
                                   details="times used is full")
         if not self.convert_timestamp(promotion.valid_from) < current_date <= self.convert_timestamp(
                 promotion.valid_to):
-            raise CustomException(code=404, name="promotion time validation error",
+            raise CustomException(code=404, name="Promotion Expired",
                                   details="promotion not active")
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "promotion_code": promotion_code, "status": "completed", "device_id": device_id})

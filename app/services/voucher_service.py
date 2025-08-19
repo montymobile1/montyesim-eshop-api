@@ -20,8 +20,8 @@ class VoucherService:
         voucher = self.__voucher_repo.get_first_by(
             where={"code": voucher_redeem_request.code, "is_active": True, "is_used": False})
         if not voucher:
-            raise CustomException(code=404, name="Voucher Redeem",
-                                  details="Voucher Code Invalid")
+            raise CustomException(code=404, name="Invalid Voucher Code",
+                                  details="Invalid Voucher Code")
         # Check if voucher is expired using timezone-aware UTC datetime and parsing string
         from datetime import datetime, timezone
         if voucher.expired_at:
@@ -30,11 +30,11 @@ class VoucherService:
                 if expired_at_dt.tzinfo is None:
                     expired_at_dt = expired_at_dt.replace(tzinfo=timezone.utc)
                 if expired_at_dt < datetime.now(timezone.utc):
-                    raise CustomException(code=400, name="Voucher Redeem",
+                    raise CustomException(code=400, name="Voucher Expired",
                                           details="Voucher Expired")
             except Exception as e:
                 logger.error(f"Invalid expired_at format: {voucher.expired_at}, error: {e}")
-                raise CustomException(code=400, name="Voucher Redeem",
+                raise CustomException(code=400, name="Invalid voucher expiration date format",
                                       details="Invalid voucher expiration date format")
         try:
             rate = self.__currency_service.get_rate_by_currency(x_currency)
@@ -43,5 +43,5 @@ class VoucherService:
             return ResponseHelper.success_response()
         except Exception as ex:
             logger.error(str(ex))
-            raise CustomException(code=400, name="Voucher Redeem",
+            raise CustomException(code=400, name="TopUp Failed",
                                   details="TopUp Failed")
