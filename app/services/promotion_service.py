@@ -191,7 +191,7 @@ class PromotionService:
         self.__validate_rule_constraints(event_id, action_id, bundle, is_referral, beneficiary)
 
         if is_referral:
-            amount = float(os.getenv("REFERRAL_CODE_AMOUNT"))
+            amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
             user = self.__user_repo.get_first_by(where={},
                                                  filters={self.__user_repo.referral_code_key(): code})
             referrer_user_id = user.id
@@ -410,7 +410,7 @@ class PromotionService:
         return await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
 
     async def __apply_referral_rewards(self, user_id: str, referral_code: str, paid_amount: float,
-                                 promotion_rule: PromotionRuleModel):
+                                       promotion_rule: PromotionRuleModel):
         referrer_user = self.__user_repo.get_first_by(where={},
                                                       filters={self.__user_repo.referral_code_key(): referral_code})
         rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
