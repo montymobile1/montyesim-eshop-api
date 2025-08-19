@@ -264,7 +264,7 @@ class PromotionService:
     async def update_promotion_usage(self, user_id: str, code: str, status: str, rule_id: str, paid_amount: float = 0):
         data = {"status": status}
         self.__promotion_usage_repo.update_by(where={"user_id": user_id, "promotion_code": code}, data=data)
-        if status == "completed" and rule_id != "0":
+        if status == "completed" and rule_id != "0" and self.is_referral_code(code):
             rule_promotion: PromotionRuleModel = self.__promotion_rule_repo.get_by_id(record_id=rule_id)
             usages = self.__promotion_usage_repo.list(where={"promotion_code": code, "status": "completed"})
             self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(usages)})
