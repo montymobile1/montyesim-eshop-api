@@ -15,7 +15,7 @@ from app.schemas.bundle import PaymentDetailsDTO
 stripe.api_key = STRIPE_SECRET_KEY
 
 
-def get_config(key: ConfigKeysEnum | str, default_value: str = None) -> str | None:
+def get_config(key: ConfigKeysEnum | str, default_value: str | int | float | None = None) -> str | None:
     config_repo = ConfigRepo()
     val: AppConfigModel = config_repo.get_first_by(where={"key": key.value})
     if val is None:

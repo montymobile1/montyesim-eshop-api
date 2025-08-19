@@ -313,7 +313,7 @@ class PromotionService:
                 await self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
             await self.update_promotion_usage(user_id, promotion_usage.referral_code, "completed", rule_id)
             self.__promotion_usage_repo.update_by(
-                where={"user_id": user_id, "promotion_code": promotion_usage.referral_code},
+                where={"user_id": user_id, "referral_code": promotion_usage.referral_code},
                 data={"status": "completed"})
 
     @staticmethod
@@ -398,9 +398,10 @@ class PromotionService:
             logger.error(f"promotion action is not a cashback {code}")
             return
 
+        self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
         if is_referral:
-            self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
-            return await self.apply_referral_rewards_after_buy_bundle(user_id=user_id)
+            return await self.__apply_referral_rewards(user_id=user_id, referral_code=code, paid_amount=paid_amount,
+                                                       promotion_rule=promotion_rule)
         else:
             promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": code})
             if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
@@ -410,6 +411,29 @@ class PromotionService:
         rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
         amount = round(amount * float(rate), 2)
         usage = self.__promotion_usage_repo.list(where={"promotion_code": code})
-        self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
         self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(usage)})
         return await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
+
+    def __apply_referral_rewards(self, user_id: str, referral_code: str, paid_amount: float,
+                                 promotion_rule: PromotionRuleModel):
+        referrer_user = self.__user_repo.get_first_by(where={},
+                                                      filters={self.__user_repo.referral_code_key(): referral_code})
+        rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
+        amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate)
+        if referrer_user is None:
+            logger.error(f"Referrer User not found for referral code {referral_code}")
+            return
+        referrer_user_id = referrer_user.id
+
+        if promotion_rule.beneficiary in [Beneficiary.REFERRER.value, Beneficiary.BOTH.value]:
+            logger.info(f"Adding cashback for user {user_id} with amount {paid_amount}")
+            return self.__user_wallet_service.add_wallet_transaction(amount, user_id)
+
+        if promotion_rule.beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
+            logger.info(f"Adding cashback for user {referrer_user_id} with amount {paid_amount}")
+            if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
+                amount = (paid_amount * float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE, 20))) / 100
+            else:
+                amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
+            return self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
+        return None
