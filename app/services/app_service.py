@@ -136,6 +136,9 @@ class AppService:
 
     async def configurations(self) -> Response[List[GlobalConfiguration]]:
         response = []
+        configs = self.__config_repo.list(where={})
+        for config in configs:
+            response.append(GlobalConfiguration(key=config.key.upper(), value=config.value))
         app_cache_key = self.__config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
         if app_cache_key:
             response.append(GlobalConfiguration(key="CATALOG.BUNDLES_CACHE_VERSION", value=app_cache_key.value))
