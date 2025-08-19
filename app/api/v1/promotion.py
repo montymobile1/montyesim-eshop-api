@@ -45,4 +45,4 @@ async def check_promotion_validation(user: Annotated[UserModel, Depends(bearer_t
 async def check_promotion_validation(user: Annotated[UserModel, Depends(bearer_token)],
                                      x_currency: str = Header("x-currency"),
                                      ) -> Response[List[PromotionHistoryDto]]:
-    return await promotion_service.check_referral_rewards_after_buy_bundle(user_id=user.id)
+    return await promotion_service.apply_referral_rewards_after_buy_bundle(user_id=user.id)

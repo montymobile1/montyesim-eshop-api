@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from typing import List
+from typing import List, Literal
 
 from loguru import logger
 
@@ -264,7 +264,8 @@ class PromotionService:
     async def update_promotion_usage(self, user_id: str, code: str, status: str, rule_id: str, paid_amount: float = 0):
         data = {"status": status}
         is_referral = self.is_referral_code(code)
-        conditions = {"user_id": user_id, "promotion_code": code} if not is_referral else {"user_id": user_id, "referral_code": code}
+        conditions = {"user_id": user_id, "promotion_code": code} if not is_referral else {"user_id": user_id,
+                                                                                           "referral_code": code}
         self.__promotion_usage_repo.update_by(where=conditions, data=data)
         if status == "completed" and rule_id != "0" and is_referral:
             rule_promotion: PromotionRuleModel = self.__promotion_rule_repo.get_by_id(record_id=rule_id)
@@ -285,7 +286,7 @@ class PromotionService:
                 await self.__handle_cashback_after_success_create_order(amount, Beneficiary.REFERRER.value,
                                                                         user_id, "")
 
-    async def check_referral_rewards_after_buy_bundle(self, user_id: str):
+    async def apply_referral_rewards_after_buy_bundle(self, user_id: str):
         promotion_usage = self.__promotion_usage_repo.get_first_by(where={"user_id": user_id, "status": "pending"})
         if promotion_usage:
             amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
@@ -372,3 +373,39 @@ class PromotionService:
     def is_referral_code(self, referral_code: str) -> bool:
         return self.__user_repo.get_first_by(where={},
                                              filters={self.__user_repo.referral_code_key(): referral_code}) is not None
+
+    async def apply_promotion_code_after_purchase(self, user_id: str, code: str,
+                                                  status: Literal["pending", "failed", "completed"],
+                                                  rule_id: str,
+                                                  paid_amount: float = 0):
+        is_referral = self.is_referral_code(code)
+        logger.info(
+            f"applying {'referral' if is_referral else 'promotion'} code {code} for user {user_id} with status {status}")
+        condition = {"user_id": user_id, "referral_code": code} if is_referral else {"user_id": user_id,
+                                                                                     "promotion_code": code}
+        if status != "completed":
+            self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
+            return
+
+        promotion_usage = self.__promotion_usage_repo.get_first_by(where={"user_id": user_id, "status": "pending"})
+        if promotion_usage is None:
+            logger.error(f"No pending promotion found for user {user_id} with code {code}")
+            return
+        promotion_rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
+
+        if promotion_rule.promotion_rule_action_id not in [PromotionRuleAction.CASHBACK_AMOUNT.value,
+                                                           PromotionRuleAction.CASHBACK_PERCENTAGE]:
+            logger.error(f"promotion action is not a cashback {code}")
+            return
+
+        if is_referral:
+            return await self.apply_referral_rewards_after_buy_bundle(user_id=user_id)
+        else:
+            promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": code})
+            if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
+                amount = (paid_amount * float(promotion.amount)) / 100
+            else:
+                amount = float(promotion.amount)
+        rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
+        amount = round(amount * float(rate), 2)
+        return await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
