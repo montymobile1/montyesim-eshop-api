@@ -399,6 +399,7 @@ class PromotionService:
             return
 
         if is_referral:
+            self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
             return await self.apply_referral_rewards_after_buy_bundle(user_id=user_id)
         else:
             promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": code})
@@ -408,4 +409,7 @@ class PromotionService:
                 amount = float(promotion.amount)
         rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
         amount = round(amount * float(rate), 2)
+        usage = self.__promotion_usage_repo.list(where={"promotion_code": code})
+        self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
+        self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(usage)})
         return await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
