@@ -309,6 +309,9 @@ class PromotionService:
             if action_id in [PromotionRuleAction.CASHBACK_AMOUNT.value, PromotionRuleAction.CASHBACK_PERCENTAGE.value]:
                 await self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
             await self.update_promotion_usage(user_id, promotion_usage.referral_code, "completed", rule_id)
+            self.__promotion_usage_repo.update_by(
+                where={"user_id": user_id, "promotion_code": promotion_usage.referral_code},
+                data={"status": "completed"})
 
     @staticmethod
     def __validate_rule_constraints(event_id, action_id, bundle, is_referral, beneficiary):
