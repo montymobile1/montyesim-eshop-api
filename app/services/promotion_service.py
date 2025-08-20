@@ -95,22 +95,30 @@ class PromotionService:
                                                  filters={self.__user_repo.referral_code_key(): code})
             referrer_user_id = user.id
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
-                bundle.original_price = max(bundle.original_price - amount, 0)
+                bundle.price = max(bundle.original_price - amount, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
+                await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
+                                             user_id=referrer_user_id, referrer_user_id=referrer_user_id, code=code,
+                                             is_referral=True,
+                                             event_id=rule.promotion_rule_event_id, bundle=bundle)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
                                                    message=f"Discount Amount {amount * rate} {currency}")
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
                 discounted = (bundle.original_price * percentage) / 100
                 discounted = round(discounted, 2)
-                bundle.original_price = max(bundle.original_price - discounted, 0)
+                bundle.price = max(bundle.original_price - discounted, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
+                await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
+                                             user_id=referrer_user_id, referrer_user_id=referrer_user_id, code=code,
+                                             is_referral=True,
+                                             event_id=rule.promotion_rule_event_id, bundle=bundle)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule_id,
                                                    message=f"Discount Percentage {percentage} %")
             else:
                 await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                              user_id=user_id, referrer_user_id=referrer_user_id, code=code,
-                                             is_referral=False,
+                                             is_referral=True,
                                              event_id=rule.promotion_rule_event_id, bundle=bundle)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
                                                    message=f"Cashback Amount {amount * rate} {currency}")
@@ -131,7 +139,7 @@ class PromotionService:
                                           details="Bundle code does not match with promotion bundle code")
             rule = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
-                bundle.original_price = max(bundle.original_price - promotion.amount, 0)
+                bundle.price = max(bundle.original_price - promotion.amount, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule.id,
@@ -139,7 +147,7 @@ class PromotionService:
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
                 discounted = bundle.original_price * promotion.amount / 100
                 discounted = round(discounted, 2)
-                bundle.original_price = max(bundle.original_price - discounted, 0)
+                bundle.price = max(bundle.original_price - discounted, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule.id,

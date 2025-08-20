@@ -29,7 +29,6 @@ def get_config(key: ConfigKeysEnum | str, default_value: str | int | float | Non
 def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
                           metadata: dict, ip_address: str = None) -> PaymentIntent:
     try:
-        logger.info(f"Creating payment intent for request: {user_bundle_order}")
         customers = stripe.Customer.list(email=user_email)
         if not customers:
             customer = stripe.Customer.create(email=user_email)
@@ -53,7 +52,7 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
                 logger.info(
                     f"applying tax calculation: {tax.id} for order {user_bundle_order.id} with amount {order_amount}")
         payment_intent = stripe.PaymentIntent.create(
-            amount=order_amount,
+            amount=int(order_amount),
             currency=user_bundle_order.currency,
             payment_method_types=["card"],
             description=f"Bundle order ({user_bundle_order.order_type}) for bundle {user_bundle_order.bundle_id}",

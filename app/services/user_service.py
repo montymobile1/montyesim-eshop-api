@@ -1,4 +1,5 @@
 import os
+from decimal import Decimal, ROUND_HALF_UP
 from typing import List
 
 import bleach
@@ -63,7 +64,7 @@ class UserBundleService:
                                                                                      user_id=user.id, bundle=bundle,
                                                                                      device_id=device_id,
                                                                                      currency=x_currency)
-            logger.info(f"applying promo code {assign_request.promo_code} with {validation_response=}")
+            logger.info(f"applying promo code {assign_request.promo_code} with {validation_response.message}")
             bundle = validation_response.bundle
             modified_amount = bundle.price
             amount = bundle.price
@@ -344,6 +345,9 @@ class UserBundleService:
     async def __handle_card_payment(self, user: UserModel, order: UserOrderModel, device_id: str,
                                     assign_request: AssignRequest, rule_id: str, modified_amount: float,
                                     request: Request) -> Response:
+        amount = Decimal(str(modified_amount))
+        minor_units = (amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        minor_units = int(minor_units)
         payment_intent = create_payment_intent(user_bundle_order=order, user_email=user.email,
                                                metadata={
                                                    "order_id": order.id,
@@ -354,7 +358,7 @@ class UserBundleService:
                                                    "env": os.environ.get("ENVIRONMENT", "DEV"),
                                                    "promo_code": assign_request.promo_code,
                                                    "rule_id": rule_id,
-                                                   "amount": round(modified_amount * 100)
+                                                   "amount": minor_units
                                                },
                                                ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id
