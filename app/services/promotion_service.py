@@ -474,10 +474,11 @@ class PromotionService:
             usage = self.__promotion_usage_repo.get_first_by(where={"user_id": user_id, "referral_code": referral_code})
             if usage is None:
                 logger.error(f"No pending promotion usage found for user {user_id} with referral code {referral_code}")
+                return
             else:
                 if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
                     amount = round((paid_amount * float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE, 20))) / 100,
                                    2)
-                logger.info(f"Adding cashback for REFERRED user {referrer_user_id} with amount {amount}")
-                await self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
+                logger.info(f"Adding cashback for REFERRED user {user_id} with amount {amount}")
+                await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
         return None
