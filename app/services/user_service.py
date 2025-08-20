@@ -8,7 +8,7 @@ from loguru import logger
 
 from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance
 from app.config.constants import ErrorMessages, PaymentStatusEnum
-from app.config.db import DatabaseTables, PaymentTypeEnum, PromotionRuleAction
+from app.config.db import DatabaseTables, PaymentTypeEnum
 from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details
 from app.exceptions import BadRequestException, CustomException
 from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel, UsersCopyModel
@@ -19,7 +19,6 @@ from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentR
     ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest, VerifyOtpRequestDto
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
-from app.schemas.promotion import PromotionValidationRequest
 from app.schemas.response import Response, ResponseHelper
 from app.services.bundle_service import BundleService
 from app.services.currency_service import CurrencyService
@@ -54,33 +53,22 @@ class UserBundleService:
             if not check_bundle_available:
                 raise CustomException(code=400, name="Buy Bundle", details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
 
-        rule_id = "0"
-        amount = bundle.price
         modified_amount = bundle.price
+        amount = bundle.price
+        rule_id = "0"
         if assign_request.promo_code:
             if self.__promotion_service.is_referral_code(assign_request.promo_code):
                 self.__check_if_user_eligible_for_referral(user=user, promo_code=assign_request.promo_code)
-            promo_code_request = PromotionValidationRequest(promo_code=assign_request.promo_code,
-                                                            bundle_code=assign_request.bundle_code)
-            bundle = await self.__promotion_service.validate_promotion_code(
-                promotion_validation_request=promo_code_request, x_currency=x_currency, user_id=user.id,
-                device_id=device_id)
+            validation_response = await self.__promotion_service.validate_promo_code(code=assign_request.promo_code,
+                                                                                     user_id=user.id, bundle=bundle,
+                                                                                     device_id=device_id,
+                                                                                     currency=x_currency)
+            logger.info(f"applying promo code {assign_request.promo_code} with {validation_response=}")
+            bundle = validation_response.bundle
+            modified_amount = bundle.price
+            amount = bundle.price
+            rule_id = validation_response.rule_id
 
-            bundle = bundle.data
-            promo_code_details = self.__promotion_service.code_type_and_get_rule(assign_request.promo_code,
-                                                                                 user.id).data
-            await self.__promotion_service.add_reward(promo_code_details.rule_id, user.id,
-                                                      bundle.bundle_code,
-                                                      assign_request.promo_code)
-            rule_id = promo_code_details.rule_id
-
-            promotion_reward = self.__promotion_service.check_promotion_reward(rule_id=promo_code_details.rule_id,
-                                                                               bundle_id=bundle.bundle_code,
-                                                                               promo_code=assign_request.promo_code,
-                                                                               x_currency=x_currency)
-            if promotion_reward.type in [PromotionRuleAction.DISCOUNT_PERCENTAGE.value,
-                                         PromotionRuleAction.DISCOUNT_AMOUNT.value]:
-                modified_amount = promotion_reward.amount
         data = {
             "user_id": user.id,
             "bundle_id": assign_request.bundle_code,

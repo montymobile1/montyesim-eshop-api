@@ -14,7 +14,7 @@ from app.repo.bundle_repo import BundleRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
 from app.schemas.promotion import PromotionCodeDetailsResponse, PromotionValidationRequest, PromotionCheck, \
-    ReferralRewardRequest, PromotionHistoryDto
+    ReferralRewardRequest, PromotionHistoryDto, PromotionValidationResponse
 from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
 from app.services.user_wallet_service import UserWalletService
@@ -91,6 +91,77 @@ class PromotionService:
         return ResponseHelper.success_data_response_with_message(
             DtoMapper.bundle_currency_update(bundle=bundle, rate=rate, currency=x_currency), promotion_check.message, 1)
 
+    async def validate_promo_code(self, code: str, user_id: str, bundle: BundleDTO, device_id: str,
+                                  currency: str) -> PromotionValidationResponse | None:
+        # check if the code is promotion
+        is_referral = self.is_referral_code(code)
+        rate = self.__currency_service.get_rate_by_currency(currency)
+        if is_referral:
+            rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
+            percentage = float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
+            amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
+            rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
+            self.__validate_referral(user_id=user_id, promotion_code=code, rule_id=rule_id)
+            user = self.__user_repo.get_first_by(where={},
+                                                 filters={self.__user_repo.referral_code_key(): code})
+            referrer_user_id = user.id
+            if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
+                bundle.original_price = max(bundle.original_price - amount, 0)
+                bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
+                return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
+                                                   message=f"Discount Amount {amount * rate} {currency}")
+            elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
+                discounted = bundle.original_price * percentage / 100
+                discounted = round(discounted, 2)
+                bundle.original_price = max(bundle.original_price - discounted, 0)
+                bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
+                return PromotionValidationResponse(bundle=bundle,
+                                                   rule_id=rule_id,
+                                                   message=f"Discount Percentage {percentage} %")
+            else:
+                await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
+                                             user_id=user_id, referrer_user_id=referrer_user_id, code=code,
+                                             is_referral=False,
+                                             event_id=rule.promotion_rule_event_id, bundle=bundle)
+                return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
+                                                   message=f"Cashback Amount {amount * rate} {currency}")
+
+        else:
+            promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": code})
+            if promotion is None:
+                logger.error(f"promotion code {code} not found")
+                raise CustomException(code=400, name="Promotion Not Found", details="Not Found")
+            self.__validate_promotion(promotion=promotion, user_id=user_id, device_id=device_id)
+            bundle_codes = promotion.bundle_code.split(",") if promotion.bundle_code else []
+            if len(bundle_codes) > 0:
+                logger.info(f"promotion model bundle code: {promotion.bundle_code}")
+                if bundle.bundle_code not in bundle_codes:
+                    logger.error(
+                        f"Bundle code {bundle.bundle_code} does not match with promotion bundle code {promotion.bundle_code}")
+                    raise CustomException(code=400, name="INVALID_BUNDLE_CODE",
+                                          details="Bundle code does not match with promotion bundle code")
+            rule = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
+            if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
+                bundle.original_price = max(bundle.original_price - promotion.amount, 0)
+                bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
+                return PromotionValidationResponse(bundle=bundle,
+                                                   rule_id=rule.id,
+                                                   message=f"Discount Amount {promotion.amount * rate} {currency}")
+            elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
+                discounted = bundle.original_price * promotion.amount / 100
+                discounted = round(discounted, 2)
+                bundle.original_price = max(bundle.original_price - discounted, 0)
+                bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
+                return PromotionValidationResponse(bundle=bundle,
+                                                   rule_id=rule.id,
+                                                   message=f"Discount Percentage {promotion.amount} %")
+            else:
+                await self.__handle_cashback(amount=promotion.amount, beneficiary=str(rule.beneficiary),
+                                             user_id=user_id, referrer_user_id="0", code=code, is_referral=False,
+                                             event_id=rule.promotion_rule_event_id, bundle=bundle)
+                return PromotionValidationResponse(bundle=bundle, rule_id=rule.id,
+                                                   message=f"Cashback Amount {promotion.amount}")
+
     def code_type_and_get_rule(self, promotion_code: str, user_id: str, device_id: str = None) -> Response[
         PromotionCodeDetailsResponse]:
         if not self.is_referral_code(promotion_code):
@@ -100,7 +171,7 @@ class PromotionService:
             if promotion is not None:
                 code_type = "PROMOTION"
                 rule_id = promotion.rule_id
-                self.__validate_promotion(promotion=promotion, user_id=user_id, promotion_code=promotion_code,
+                self.__validate_promotion(promotion=promotion, user_id=user_id,
                                           device_id=device_id)
             else:
                 logger.error("promotion code not found")
@@ -331,7 +402,7 @@ class PromotionService:
             raise CustomException(code=400, name="INVALID_INPUT",
                                   details="promotion rule for promotion can have beneficiary user only")
 
-    def __validate_promotion(self, promotion: PromotionModel, promotion_code: str, user_id: str, device_id: str = None):
+    def __validate_promotion(self, promotion: PromotionModel, user_id: str, device_id: str = None):
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
         current_date = datetime.now()
 
@@ -346,7 +417,7 @@ class PromotionService:
             raise CustomException(code=404, name="Promotion Expired",
                                   details="promotion not active")
         promotion_usage = self.__promotion_usage_repo.list(
-            where={"user_id": user_id, "promotion_code": promotion_code, "status": "completed", "device_id": device_id})
+            where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed", "device_id": device_id})
         if promotion_usage:
             raise CustomException(code=404, name="Promotion Already Used",
                                   details="Promotion Already Used")
