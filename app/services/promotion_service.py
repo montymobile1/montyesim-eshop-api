@@ -427,18 +427,17 @@ class PromotionService:
         if status != "completed":
             self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
             return
-
-        referred_promotion_usage = self.__promotion_usage_repo.get_first_by(
-            where={"user_id": user_id, "status": "pending"})
-        referrer_promotion_usage = self.__promotion_usage_repo.get_first_by(
-            where={"user_id": referrer_user.id, "status": "pending"})
-        if referred_promotion_usage is None and referrer_promotion_usage is None:
-            logger.error(f"No pending promotion found for user {user_id} with code {code}")
-            return
         promotion_rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
 
         self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
         if is_referral:
+            referred_promotion_usage = self.__promotion_usage_repo.get_first_by(
+                where={"user_id": user_id, "status": "pending"})
+            referrer_promotion_usage = self.__promotion_usage_repo.get_first_by(
+                where={"user_id": referrer_user.id, "status": "pending"})
+            if referred_promotion_usage is None and referrer_promotion_usage is None:
+                logger.error(f"No pending promotion found for user {user_id} with code {code}")
+                return
             return await self.__apply_referral_rewards(user_id=user_id, referral_code=code, paid_amount=paid_amount,
                                                        promotion_rule=promotion_rule)
         else:
