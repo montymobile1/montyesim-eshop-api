@@ -38,7 +38,7 @@ async def check_promotion_validation(user: Annotated[UserModel, Depends(bearer_t
 async def check_promotion_validation(user: Annotated[UserModel, Depends(bearer_token)],
                                      x_currency: str = Header("x-currency"),
                                      ) -> Response[List[PromotionHistoryDto]]:
-    return await promotion_service.history(user_id=user.id)
+    return await promotion_service.history(user_id=user.id,x_currency=x_currency)
 
 
 @router.post("/test-referral", response_model=Response, dependencies=[Depends(bearer_token), Depends(device_token)])

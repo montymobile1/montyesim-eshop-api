@@ -41,10 +41,11 @@ class PromotionService:
                                                                  "Success",
                                                                  0)
 
-    async def history(self, user_id: str) -> Response[List[PromotionHistoryDto]]:
+    async def history(self, user_id: str, x_currency: str) -> Response[List[PromotionHistoryDto]]:
         promotion_usages = self.__promotion_usage_repo.list(where={"user_id": user_id, "status": "completed"})
 
         promotion_history_dto = []
+        rate = self.__currency_service.get_rate_by_currency(x_currency)
 
         for promotion_usage in promotion_usages:
             promotion_name = ""
@@ -61,7 +62,8 @@ class PromotionService:
                 promotion = self.__promotion_repo.get_first_by(where={"code": promotion_usage.promotion_code})
                 promotion_name = promotion.name
             promotion_history_dto.append(DtoMapper.to_promotion_history_dto(promotion_usage=promotion_usage, name=name,
-                                                                            promotion_name=promotion_name))
+                                                                            promotion_name=promotion_name, rate=rate,
+                                                                            currency=x_currency))
 
         return ResponseHelper.success_data_response(data=promotion_history_dto, total_count=len(promotion_history_dto))
 
@@ -98,7 +100,8 @@ class PromotionService:
                 bundle.original_price = max(bundle.original_price - amount, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if bundle.original_price < 0.5:
-                    raise CustomException(code=400, name="Promo Code Can not be used for this bundle",details="Bundle price is too low")
+                    raise CustomException(code=400, name="Promo Code Can not be used for this bundle",
+                                          details="Bundle price is too low")
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                                  user_id=referrer_user_id, referrer_user_id=referrer_user_id, code=code,
@@ -111,7 +114,8 @@ class PromotionService:
                 discounted = round(discounted, 2)
                 bundle.original_price = max(bundle.original_price - discounted, 0)
                 if bundle.original_price < 0.5:
-                    raise CustomException(code=400, name="Promo Code Can not be used for this bundle",details="Bundle price is too low")
+                    raise CustomException(code=400, name="Promo Code Can not be used for this bundle",
+                                          details="Bundle price is too low")
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
@@ -148,7 +152,8 @@ class PromotionService:
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
                 bundle.original_price = max(bundle.original_price - promotion.amount, 0)
                 if bundle.original_price < 0.5:
-                    raise CustomException(code=400, name="Promo Code Can not be used for this bundle",details="Bundle price is too low")
+                    raise CustomException(code=400, name="Promo Code Can not be used for this bundle",
+                                          details="Bundle price is too low")
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=promotion.amount, status="pending", code=code,
@@ -161,7 +166,8 @@ class PromotionService:
                 discounted = round(discounted, 2)
                 bundle.original_price = max(bundle.original_price - discounted, 0)
                 if bundle.original_price < 0.5:
-                    raise CustomException(code=400, name="Promo Code Can not be used for this bundle",details="Bundle price is too low")
+                    raise CustomException(code=400, name="Promo Code Can not be used for this bundle",
+                                          details="Bundle price is too low")
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=discounted, status="pending", code=code,
@@ -422,8 +428,10 @@ class PromotionService:
             self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
             return
 
-        referred_promotion_usage = self.__promotion_usage_repo.get_first_by(where={"user_id": user_id, "status": "pending"})
-        referrer_promotion_usage = self.__promotion_usage_repo.get_first_by(where={"user_id": referrer_user.id, "status": "pending"})
+        referred_promotion_usage = self.__promotion_usage_repo.get_first_by(
+            where={"user_id": user_id, "status": "pending"})
+        referrer_promotion_usage = self.__promotion_usage_repo.get_first_by(
+            where={"user_id": referrer_user.id, "status": "pending"})
         if referred_promotion_usage is None and referrer_promotion_usage is None:
             logger.error(f"No pending promotion found for user {user_id} with code {code}")
             return
@@ -468,7 +476,8 @@ class PromotionService:
                 logger.error(f"No pending promotion usage found for user {user_id} with referral code {referral_code}")
             else:
                 if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
-                    amount = round((paid_amount * float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE, 20))) / 100, 2)
+                    amount = round((paid_amount * float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE, 20))) / 100,
+                                   2)
                 logger.info(f"Adding cashback for REFERRED user {referrer_user_id} with amount {amount}")
                 await self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
         return None

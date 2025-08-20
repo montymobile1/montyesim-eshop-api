@@ -421,14 +421,14 @@ class DtoMapper:
 
     @staticmethod
     def to_promotion_history_dto(promotion_usage: PromotionUsageModel, name: str,
-                                 promotion_name) -> PromotionHistoryDto:
+                                 promotion_name, rate: float, currency: str) -> PromotionHistoryDto:
         is_referral = False
         if promotion_usage.referral_code:
             is_referral = True
 
         promotion_history_data = {
             "is_referral": is_referral,
-            "amount": f'{round(promotion_usage.amount, 2):.2f} {os.getenv("DEFAULT_CURRENCY")}',
+            "amount": f'{round(promotion_usage.amount * rate, 2):.2f} {currency}',
             "name": name,
             "promotion_name": promotion_name,
             "date": promotion_usage.created_at
