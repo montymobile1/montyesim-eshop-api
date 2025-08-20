@@ -97,7 +97,7 @@ class PromotionService:
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
                 bundle.original_price = max(bundle.original_price - amount, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
-                if bundle.original_price < 1:
+                if bundle.original_price < 0.5:
                     raise CustomException(code=400, name="Promo Code Can not be used for this bundle",details="Bundle price is too low")
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
@@ -110,7 +110,7 @@ class PromotionService:
                 discounted = (bundle.original_price * percentage) / 100
                 discounted = round(discounted, 2)
                 bundle.original_price = max(bundle.original_price - discounted, 0)
-                if bundle.original_price < 1:
+                if bundle.original_price < 0.5:
                     raise CustomException(code=400, name="Promo Code Can not be used for this bundle",details="Bundle price is too low")
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
@@ -147,7 +147,7 @@ class PromotionService:
             rule = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
                 bundle.original_price = max(bundle.original_price - promotion.amount, 0)
-                if bundle.original_price < 1:
+                if bundle.original_price < 0.5:
                     raise CustomException(code=400, name="Promo Code Can not be used for this bundle",details="Bundle price is too low")
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
@@ -160,7 +160,7 @@ class PromotionService:
                 discounted = bundle.original_price * promotion.amount / 100
                 discounted = round(discounted, 2)
                 bundle.original_price = max(bundle.original_price - discounted, 0)
-                if bundle.original_price < 1:
+                if bundle.original_price < 0.5:
                     raise CustomException(code=400, name="Promo Code Can not be used for this bundle",details="Bundle price is too low")
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
