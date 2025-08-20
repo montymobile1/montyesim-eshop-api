@@ -404,6 +404,8 @@ class PromotionService:
                                                   rule_id: str,
                                                   paid_amount: float = 0):
         is_referral = self.is_referral_code(code)
+        referrer_user = self.__user_repo.get_first_by(where={},
+                                                      filters={self.__user_repo.referral_code_key(): code})
         logger.info(
             f"applying {'referral' if is_referral else 'promotion'} code {code} for user {user_id} with status {status}")
         condition = {"user_id": user_id, "referral_code": code} if is_referral else {"user_id": user_id,
@@ -412,8 +414,9 @@ class PromotionService:
             self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
             return
 
-        promotion_usage = self.__promotion_usage_repo.get_first_by(where={"user_id": user_id, "status": "pending"})
-        if promotion_usage is None:
+        referred_promotion_usage = self.__promotion_usage_repo.get_first_by(where={"user_id": user_id, "status": "pending"})
+        referrer_promotion_usage = self.__promotion_usage_repo.get_first_by(where={"user_id": referrer_user.id, "status": "pending"})
+        if referred_promotion_usage is None and referrer_promotion_usage is None:
             logger.error(f"No pending promotion found for user {user_id} with code {code}")
             return
         promotion_rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
