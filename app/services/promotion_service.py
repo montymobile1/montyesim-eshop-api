@@ -344,7 +344,12 @@ class PromotionService:
         is_referral = self.is_referral_code(code)
         conditions = {"user_id": user_id, "promotion_code": code} if not is_referral else {"user_id": user_id,
                                                                                            "referral_code": code}
+        referrer_user = self.__user_repo.get_first_by(where={},
+                                                      filters={self.__user_repo.referral_code_key(): code})
         self.__promotion_usage_repo.update_by(where=conditions, data=data)
+        if referrer_user:
+            self.__promotion_usage_repo.update_by(where={"user_id": referrer_user.id, "referral_code": code}, data=data)
+
         if status == "completed" and rule_id != "0" and is_referral:
             rule_promotion: PromotionRuleModel = self.__promotion_rule_repo.get_by_id(record_id=rule_id)
             usages = self.__promotion_usage_repo.list(where={"promotion_code": code, "status": "completed"})
