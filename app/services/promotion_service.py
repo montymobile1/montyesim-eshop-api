@@ -77,7 +77,7 @@ class PromotionService:
                                                              currency=x_currency)
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         return ResponseHelper.success_data_response_with_message(
-            DtoMapper.bundle_currency_update(bundle=bundle, rate=rate, currency=x_currency),
+            DtoMapper.bundle_currency_update(bundle=validation_response.bundle, rate=rate, currency=x_currency),
             validation_response.message, 1)
 
     async def validate_promo_code(self, code: str, user_id: str, bundle: BundleDTO, device_id: str,
@@ -95,7 +95,7 @@ class PromotionService:
                                                  filters={self.__user_repo.referral_code_key(): code})
             referrer_user_id = user.id
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
-                bundle.price = max(bundle.original_price - amount, 0)
+                bundle.original_price = max(bundle.original_price - amount, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
@@ -107,7 +107,7 @@ class PromotionService:
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
                 discounted = (bundle.original_price * percentage) / 100
                 discounted = round(discounted, 2)
-                bundle.price = max(bundle.original_price - discounted, 0)
+                bundle.original_price = max(bundle.original_price - discounted, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
@@ -142,7 +142,7 @@ class PromotionService:
                                           details="Bundle code does not match with promotion bundle code")
             rule = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
-                bundle.price = max(bundle.original_price - promotion.amount, 0)
+                bundle.original_price = max(bundle.original_price - promotion.amount, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=promotion.amount, status="pending", code=code,
@@ -153,7 +153,7 @@ class PromotionService:
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
                 discounted = bundle.original_price * promotion.amount / 100
                 discounted = round(discounted, 2)
-                bundle.price = max(bundle.original_price - discounted, 0)
+                bundle.original_price = max(bundle.original_price - discounted, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=discounted, status="pending", code=code,
