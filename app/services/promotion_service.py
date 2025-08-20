@@ -81,7 +81,7 @@ class PromotionService:
             validation_response.message, 1)
 
     async def validate_promo_code(self, code: str, user_id: str, bundle: BundleDTO, device_id: str,
-                                  currency: str) -> PromotionValidationResponse | None:
+                                  currency: str, apply_usage: bool = False) -> PromotionValidationResponse | None:
         # check if the code is promotion
         is_referral = self.is_referral_code(code)
         rate = self.__currency_service.get_rate_by_currency(currency)
@@ -97,10 +97,11 @@ class PromotionService:
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
                 bundle.price = max(bundle.original_price - amount, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
-                await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                             user_id=referrer_user_id, referrer_user_id=referrer_user_id, code=code,
-                                             is_referral=True,
-                                             event_id=rule.promotion_rule_event_id, bundle=bundle)
+                if apply_usage:
+                    await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
+                                                 user_id=referrer_user_id, referrer_user_id=referrer_user_id, code=code,
+                                                 is_referral=True,
+                                                 event_id=rule.promotion_rule_event_id, bundle=bundle)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
                                                    message=f"Discount Amount {amount * rate} {currency}")
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
@@ -108,18 +109,20 @@ class PromotionService:
                 discounted = round(discounted, 2)
                 bundle.price = max(bundle.original_price - discounted, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
-                await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                             user_id=referrer_user_id, referrer_user_id=referrer_user_id, code=code,
-                                             is_referral=True,
-                                             event_id=rule.promotion_rule_event_id, bundle=bundle)
+                if apply_usage:
+                    await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
+                                                 user_id=referrer_user_id, referrer_user_id=referrer_user_id, code=code,
+                                                 is_referral=True,
+                                                 event_id=rule.promotion_rule_event_id, bundle=bundle)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule_id,
                                                    message=f"Discount Percentage {percentage} %")
             else:
-                await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                             user_id=user_id, referrer_user_id=referrer_user_id, code=code,
-                                             is_referral=True,
-                                             event_id=rule.promotion_rule_event_id, bundle=bundle)
+                if apply_usage:
+                    await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
+                                                 user_id=user_id, referrer_user_id=referrer_user_id, code=code,
+                                                 is_referral=True,
+                                                 event_id=rule.promotion_rule_event_id, bundle=bundle)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
                                                    message=f"Cashback Amount {amount * rate} {currency}")
 
@@ -141,6 +144,9 @@ class PromotionService:
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
                 bundle.price = max(bundle.original_price - promotion.amount, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
+                if apply_usage:
+                    self._insert_promotion_usage(user_id=user_id, amount=promotion.amount, status="pending", code=code,
+                                                 is_referral=is_referral, bundle=bundle)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule.id,
                                                    message=f"Discount Amount {promotion.amount * rate} {currency}")
@@ -149,13 +155,17 @@ class PromotionService:
                 discounted = round(discounted, 2)
                 bundle.price = max(bundle.original_price - discounted, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
+                if apply_usage:
+                    self._insert_promotion_usage(user_id=user_id, amount=discounted, status="pending", code=code,
+                                                 is_referral=is_referral, bundle=bundle)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule.id,
                                                    message=f"Discount Percentage {promotion.amount} %")
             else:
-                await self.__handle_cashback(amount=promotion.amount, beneficiary=str(rule.beneficiary),
-                                             user_id=user_id, referrer_user_id="0", code=code, is_referral=False,
-                                             event_id=rule.promotion_rule_event_id, bundle=bundle)
+                if apply_usage:
+                    await self.__handle_cashback(amount=promotion.amount, beneficiary=str(rule.beneficiary),
+                                                 user_id=user_id, referrer_user_id="0", code=code, is_referral=False,
+                                                 event_id=rule.promotion_rule_event_id, bundle=bundle)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule.id,
                                                    message=f"Cashback Amount {promotion.amount}")
 

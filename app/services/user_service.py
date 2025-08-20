@@ -63,7 +63,8 @@ class UserBundleService:
             validation_response = await self.__promotion_service.validate_promo_code(code=assign_request.promo_code,
                                                                                      user_id=user.id, bundle=bundle,
                                                                                      device_id=device_id,
-                                                                                     currency=x_currency)
+                                                                                     currency=x_currency,
+                                                                                     apply_usage=True)
             logger.info(f"applying promo code {assign_request.promo_code} with {validation_response.message}")
             bundle = validation_response.bundle
             modified_amount = bundle.price
