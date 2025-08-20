@@ -67,29 +67,18 @@ class PromotionService:
 
     async def validate_promotion_code(self, promotion_validation_request: PromotionValidationRequest, x_currency: str,
                                       user_id: str, device_id: str) -> Response[BundleDTO]:
-        response = self.code_type_and_get_rule(promotion_validation_request.promo_code, user_id, device_id)
         from app.services.bundle_service import BundleService
         bundle_service = BundleService()
         bundle_response = await bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
                                                           currency_name=x_currency, locale="en")
         bundle: BundleDTO = bundle_response.data
-        promotion_check = self.check_promotion_reward(rule_id=response.data.rule_id,
-                                                      bundle_id=promotion_validation_request.bundle_code,
-                                                      promo_code=promotion_validation_request.promo_code,
-                                                      x_currency=x_currency)
-
+        validation_response = await self.validate_promo_code(code=promotion_validation_request.promo_code,
+                                                             bundle=bundle, user_id=user_id, device_id=device_id,
+                                                             currency=x_currency)
         rate = self.__currency_service.get_rate_by_currency(x_currency)
-
-        if promotion_check.amount < 0:
-            promotion_check.amount = 0
-
-        if promotion_check.amount >= 0 and promotion_check.type in [PromotionRuleAction.DISCOUNT_AMOUNT.value,
-                                                                    PromotionRuleAction.DISCOUNT_PERCENTAGE.value]:
-            bundle.original_price = promotion_check.amount
-            bundle.price_display = f'{round(promotion_check.amount, 2):.2f} {x_currency}'
-            logger.info(f"applying promotion code for bundle with {promotion_check.amount=} {promotion_check}")
         return ResponseHelper.success_data_response_with_message(
-            DtoMapper.bundle_currency_update(bundle=bundle, rate=rate, currency=x_currency), promotion_check.message, 1)
+            DtoMapper.bundle_currency_update(bundle=bundle, rate=rate, currency=x_currency),
+            validation_response.message, 1)
 
     async def validate_promo_code(self, code: str, user_id: str, bundle: BundleDTO, device_id: str,
                                   currency: str) -> PromotionValidationResponse | None:
@@ -111,7 +100,7 @@ class PromotionService:
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
                                                    message=f"Discount Amount {amount * rate} {currency}")
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
-                discounted = bundle.original_price * percentage / 100
+                discounted = (bundle.original_price * percentage) / 100
                 discounted = round(discounted, 2)
                 bundle.original_price = max(bundle.original_price - discounted, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
