@@ -53,7 +53,7 @@ class UserBundleService:
             check_bundle_available = await self.__esim_hub_service.check_bundle_applicable(bundle.bundle_info_code)
             if not check_bundle_available:
                 raise CustomException(code=400, name="Buy Bundle", details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
-
+        rate = self.__currency_service.get_rate_by_currency(x_currency)
         modified_amount = bundle.price
         amount = bundle.price
         rule_id = "0"
@@ -67,8 +67,8 @@ class UserBundleService:
                                                                                      apply_usage=True)
             logger.info(f"applying promo code {assign_request.promo_code} with {validation_response.message}")
             bundle = validation_response.bundle
-            modified_amount = bundle.price
-            amount = bundle.price
+            modified_amount = bundle.original_price * rate
+            amount = bundle.original_price * rate
             rule_id = validation_response.rule_id
 
         data = {
