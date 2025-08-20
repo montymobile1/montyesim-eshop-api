@@ -13,8 +13,8 @@ from app.repo import PromotionRepo, PromotionRuleRepo, PromotionUsageRepo, UserR
 from app.repo.bundle_repo import BundleRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
-from app.schemas.promotion import PromotionCodeDetailsResponse, PromotionValidationRequest, PromotionCheck, \
-    ReferralRewardRequest, PromotionHistoryDto, PromotionValidationResponse
+from app.schemas.promotion import PromotionCodeDetailsResponse, PromotionValidationRequest, ReferralRewardRequest, \
+    PromotionHistoryDto, PromotionValidationResponse
 from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
 from app.services.user_wallet_service import UserWalletService
@@ -167,7 +167,7 @@ class PromotionService:
                                                  user_id=user_id, referrer_user_id="0", code=code, is_referral=False,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule.id,
-                                                   message=f"Cashback Amount {promotion.amount}")
+                                                   message=f"Cashback Amount {round(promotion.amount * rate, 2)} {currency}")
 
     def code_type_and_get_rule(self, promotion_code: str, user_id: str, device_id: str = None) -> Response[
         PromotionCodeDetailsResponse]:
@@ -194,64 +194,6 @@ class PromotionService:
     @staticmethod
     def convert_timestamp(date_str: str, date_format: str = "%Y-%m-%dT%H:%M:%S") -> datetime:
         return datetime.strptime(date_str, date_format)
-
-    def check_promotion_reward(self, rule_id: str, bundle_id, promo_code: str,
-                               x_currency: str) -> PromotionCheck | None:
-        promotion_rule = self.__promotion_rule_repo.get_first_by({"id": rule_id})
-        is_referral = self.is_referral_code(promo_code)
-        if promotion_rule is None:
-            raise CustomException(code=400, name="PROMOTION_RULE_MISSING", details="promotion rule is missing")
-
-        action_id = promotion_rule.promotion_rule_action_id
-        event_id = promotion_rule.promotion_rule_event_id
-        beneficiary = promotion_rule.beneficiary
-
-        bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=bundle_id) if bundle_id else None
-        self.__validate_rule_constraints(event_id, action_id, bundle, is_referral, beneficiary)
-        rate = self.__currency_service.get_rate_by_currency(x_currency)
-        if not is_referral:
-            promotion_model: PromotionModel = self.__promotion_repo.get_first_by({"code": promo_code})
-            if promotion_model is None:
-                raise CustomException(code=400, name="INVALID_INPUT",
-                                      details="code is promotion code, should have promotion model")
-
-            bundle_codes = promotion_model.bundle_code.split(",") if promotion_model.bundle_code else []
-
-            if len(bundle_codes) > 0:
-                logger.info(f"promotion model bundle code: {promotion_model.bundle_code}")
-                if bundle_id not in bundle_codes:
-                    logger.error(
-                        f"Bundle code {bundle_id} does not match with promotion bundle code {promotion_model.bundle_code}")
-                    raise CustomException(code=400, name="INVALID_BUNDLE_CODE",
-                                          details="Bundle code does not match with promotion bundle code")
-
-            amount = promotion_model.amount
-        else:
-            amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
-
-        if action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
-            response = PromotionCheck(amount=max(bundle.original_price - amount, 0),
-                                      message=f"Discount Amount {rate * amount} {x_currency}")
-            return response
-
-        if action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
-            discounted = bundle.original_price * amount / 100
-            discounted = round(discounted, 2)
-            response = PromotionCheck(amount=bundle.original_price - discounted,
-                                      message=f"Discount Percentage {amount} %")
-            return response
-
-        if action_id in [PromotionRuleAction.CASHBACK_AMOUNT.value, PromotionRuleAction.CASHBACK_PERCENTAGE.value]:
-            cashback_amount = amount
-            if action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
-                cashback_amount = (bundle.original_price * amount) / 100
-                cashback_amount = round(cashback_amount, 2)
-                response = PromotionCheck(amount=0, message=f"Cashback Percentage {cashback_amount}%", type=action_id)
-                return response
-            response = PromotionCheck(amount=0, message=f"Cashback Amount {(cashback_amount * rate)} {x_currency}",
-                                      type=action_id)
-            return response
-        return None
 
     async def add_reward(self, rule_id: str, user_id: str, bundle_id, code: str) -> float:
         promotion_rule = self.__promotion_rule_repo.get_first_by({"id": rule_id})
@@ -497,7 +439,7 @@ class PromotionService:
         referrer_user = self.__user_repo.get_first_by(where={},
                                                       filters={self.__user_repo.referral_code_key(): referral_code})
         rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
-        amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate)
+        amount = round(float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate), 2)
         if referrer_user is None:
             logger.error(f"Referrer User not found for referral code {referral_code}")
             return
@@ -511,9 +453,7 @@ class PromotionService:
 
         if promotion_rule.beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
             if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
-                amount = (paid_amount * float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE, 20))) / 100
-            else:
-                amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
+                amount = round((paid_amount * float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE, 20))) / 100, 2)
             logger.info(f"Adding cashback for REFERRED user {referrer_user_id} with amount {amount}")
             await self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
         return None
