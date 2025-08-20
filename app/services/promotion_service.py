@@ -97,6 +97,8 @@ class PromotionService:
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
                 bundle.original_price = max(bundle.original_price - amount, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
+                if bundle.original_price < 1:
+                    raise CustomException(code=400, name="Promo Code Can not be used for this bundle",details="Bundle price is too low")
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                                  user_id=referrer_user_id, referrer_user_id=referrer_user_id, code=code,
@@ -108,6 +110,8 @@ class PromotionService:
                 discounted = (bundle.original_price * percentage) / 100
                 discounted = round(discounted, 2)
                 bundle.original_price = max(bundle.original_price - discounted, 0)
+                if bundle.original_price < 1:
+                    raise CustomException(code=400, name="Promo Code Can not be used for this bundle",details="Bundle price is too low")
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
@@ -143,6 +147,8 @@ class PromotionService:
             rule = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
                 bundle.original_price = max(bundle.original_price - promotion.amount, 0)
+                if bundle.original_price < 1:
+                    raise CustomException(code=400, name="Promo Code Can not be used for this bundle",details="Bundle price is too low")
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=promotion.amount, status="pending", code=code,
@@ -154,6 +160,8 @@ class PromotionService:
                 discounted = bundle.original_price * promotion.amount / 100
                 discounted = round(discounted, 2)
                 bundle.original_price = max(bundle.original_price - discounted, 0)
+                if bundle.original_price < 1:
+                    raise CustomException(code=400, name="Promo Code Can not be used for this bundle",details="Bundle price is too low")
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=discounted, status="pending", code=code,
@@ -458,9 +466,9 @@ class PromotionService:
             usage = self.__promotion_usage_repo.get_first_by(where={"user_id": user_id, "referral_code": referral_code})
             if usage is None:
                 logger.error(f"No pending promotion usage found for user {user_id} with referral code {referral_code}")
-                return
-            if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
-                amount = round((paid_amount * float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE, 20))) / 100, 2)
-            logger.info(f"Adding cashback for REFERRED user {referrer_user_id} with amount {amount}")
-            await self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
+            else:
+                if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
+                    amount = round((paid_amount * float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE, 20))) / 100, 2)
+                logger.info(f"Adding cashback for REFERRED user {referrer_user_id} with amount {amount}")
+                await self.__user_wallet_service.add_wallet_transaction(amount, referrer_user_id)
         return None
