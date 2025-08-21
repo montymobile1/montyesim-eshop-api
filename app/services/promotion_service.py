@@ -476,11 +476,13 @@ class PromotionService:
         else:
             usage: PromotionUsageModel = self.__promotion_usage_repo.get_first_by(
                 where={"promotion_code": code, "user_id": user_id, "status": "pending"})
-            rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
-            amount = round(float(usage.amount) * float(rate), 2)
-            old_usage = self.__promotion_usage_repo.list(where={"promotion_code": code})
-            self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(old_usage)})
-            return await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id)
+            if usage:
+                rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
+                amount = round(float(usage.amount) * float(rate), 2)
+                old_usage = self.__promotion_usage_repo.list(where={"promotion_code": code})
+                self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(old_usage)})
+                return await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id)
+            return None
 
     async def __apply_referral_rewards(self, user_id: str, referral_code: str, paid_amount: float,
                                        promotion_rule: PromotionRuleModel):
