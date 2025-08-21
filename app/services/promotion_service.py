@@ -7,9 +7,10 @@ from loguru import logger
 from app.config.db import PromotionRuleAction, Beneficiary, PromotionRuleEvent, ConfigKeysEnum
 from app.config.utils import get_config
 from app.exceptions import CustomException
-from app.models.promotion import PromotionModel
+from app.models.promotion import PromotionModel, PromotionUsageModel
 from app.models.promotion import PromotionRuleModel
-from app.repo import PromotionRepo, PromotionRuleRepo, PromotionUsageRepo, UserRepo
+from app.models.user import UsersCopyModel
+from app.repo import PromotionRepo, PromotionRuleRepo, PromotionUsageRepo, UserRepo, UserProfileRepo
 from app.repo.bundle_repo import BundleRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
@@ -30,6 +31,7 @@ class PromotionService:
         self.__user_wallet_service = UserWalletService()
         self.__bundle_repo = BundleRepo()
         self.__currency_service = CurrencyService()
+        self.__user_profile_repo = UserProfileRepo()
 
     async def referral_code_rewards(self, referral_reward_request: ReferralRewardRequest, user_id: str,
                                     device_id: str = None) -> Response:
@@ -180,12 +182,18 @@ class PromotionService:
                                                    rule_id=rule.id,
                                                    message=f"Discount Percentage {promotion.amount} %")
             else:
+                if rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
+                    amount = (bundle.original_price * promotion.amount) / 100
+                    message = f"Cashback Percentage ({promotion.amount}%) {amount * rate} {currency}"
+                else:
+                    amount = promotion.amount
+                    message = f"Cashback Amount {amount * rate} {currency}"
                 if apply_usage:
-                    await self.__handle_cashback(amount=promotion.amount, beneficiary=str(rule.beneficiary),
+                    await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                                  user_id=user_id, referrer_user_id="0", code=code, is_referral=False,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule.id,
-                                                   message=f"Cashback Amount {round(promotion.amount * rate, 2)} {currency}")
+                                                   message=message)
 
     def code_type_and_get_rule(self, promotion_code: str, user_id: str, device_id: str = None) -> Response[
         PromotionCodeDetailsResponse]:
@@ -396,6 +404,27 @@ class PromotionService:
 
     def __validate_referral(self, user_id: str, promotion_code: str, rule_id: str):
 
+        referred_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
+                                                                      filters={
+                                                                          self.__user_repo.referral_code_key(): promotion_code})
+
+        old_profiles = self.__user_profile_repo.list(where={"user_id": user_id})
+        if len(old_profiles) > 0:
+            raise CustomException(code=400, name="User Has Previous Esim",
+                                  details="User already purchased esim before, cannot use referral code")
+        user_model: UsersCopyModel = self.__user_repo.get_by_id(user_id)
+        if user_model.metadata["referral_code"] and user_model.metadata["referral_code"] == promotion_code:
+            raise CustomException(code=400, name="Own Referral Code Can not be used",
+                                  details="Own Referral Code Can not be used")
+
+        if referred_user:
+            referred_usage = self.__promotion_usage_repo.list(
+                where={"user_id": referred_user.id, "referral_code": promotion_code})
+            if referred_usage:
+                logger.error("Referral code already used by referred user")
+                raise CustomException(code=400, name="Referral code already used",
+                                      details="Referral Code Already Used by referred user")
+
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "referral_code": promotion_code})
 
@@ -445,16 +474,13 @@ class PromotionService:
             return await self.__apply_referral_rewards(user_id=user_id, referral_code=code, paid_amount=paid_amount,
                                                        promotion_rule=promotion_rule)
         else:
-            promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": code})
-            if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
-                amount = (paid_amount * float(promotion.amount)) / 100
-            else:
-                amount = float(promotion.amount)
-        rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
-        amount = round(amount * float(rate), 2)
-        usage = self.__promotion_usage_repo.list(where={"promotion_code": code})
-        self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(usage)})
-        return await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
+            usage: PromotionUsageModel = self.__promotion_usage_repo.get_first_by(
+                where={"promotion_code": code, "user_id": user_id})
+            rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
+            amount = round(float(usage.amount) * float(rate), 2)
+            old_usage = self.__promotion_usage_repo.list(where={"promotion_code": code})
+            self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(old_usage)})
+            return await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id)
 
     async def __apply_referral_rewards(self, user_id: str, referral_code: str, paid_amount: float,
                                        promotion_rule: PromotionRuleModel):
