@@ -135,6 +135,7 @@ class EsimBundleResponse(BaseModel):
     price_display: str
     unlimited: bool
     validity: int
+    validity_label: str
     validity_display: str
     plan_type: str
     activity_policy: str
