@@ -53,3 +53,5 @@ class PromotionUsageModel(BaseModel):
     bundle_id: Optional[str] = Field(None, alias="bundle_id")
     status: PromotionStatusEnum = Field(PromotionStatusEnum.PENDING, alias="status")
     created_at: Optional[str] = Field(None, alias="created_at")
+    device_id: Optional[str] = Field(None, alias="device_id")
+    referred_to: Optional[str] = Field(None, alias="referred_to")
