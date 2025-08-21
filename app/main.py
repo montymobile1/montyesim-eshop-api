@@ -1,3 +1,5 @@
+import json
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, HTTPException
@@ -31,6 +33,15 @@ logger.add("esim_opensource.log", rotation="10 MB", level="INFO", compression="z
 logger.info("Application started")
 
 
+def load_messages(lang):
+    ROOT_PATH = os.path.abspath(os.curdir)
+    path = f"{ROOT_PATH}/locales/{lang}.json"
+    if not os.path.exists(path):
+        path = f"{ROOT_PATH}/locales/en.json"
+    with open(path, "r") as f:
+        return json.load(f)
+
+
 @esim_app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Exception: {exc} {request.url.path}")
@@ -62,7 +73,11 @@ async def custom_unauthorized_handler(request: Request, exc: HTTPException):
 @esim_app.exception_handler(CustomException)
 async def global_exception_handler(request: Request, exc: CustomException):
     logger.error(f"CustomException: {exc} {request.url.path}")
-    response_data = ResponseHelper.error_response(status_code=exc.code, title=exc.name,
+    lang_header = request.headers.get('accept-language', 'en')
+    lang = lang_header.split('-')[0].lower()
+    messages = load_messages(lang)
+    title = messages.get(exc.name, exc.name)
+    response_data = ResponseHelper.error_response(status_code=exc.code, title=title,
                                                   error=exc.name, developer_message=exc.details)
     return JSONResponse(
         status_code=exc.code,

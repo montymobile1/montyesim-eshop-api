@@ -128,6 +128,10 @@ class PromotionService:
             else:
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
+                                                 user_id=referrer_user_id, referrer_user_id=referrer_user_id, code=code,
+                                                 is_referral=True,
+                                                 event_id=rule.promotion_rule_event_id, bundle=bundle)
+                    await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                                  user_id=user_id, referrer_user_id=referrer_user_id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle)
