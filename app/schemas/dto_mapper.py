@@ -238,6 +238,7 @@ class DtoMapper:
             "price_display": f"{round(bundle_data.original_price * rate, 2)} {x_currency}",
             "unlimited": bundle_data.unlimited,
             "validity": bundle_data.validity,
+            "validity_label": bundle_data.validity_label,
             "validity_display": bundle_data.validity_display,
             "plan_type": bundle_data.plan_type,
             "activity_policy": "",
