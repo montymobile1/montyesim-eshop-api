@@ -192,6 +192,7 @@ class CallbackService:
 
         payment_intent = event.get("data").get("object", {})
         metadata = payment_intent.get("metadata", {})
+        payment_intent_id = payment_intent.get("id", None)
 
         environment = metadata.get("env")
         if environment != os.getenv("ENVIRONMENT", "DEV"):
@@ -208,6 +209,7 @@ class CallbackService:
         promo_code = metadata.get("promo_code", None)
         rule_id = metadata.get("rule_id", None)
         amount = metadata.get("amount", None)
+        tax_calculation = metadata.get("tax_calculation", None)
         user_order = self.__user_order_repo.get_by_id(order_id)
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
         user = self.__user_repo.get_by_id(user_id)
@@ -218,12 +220,23 @@ class CallbackService:
             if promo_code:
                 await self.__promotion_service.update_promotion_usage(user_id, promo_code, "failed", rule_id)
             return HTTPException(status_code=200, detail="Payment Failed")
+        if payment_status == OrderStatusEnum.SUCCESS and tax_calculation:
+            try:
+                stripe.tax.Transaction.create_from_calculation(
+                    calculation=tax_calculation,
+                    reference=payment_intent_id,
+                    expand=["line_items"],
+                )
+            except Exception as e:
+                logger.error(f"Error while creating tax transaction: {str(e)}")
 
         if payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.ASSIGN:
             await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
             if promo_code:
                 logger.info(f"updating promotion usage for user {user_id} with promo code {promo_code}")
-                await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="completed", rule_id=rule_id,paid_amount=(float(amount)/100))
+                await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code,
+                                                                      status="completed", rule_id=rule_id,
+                                                                      paid_amount=(float(amount) / 100))
             return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
                                                           payment_status=payment_status,
                                                           user_id=user_id, user=user)
