@@ -475,7 +475,7 @@ class PromotionService:
                                                        promotion_rule=promotion_rule)
         else:
             usage: PromotionUsageModel = self.__promotion_usage_repo.get_first_by(
-                where={"promotion_code": code, "user_id": user_id})
+                where={"promotion_code": code, "user_id": user_id, "status": "pending"})
             rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
             amount = round(float(usage.amount) * float(rate), 2)
             old_usage = self.__promotion_usage_repo.list(where={"promotion_code": code})
