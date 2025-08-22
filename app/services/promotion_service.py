@@ -4,7 +4,7 @@ from typing import List, Literal
 
 from loguru import logger
 
-from app.config.db import PromotionRuleAction, Beneficiary, PromotionRuleEvent, ConfigKeysEnum
+from app.config.db import PromotionRuleAction, Beneficiary, PromotionRuleEvent, ConfigKeysEnum, PromotionStatusEnum
 from app.config.utils import get_config
 from app.exceptions import CustomException
 from app.models.promotion import PromotionModel, PromotionUsageModel
@@ -529,10 +529,10 @@ class PromotionService:
                 await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
         return None
 
-    def cancel_promotion_usage(self, user_id: str, referral_code: str, promo_code: str):
+    def cancel_promotion_usage(self, user_id: str, referral_code: str | None, promo_code: str | None):
         if referral_code:
             self.__promotion_usage_repo.update_by(where={"user_id": user_id, "referral_code": referral_code},
-                                                  data={"status": "cancelled"})
+                                                  data={"status": PromotionStatusEnum.FAILED.value})
         if promo_code:
             self.__promotion_usage_repo.update_by(where={"user_id": user_id, "promotion_code": promo_code},
-                                                  data={"status": "cancelled"})
+                                                  data={"status": PromotionStatusEnum.FAILED.value})
