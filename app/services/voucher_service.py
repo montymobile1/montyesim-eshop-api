@@ -22,14 +22,15 @@ class VoucherService:
         if not voucher:
             raise CustomException(code=404, name="Invalid Voucher Code",
                                   details="Invalid Voucher Code")
-        # Check if voucher is expired using timezone-aware UTC datetime and parsing string
+        # Check if voucher is expired using only the date part (ignore time)
         from datetime import datetime, timezone
         if voucher.expired_at:
             try:
                 expired_at_dt = datetime.fromisoformat(voucher.expired_at)
                 if expired_at_dt.tzinfo is None:
                     expired_at_dt = expired_at_dt.replace(tzinfo=timezone.utc)
-                if expired_at_dt < datetime.now(timezone.utc):
+                # Compare only the date part
+                if expired_at_dt.date() < datetime.now(timezone.utc).date():
                     raise CustomException(code=400, name="Voucher Expired",
                                           details="Voucher Expired")
             except Exception as e:

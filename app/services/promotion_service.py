@@ -397,8 +397,9 @@ class PromotionService:
         if promotion.times_used >= rule.max_usage:
             raise CustomException(code=404, name="Promotion Reached Max Usage",
                                   details="times used is full")
-        if not self.convert_timestamp(promotion.valid_from) < current_date <= self.convert_timestamp(
-                promotion.valid_to):
+        # Use only date for validation
+        if not self.convert_timestamp(promotion.valid_from).date() < current_date.date() <= self.convert_timestamp(
+                promotion.valid_to).date():
             raise CustomException(code=404, name="Promotion Expired",
                                   details="promotion not active")
         promotion_usage = self.__promotion_usage_repo.list(
@@ -483,9 +484,11 @@ class PromotionService:
             usage: PromotionUsageModel = self.__promotion_usage_repo.get_first_by(
                 where={"promotion_code": code, "user_id": user_id, "status": "pending"})
             if usage:
-                rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
-                amount = round(float(usage.amount) * float(rate), 2)
-                await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id)
+                if promotion_rule.promotion_rule_action_id in [PromotionRuleAction.CASHBACK_AMOUNT.value,
+                                                               PromotionRuleAction.CASHBACK_PERCENTAGE.value]:
+                    rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
+                    amount = round(float(usage.amount) * float(rate), 2)
+                    await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id)
             old_usage = self.__promotion_usage_repo.list(where={"promotion_code": code})
             self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(old_usage)})
             self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
