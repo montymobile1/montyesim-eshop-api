@@ -95,10 +95,10 @@ class PromotionService:
             amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
             rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
             self.__validate_referral(user_id=user_id, promotion_code=code, rule_id=rule_id)
-            referrer_user = self.__user_repo.get_by_id(record_id=user_id)
-            user: UsersCopyModel = self.__user_repo.get_first_by(where={},
-                                                                 filters={self.__user_repo.referral_code_key(): code})
-            referrer_user_id = user.id
+            referrer_user: UsersCopyModel = self.__user_repo.get_by_id(record_id=user_id)
+            referred_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
+                                                                          filters={
+                                                                              self.__user_repo.referral_code_key(): code})
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
                 bundle.original_price = max(bundle.original_price - amount, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
@@ -107,7 +107,7 @@ class PromotionService:
                                           details="Bundle price is too low")
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                                 user_id=referrer_user_id, referrer_user_id=referrer_user_id, code=code,
+                                                 user_id=referrer_user.id, referrer_user_id=referrer_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
                                                  device_id=device_id)
@@ -123,22 +123,22 @@ class PromotionService:
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                                 user_id=referrer_user_id, referrer_user_id=referrer_user_id, code=code,
+                                                 user_id=referrer_user.id, referrer_user_id=referrer_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
-                                                 referred_to=user.email, device_id=device_id)
+                                                 referred_to=referred_user.email, device_id=device_id)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule_id,
                                                    message=f"Discount Percentage {percentage} %")
             else:
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                                 user_id=referrer_user_id, referrer_user_id=referrer_user_id, code=code,
+                                                 user_id=referrer_user.id, referrer_user_id=referrer_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
-                                                 referred_to=user.email, device_id=device_id)
+                                                 referred_to=referred_user.email, device_id=device_id)
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                                 user_id=user_id, referrer_user_id=referrer_user_id, code=code,
+                                                 user_id=referred_user.id, referrer_user_id=referrer_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
                                                  referred_to=referrer_user.email, device_id=device_id)
