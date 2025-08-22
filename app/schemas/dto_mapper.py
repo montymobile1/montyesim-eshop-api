@@ -430,7 +430,7 @@ class DtoMapper:
         promotion_history_data = {
             "is_referral": is_referral,
             "amount": f'{round(promotion_usage.amount * rate, 2):.2f} {currency}',
-            "name": name,
+            "name": promotion_usage.referred_to,
             "promotion_name": promotion_name,
             "date": promotion_usage.created_at
         }

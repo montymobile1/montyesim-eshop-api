@@ -290,11 +290,14 @@ class UserBundleService:
 
     async def cancel_order(self, order_id: str, user: UserModel) -> Response[None]:
         try:
-            order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
+            order: UserOrderModel = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
             if not order:
                 raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND,
                                       details=ErrorMessages.ORDER_NOT_FOUND)
-            self.__user_order_repo.update(order_id, {"order_status": OrderStatusEnum.CANCELED})
+            self.__user_order_repo.update(order_id, {"order_status": OrderStatusEnum.CANCELED,
+                                                     "payment_status": OrderStatusEnum.CANCELED})
+            self.__promotion_service.cancel_promotion_usage(user_id=user.id, promo_code=order.promo_code,
+                                                            referral_code=order.referral_code)
             stripe.PaymentIntent.cancel(order.payment_intent_code)
             return ResponseHelper.success_response()
         except Exception as e:
