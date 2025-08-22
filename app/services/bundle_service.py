@@ -228,13 +228,13 @@ class BundleService:
         # await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
         if promo_code:
             await self.__promotion_service.apply_promotion_code_after_purchase(user_id=user_id, code=promo_code,
-                                                                         status="completed",
-                                                                         rule_id=rule_id)
+                                                                               status="completed",
+                                                                               rule_id=rule_id)
 
         await self.__send_buy_notification(bundle_name=bundle.bundle_name, iccid=esim_hub_order.iccid,
                                            user_id=user_order.user_id)
         user = self.__user_repo.get_by_id(record_id=user_order.user_id)
-        thread = threading.Thread(target=self.__send_email, args=(user, user_profile, bundle,))
+        thread = threading.Thread(target=self.__send_email, args=(user, user_profile, bundle, user_order))
         thread.start()
 
         return ResponseHelper.success_response()
@@ -290,7 +290,8 @@ class BundleService:
                                              user_id=user_order.user_id)
         return ResponseHelper.success_response()
 
-    def __send_email(self, user: UsersCopyModel, user_profile: UserProfileModel, bundle: BundleDTO):
+    def __send_email(self, user: UsersCopyModel, user_profile: UserProfileModel, bundle: BundleDTO,
+                     user_order: UserOrderModel):
         try:
             qr = generate_qr_code(f"LPA:1${user_profile.smdp_address}${user_profile.activation_code}")
             msisdn = os.getenv("WHATSAPP_NUMBER")
@@ -302,7 +303,7 @@ class BundleService:
             data = {
                 "bundle_name": bundle.bundle_name,
                 "gprs_limit_display": bundle.gprs_limit_display,
-                "price": bundle.price_display,
+                "price": f"{round(user_order.modified_amount / 100, 2)} {user_order.currency.upper()}",
                 "coverage": coverage,
                 "validity": bundle.validity_display,
                 "iccid": user_profile.iccid,
