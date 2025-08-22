@@ -52,9 +52,9 @@ class PromotionService:
         for promotion_usage in promotion_usages:
             promotion_name = ""
             if promotion_usage.referral_code is not None:
-                referral_user = self.__user_repo.get_first_by(where={}, filters={
+                referral_user: UsersCopyModel = self.__user_repo.get_first_by(where={}, filters={
                     self.__user_repo.referral_code_key(): promotion_usage.referral_code})
-                name = referral_user.referred_to
+                name = referral_user.email
             else:
                 from app.services.bundle_service import BundleService
                 bundle_service = BundleService()
@@ -397,8 +397,7 @@ class PromotionService:
         if promotion.times_used >= rule.max_usage:
             raise CustomException(code=404, name="Promotion Reached Max Usage",
                                   details="times used is full")
-        # Use only date for validation, inclusive on both ends
-        if not (self.convert_timestamp(promotion.valid_from).date() <= current_date.date() <= self.convert_timestamp(promotion.valid_to).date()):
+            # Use only date for validation, inclusive on both ends
             raise CustomException(code=404, name="Promotion Expired",
                                   details="promotion not active")
         promotion_usage = self.__promotion_usage_repo.list(
