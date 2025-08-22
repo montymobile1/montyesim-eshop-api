@@ -1,3 +1,13 @@
+import aiocache
+
+aiocache.caches.set_config({
+    "default": {
+        "cache": "aiocache.SimpleMemoryCache",
+        "serializer": {"class": "aiocache.serializers.StringSerializer"},
+        "max_size": 1500  # Set to keep cache under 200MB (assuming ~133KB per entry)
+    }
+})
+
 import json
 import os
 from contextlib import asynccontextmanager

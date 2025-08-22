@@ -144,7 +144,9 @@ class HomeService:
 
     async def __store_in_cache(self, cache_key: str, data: HomeResponseDto):
         try:
-            await aiocache.caches.get("default").set(cache_key, data.model_dump_json(), ttl=333600)
+            cache = aiocache.caches.get("default")
+            await cache.clear()  # Remove all old cache keys before storing new
+            await cache.set(cache_key, data.model_dump_json(), ttl=333600)
             logger.info(f"Stored data in cache with key: {cache_key}")
         except Exception as e:
             logger.error(f"Error storing data in cache: {e}")
