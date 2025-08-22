@@ -397,9 +397,8 @@ class PromotionService:
         if promotion.times_used >= rule.max_usage:
             raise CustomException(code=404, name="Promotion Reached Max Usage",
                                   details="times used is full")
-        # Use only date for validation
-        if not self.convert_timestamp(promotion.valid_from).date() < current_date.date() <= self.convert_timestamp(
-                promotion.valid_to).date():
+        # Use only date for validation, inclusive on both ends
+        if not (self.convert_timestamp(promotion.valid_from).date() <= current_date.date() <= self.convert_timestamp(promotion.valid_to).date()):
             raise CustomException(code=404, name="Promotion Expired",
                                   details="promotion not active")
         promotion_usage = self.__promotion_usage_repo.list(

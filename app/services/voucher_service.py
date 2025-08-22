@@ -30,7 +30,7 @@ class VoucherService:
                 if expired_at_dt.tzinfo is None:
                     expired_at_dt = expired_at_dt.replace(tzinfo=timezone.utc)
                 # Compare only the date part
-                if expired_at_dt.date() < datetime.now(timezone.utc).date():
+                if expired_at_dt.date() <= datetime.now(timezone.utc).date():
                     raise CustomException(code=400, name="Voucher Expired",
                                           details="Voucher Expired")
             except Exception as e:
