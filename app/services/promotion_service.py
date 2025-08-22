@@ -94,7 +94,7 @@ class PromotionService:
             percentage = float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
             amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
             rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
-            self.__validate_referral(user_id=user_id, promotion_code=code, rule_id=rule_id)
+            self.__validate_referral(user_id=user_id, promotion_code=code, rule_id=rule_id, device_id=device_id)
             referrer_user: UsersCopyModel = self.__user_repo.get_by_id(record_id=user_id)
             referred_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
                                                                           filters={
@@ -396,7 +396,6 @@ class PromotionService:
 
     def __validate_promotion(self, promotion: PromotionModel, user_id: str, device_id: str = None):
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
-        current_date = datetime.now()
 
         if not promotion.is_active:
             raise CustomException(code=404, name="Promotion Not Active",
@@ -404,16 +403,13 @@ class PromotionService:
         if promotion.times_used >= rule.max_usage:
             raise CustomException(code=404, name="Promotion Reached Max Usage",
                                   details="times used is full")
-            # Use only date for validation, inclusive on both ends
-            raise CustomException(code=404, name="Promotion Expired",
-                                  details="promotion not active")
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed", "device_id": device_id})
         if promotion_usage:
             raise CustomException(code=404, name="Promotion Already Used",
                                   details="Promotion Already Used")
 
-    def __validate_referral(self, user_id: str, promotion_code: str, rule_id: str):
+    def __validate_referral(self, user_id: str, promotion_code: str, rule_id: str, device_id: str = None):
 
         referred_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
                                                                       filters={
@@ -430,8 +426,13 @@ class PromotionService:
 
         if referred_user:
             referred_usage = self.__promotion_usage_repo.list(
-                where={"user_id": referred_user.id, "referral_code": promotion_code})
-            if referred_usage:
+                where={"referred_to": referred_user.email, "user_id": user_id, "referral_code": promotion_code})
+            if len(referred_usage)>0:
+                for usage in referred_usage:
+                    if usage.device_id == device_id:
+                        logger.error("Referral code already used on this device")
+                        raise CustomException(code=400, name="Referral code already used on this device",
+                                              details="Referral Code Already Used on this device")
                 logger.error("Referral code already used by referred user")
                 raise CustomException(code=400, name="Referral code already used",
                                       details="Referral Code Already Used by referred user")
