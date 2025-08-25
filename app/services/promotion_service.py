@@ -102,9 +102,9 @@ class PromotionService:
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
                 bundle.original_price = max(bundle.original_price - amount, 0)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
-                if bundle.original_price < 0.5:
+                if 0.5 > bundle.original_price > 0:
                     raise CustomException(code=400, name="Promo Code Can not be used for this bundle",
-                                          details="Bundle price is too low")
+                                          details="Promo Code Can not be used for this bundle")
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                                  user_id=referrer_user.id, referrer_user_id=referrer_user.id, code=code,
@@ -117,9 +117,9 @@ class PromotionService:
                 discounted = (bundle.original_price * percentage) / 100
                 discounted = round(discounted, 2)
                 bundle.original_price = max(bundle.original_price - discounted, 0)
-                if bundle.original_price < 0.5:
+                if 0.5 > bundle.original_price > 0:
                     raise CustomException(code=400, name="Promo Code Can not be used for this bundle",
-                                          details="Bundle price is too low")
+                                          details="Promo Code Can not be used for this bundle")
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
@@ -427,7 +427,7 @@ class PromotionService:
         if referred_user:
             referred_usage = self.__promotion_usage_repo.list(
                 where={"referred_to": referred_user.email, "user_id": user_id, "referral_code": promotion_code})
-            if len(referred_usage)>0:
+            if len(referred_usage) > 0:
                 for usage in referred_usage:
                     if usage.device_id == device_id:
                         logger.error("Referral code already used on this device")
