@@ -9,7 +9,7 @@ from fastapi import Request, HTTPException
 from loguru import logger
 
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email, get_email_template
-from app.config.constants import PaymentIntentEvents
+from app.config.constants import PaymentIntentEvents, UserWalletTransactionSource
 from app.config.notification_types import send_consumption_80_bundle_notification, \
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
