@@ -25,18 +25,14 @@ class VoucherService:
         # Check if voucher is expired using only the date part (ignore time)
         from datetime import datetime, timezone
         if voucher.expired_at:
-            try:
-                expired_at_dt = datetime.fromisoformat(voucher.expired_at)
-                if expired_at_dt.tzinfo is None:
-                    expired_at_dt = expired_at_dt.replace(tzinfo=timezone.utc)
-                # Compare only the date part
-                if expired_at_dt.date() <= datetime.now(timezone.utc).date():
-                    raise CustomException(code=400, name="Voucher Expired",
-                                          details="Voucher Expired")
-            except Exception as e:
-                logger.error(f"Invalid expired_at format: {voucher.expired_at}, error: {e}")
-                raise CustomException(code=400, name="Invalid voucher expiration date format",
-                                      details="Invalid voucher expiration date format")
+            expired_at_dt = datetime.fromisoformat(voucher.expired_at)
+            if expired_at_dt.tzinfo is None:
+                expired_at_dt = expired_at_dt.replace(tzinfo=timezone.utc)
+            # Compare only the date part
+            if expired_at_dt.date() <= datetime.now(timezone.utc).date():
+                raise CustomException(code=400, name="Voucher Expired",
+                                      details="Voucher Expired")
+
         try:
             rate = self.__currency_service.get_rate_by_currency(x_currency)
             await self.__user_wallet_service.add_wallet_transaction((voucher.amount * rate), user.id, "voucher")
