@@ -8,7 +8,7 @@ from fastapi import Request
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance
-from app.config.constants import ErrorMessages, PaymentStatusEnum
+from app.config.constants import ErrorMessages, PaymentStatusEnum, UserWalletTransactionSource
 from app.config.db import DatabaseTables, PaymentTypeEnum
 from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details
 from app.exceptions import BadRequestException, CustomException
@@ -324,7 +324,7 @@ class UserBundleService:
             raise BadRequestException("You don't have enough funds to pay")
         try:
             await self.__user_wallet_service.add_wallet_transaction(amount=(bundle.price * -1), user_id=user.id,
-                                                                    source="Assign_Bundle")
+                                                                    source=UserWalletTransactionSource.PURCHASE_BUNDLE)
             await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
                                                    payment_status=OrderStatusEnum.SUCCESS, user=user)
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)

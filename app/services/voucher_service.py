@@ -1,5 +1,6 @@
 from loguru import logger
 
+from app.config.constants import UserWalletTransactionSource
 from app.exceptions import CustomException
 from app.models.user import UserModel
 from app.repo.voucher_repo import VoucherRepo
@@ -39,7 +40,8 @@ class VoucherService:
 
         try:
             rate = self.__currency_service.get_rate_by_currency(x_currency)
-            await self.__user_wallet_service.add_wallet_transaction((voucher.amount * rate), user.id, "voucher")
+            await self.__user_wallet_service.add_wallet_transaction(amount=(voucher.amount * rate), user_id=user.id,
+                                                                    source=UserWalletTransactionSource.VOUCHER)
             self.__voucher_repo.update_by(where={"id": voucher.id}, data={"used_by": user.id, "is_used": True})
             return ResponseHelper.success_response()
         except Exception as ex:

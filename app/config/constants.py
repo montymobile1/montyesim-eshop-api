@@ -21,3 +21,11 @@ class PaymentIntentEvents(StrEnum):
 class PaymentStatusEnum(StrEnum):
     COMPLETED = "COMPLETED"
     PENDING = "PENDING"
+
+
+class UserWalletTransactionSource(StrEnum):
+    CASHBACK = "Cashback"
+    TOPUP = "TOP-UP"
+    VOUCHER = "Voucher"
+    PURCHASE_BUNDLE = "Purchase-Bundle"
+    TOP_UP_BUNDLE = "TOP-UP-Bundle"

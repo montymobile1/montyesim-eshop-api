@@ -1,5 +1,6 @@
 import os
 import threading
+from typing import List
 
 from loguru import logger
 
@@ -8,7 +9,7 @@ from app.config.notification_types import send_wallet_top_up_succeeded_notificat
 from app.config.push_notification_manager import fcm_service
 from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral
 from app.exceptions import CustomException
-from app.models.user import UserWalletModel, UserModel
+from app.models.user import UserWalletModel, UserModel, UserWalletTransactionModel
 from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo
 from app.schemas.bundle import PaymentIntentResponse
 from app.schemas.dto_mapper import DtoMapper
@@ -114,6 +115,14 @@ class UserWalletService:
                                          billing_country_code="GB",
                                          order_id=order.id)
         return ResponseHelper.success_data_response(response, 0)
+
+    def get_wallet_transactions(self, user_id: str) -> List[UserWalletTransactionModel]:
+        user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
+        if not user_wallet:
+            return []
+        transactions = self.__user_wallet_transaction_repo.list(where={"wallet_id": user_wallet.id},
+                                                                order_by="created_at", desc=True)
+        return transactions
 
     def __create_wallet(self, user_id: str, amount: float, currency: str):
         wallet = self.__user_wallet_repo.create(data={
