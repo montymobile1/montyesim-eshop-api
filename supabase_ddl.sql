@@ -783,3 +783,14 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 ALTER TABLE tag
 ADD CONSTRAINT unique_tag_name_per_group
 UNIQUE (name, tag_group_id);
+
+create table banner
+(
+    id          integer not null
+        primary key,
+    title       varchar,
+    description varchar,
+    action      varchar,
+    image       varchar,
+    created_at  timestamp default CURRENT_TIMESTAMP
+);

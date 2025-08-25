@@ -38,7 +38,7 @@ async def check_promotion_validation(user: Annotated[UserModel, Depends(bearer_t
 async def check_promotion_validation(user: Annotated[UserModel, Depends(bearer_token)],
                                      x_currency: str = Header("x-currency"),
                                      ) -> Response[List[PromotionHistoryDto]]:
-    return await promotion_service.history(user_id=user.id,x_currency=x_currency)
+    return await promotion_service.history(user_id=user.id, x_currency=x_currency)
 
 
 @router.post("/test-referral", response_model=Response, dependencies=[Depends(bearer_token), Depends(device_token)])
@@ -46,3 +46,9 @@ async def check_promotion_validation(user: Annotated[UserModel, Depends(bearer_t
                                      x_currency: str = Header("x-currency"),
                                      ) -> Response[List[PromotionHistoryDto]]:
     return await promotion_service.apply_referral_rewards_after_buy_bundle(user_id=user.id)
+
+
+@router.get("/referral-info", response_model=Response, dependencies=[Depends(device_token)])
+def get_referral_info(accept_language: str = Header("en"),
+                      x_currency: str = Header("x-currency")) -> Response:
+    return promotion_service.referral_info(x_currency=x_currency, locale=accept_language)

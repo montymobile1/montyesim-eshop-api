@@ -11,10 +11,10 @@ from app.config.db import ConfigKeysEnum, PaymentTypeEnum
 from app.exceptions import CustomException
 from app.models.app import DeviceModel
 from app.models.user import UserModel
-from app.repo.config_repo import ConfigRepo
+from app.repo.config_repo import ConfigRepo, BannerRepo
 from app.repo.contact_us_repo import ContactUsRepo
 from app.repo.device_repo import DeviceRepo
-from app.schemas.app import DeviceRequest, ContactUsRequest, DeleteDeviceRequest, GlobalConfiguration
+from app.schemas.app import DeviceRequest, ContactUsRequest, DeleteDeviceRequest, GlobalConfiguration, BannerResponse
 from app.schemas.app import FaqResponse, PageContentResponse
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import ResponseHelper, Response
@@ -27,6 +27,7 @@ class AppService:
         self.__contact_us_repo = ContactUsRepo()
         self.__device_repo = DeviceRepo()
         self.__config_repo = ConfigRepo()
+        self.__banner_repo = BannerRepo()
 
     async def add_device(self, user: UserModel | None, device_id: str, device_request: DeviceRequest,
                          request: Request) -> \
@@ -170,3 +171,8 @@ class AppService:
         else:
             logger.error(f"Failed to fetch location for IP {ip}: {response.status_code} {response.text}")
         return None
+
+    def banners(self, x_currency: str, locale: str = "en", x_platform: str = "web") -> Response[List[BannerResponse]]:
+        banners = self.__banner_repo.list(where={"platform": x_platform})
+        response = [BannerResponse(**banner.model_dump()) for banner in banners]
+        return ResponseHelper.success_data_response(response, len(banners))

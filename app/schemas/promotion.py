@@ -48,3 +48,10 @@ class PromotionValidationResponse(BaseModel):
     bundle: BundleDTO
     message: str
     rule_id: str
+
+
+class ReferralInfoDto(BaseModel):
+    amount: float
+    currency: str
+    type: str
+    message: str

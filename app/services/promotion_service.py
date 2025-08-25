@@ -15,7 +15,7 @@ from app.repo.bundle_repo import BundleRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
 from app.schemas.promotion import PromotionCodeDetailsResponse, PromotionValidationRequest, ReferralRewardRequest, \
-    PromotionHistoryDto, PromotionValidationResponse
+    PromotionHistoryDto, PromotionValidationResponse, ReferralInfoDto
 from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
 from app.services.user_wallet_service import UserWalletService
@@ -162,9 +162,9 @@ class PromotionService:
             rule = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
                 bundle.original_price = max(bundle.original_price - promotion.amount, 0)
-                if bundle.original_price < 0.5:
+                if 0.5 > bundle.original_price > 0:
                     raise CustomException(code=400, name="Promo Code Can not be used for this bundle",
-                                          details="Bundle price is too low")
+                                          details="Promo Code Can not be used for this bundle")
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=promotion.amount, status="pending", code=code,
@@ -176,9 +176,9 @@ class PromotionService:
                 discounted = bundle.original_price * promotion.amount / 100
                 discounted = round(discounted, 2)
                 bundle.original_price = max(bundle.original_price - discounted, 0)
-                if bundle.original_price < 0.5:
+                if 0.5 > bundle.original_price > 0:
                     raise CustomException(code=400, name="Promo Code Can not be used for this bundle",
-                                          details="Bundle price is too low")
+                                          details="Promo Code Can not be used for this bundle")
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=discounted, status="pending", code=code,
@@ -534,6 +534,38 @@ class PromotionService:
         if referral_code:
             self.__promotion_usage_repo.update_by(where={"user_id": user_id, "referral_code": referral_code},
                                                   data={"status": PromotionStatusEnum.FAILED.value})
+            promotion_usage = self.__promotion_usage_repo.get_first_by(
+                where={"user_id": user_id, "referral_code": referral_code})
+            if promotion_usage:
+                referrer_user = self.__user_repo.get_first_by(where={"email": promotion_usage.referred_to})
+                referred_user = self.__user_repo.get_by_id(user_id)
+                if referrer_user:
+                    self.__promotion_usage_repo.update_by(
+                        where={"user_id": referrer_user.id, "referral_code": referral_code,
+                               "referred_to": referred_user.email},
+                        data={"status": PromotionStatusEnum.FAILED.value})
         if promo_code:
             self.__promotion_usage_repo.update_by(where={"user_id": user_id, "promotion_code": promo_code},
                                                   data={"status": PromotionStatusEnum.FAILED.value})
+
+    def referral_info(self, x_currency: str, locale: str = "en") -> Response[ReferralInfoDto]:
+        rate = self.__currency_service.get_rate_by_currency(x_currency)
+        rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
+        rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
+        if not rule:
+            raise CustomException(code=404, name="promotion rule not found",
+                                  details="promotion rule not found")
+
+        amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate)
+        percentage = float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
+        if rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_AMOUNT.value:
+            message = f"Get {amount} {x_currency} credit for every friend that signs up and completes a purchase. Your friends get {amount} {x_currency} credit for their first purchase."
+        elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
+            message = f"Get {amount} {x_currency} credit for every friend that signs up and completes a purchase. Your friends get {percentage}% off their first purchase."
+        elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
+            message = f"Get {amount} {x_currency} credit for every friend that signs up and completes a purchase. Your friends get {amount} {x_currency} off their first purchase."
+        else:
+            message = f"Get {amount} {x_currency} credit for every friend that signs up and completes a purchase"
+        dto = ReferralInfoDto(amount=round(amount, 2), type=str(rule.promotion_rule_action_id), currency=x_currency,
+                              message=message)
+        return ResponseHelper.success_data_response(dto, 1)
