@@ -55,6 +55,10 @@ class PromotionService:
                 referral_user: UsersCopyModel = self.__user_repo.get_first_by(where={}, filters={
                     self.__user_repo.referral_code_key(): promotion_usage.referral_code})
                 name = referral_user.email
+                promotion_history_dto.append(
+                    DtoMapper.to_promotion_history_dto(promotion_usage=promotion_usage, name=name,
+                                                       promotion_name=promotion_name, rate=rate,
+                                                       currency=x_currency))
             else:
                 from app.services.bundle_service import BundleService
                 bundle_service = BundleService()
@@ -62,10 +66,14 @@ class PromotionService:
                                                          os.getenv("DEFAULT_CURRENCY"), "en")
                 name = bundle.data.bundle_name
                 promotion = self.__promotion_repo.get_first_by(where={"code": promotion_usage.promotion_code})
-                promotion_name = promotion.name
-            promotion_history_dto.append(DtoMapper.to_promotion_history_dto(promotion_usage=promotion_usage, name=name,
-                                                                            promotion_name=promotion_name, rate=rate,
-                                                                            currency=x_currency))
+                rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
+                if rule.promotion_rule_action_id in [PromotionRuleAction.CASHBACK_AMOUNT.value,
+                                                     PromotionRuleAction.CASHBACK_PERCENTAGE]:
+                    promotion_name = promotion.name
+                    promotion_history_dto.append(
+                        DtoMapper.to_promotion_history_dto(promotion_usage=promotion_usage, name=name,
+                                                           promotion_name=promotion_name, rate=rate,
+                                                           currency=x_currency))
 
         return ResponseHelper.success_data_response(data=promotion_history_dto, total_count=len(promotion_history_dto))
 
