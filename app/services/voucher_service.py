@@ -17,7 +17,7 @@ class VoucherService:
         self.__currency_service = CurrencyService()
 
     async def redeem(self, voucher_redeem_request: VoucherRequestRedeem, user: UserModel, x_currency: str):
-        is_used = self.__voucher_repo.get_first_by(where={"is_used": True})
+        is_used = self.__voucher_repo.get_first_by(where={"is_used": True, "code": voucher_redeem_request.code})
         if is_used:
             raise CustomException(code=400, name="Voucher Already Used",
                                   details="Voucher Already Used")
