@@ -51,7 +51,7 @@ class PromotionService:
         for transaction in transactions:
             promotion_history = PromotionHistoryDto(
                 is_referral=transaction.source != UserWalletTransactionSource.CASHBACK,
-                amount=f"{round(transaction.amount * rate, 2)} {x_currency}",
+                amount=f"{transaction.amount} {x_currency}",
                 name=transaction.source,
                 promotion_name="",
                 date=transaction.created_at)
@@ -386,6 +386,10 @@ class PromotionService:
                                   details="Own Referral Code Can not be used")
 
         if referred_user:
+            old_device = self.__promotion_usage_repo.list(where={"device_id": device_id,"referral_code": promotion_code,"referred_to":referred_user.email})
+            if len(old_device) > 0:
+                raise CustomException(code=400, name="Referral Code Already Used on this device",
+                                      details="Referral Code Already Used on this device")
             referred_usage = self.__promotion_usage_repo.list(
                 where={"referred_to": referred_user.email, "user_id": user_id, "referral_code": promotion_code})
             if len(referred_usage) > 0:
