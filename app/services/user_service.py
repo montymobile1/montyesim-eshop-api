@@ -92,7 +92,7 @@ class UserBundleService:
 
         if modified_amount == 0:
             await self.__bundle_service.buy_bundle(user_order=order, bundle=bundle, user_id=user.id,
-                                                   payment_status=OrderStatusEnum.SUCCESS, user=user)
+                                                   payment_status=OrderStatusEnum.SUCCESS, user=user,promo_code=assign_request.promo_code)
             response = PaymentIntentResponse(order_id=order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
 
