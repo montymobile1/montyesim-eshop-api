@@ -477,7 +477,7 @@ class PromotionService:
             logger.info(f"Adding cashback for REFERRER user {referrer_user_id} with amount {amount}")
             self.__promotion_usage_repo.update_by(where={"user_id": referrer_user_id, "referral_code": referral_code},
                                                   data={"status": "completed"})
-            await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
+            await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=referrer_user_id,
                                                                     source=UserWalletTransactionSource.CASHBACK_REFERRAL)
 
         if promotion_rule.beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
