@@ -276,12 +276,12 @@ class PromotionService:
         if beneficiary in [Beneficiary.REFERRER.value, Beneficiary.BOTH.value]:
             logger.info(f"Adding cashback for user {user_id} with amount {amount}")
             await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
-                                                                    source=UserWalletTransactionSource.CASHBACK)
+                                                                    source=UserWalletTransactionSource.CASHBACK_REFERRAL)
 
         if beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
             logger.info(f"Adding cashback for user {user_id} with amount {amount}")
             await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=referrer_user_id,
-                                                                    source=UserWalletTransactionSource.CASHBACK)
+                                                                    source=UserWalletTransactionSource.CASHBACK_REFERRAL)
 
     async def __handle_discount(self, original_price: float, discount: float, beneficiary: str,
                                 user_id: str, referrer_user_id: str, code: str, is_referral: bool,
@@ -456,7 +456,7 @@ class PromotionService:
                     rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
                     amount = round(float(usage.amount) * float(rate), 2)
                     await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
-                                                                            source=UserWalletTransactionSource.CASHBACK)
+                                                                            source=UserWalletTransactionSource.CASHBACK_PROMO)
             old_usage = self.__promotion_usage_repo.list(where={"promotion_code": code})
             self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(old_usage)})
             self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
@@ -478,7 +478,7 @@ class PromotionService:
             self.__promotion_usage_repo.update_by(where={"user_id": referrer_user_id, "referral_code": referral_code},
                                                   data={"status": "completed"})
             await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
-                                                                    source=UserWalletTransactionSource.CASHBACK)
+                                                                    source=UserWalletTransactionSource.CASHBACK_REFERRAL)
 
         if promotion_rule.beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
             usage = self.__promotion_usage_repo.get_first_by(where={"user_id": user_id, "referral_code": referral_code})
@@ -491,7 +491,7 @@ class PromotionService:
                                    2)
                 logger.info(f"Adding cashback for REFERRED user {user_id} with amount {amount}")
                 await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
-                                                                        source=UserWalletTransactionSource.CASHBACK)
+                                                                        source=UserWalletTransactionSource.CASHBACK_REFERRAL)
         return None
 
     def cancel_promotion_usage(self, user_id: str, referral_code: str | None, promo_code: str | None):

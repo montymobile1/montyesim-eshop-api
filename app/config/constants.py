@@ -25,6 +25,9 @@ class PaymentStatusEnum(StrEnum):
 
 class UserWalletTransactionSource(StrEnum):
     CASHBACK = "Cashback"
+    CASHBACK_PROMO = "Cashback - Promo"
+    CASHBACK_VOUCHER = "Cashback - Voucher"
+    CASHBACK_REFERRAL = "Cashback - Referral"
     TOP_UP_WALLET = "TOP-UP-WALLET"
     VOUCHER = "Voucher"
     PURCHASE_BUNDLE = "Purchase-Bundle"
