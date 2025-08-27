@@ -74,7 +74,8 @@ class PromotionService:
             validation_response.message, 1)
 
     async def validate_promo_code(self, code: str, user_id: str, bundle: BundleDTO, device_id: str,
-                                  currency: str, apply_usage: bool = False) -> PromotionValidationResponse | None:
+                                  currency: str, apply_usage: bool = False,
+                                  order_id: str = None) -> PromotionValidationResponse | None:
         # check if the code is promotion
         is_referral = self.is_referral_code(code)
         rate = self.__currency_service.get_rate_by_currency(currency)
@@ -99,7 +100,8 @@ class PromotionService:
                                                  user_id=referrer_user.id, referrer_user_id=referrer_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
-                                                 device_id=device_id)
+                                                 device_id=device_id,
+                                                 order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
                                                    message=f"Discount Amount {amount * rate} {currency}")
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
@@ -115,7 +117,8 @@ class PromotionService:
                                                  user_id=referrer_user.id, referrer_user_id=referrer_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
-                                                 referred_to=referred_user.email, device_id=device_id)
+                                                 referred_to=referred_user.email, device_id=device_id,
+                                                 order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule_id,
                                                    message=f"Discount Percentage {percentage} %")
@@ -125,12 +128,14 @@ class PromotionService:
                                                  user_id=referrer_user.id, referrer_user_id=referrer_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
-                                                 referred_to=referred_user.email, device_id=device_id)
+                                                 referred_to=referred_user.email, device_id=device_id,
+                                                 order_id=order_id)
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                                  user_id=referred_user.id, referrer_user_id=referrer_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
-                                                 referred_to=referrer_user.email, device_id=device_id)
+                                                 referred_to=referrer_user.email, device_id=device_id,
+                                                 order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
                                                    message=f"Cashback Amount {amount * rate} {currency}")
 
@@ -157,7 +162,8 @@ class PromotionService:
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=promotion.amount, status="pending", code=code,
-                                                 is_referral=is_referral, bundle=bundle, device_id=device_id)
+                                                 is_referral=is_referral, bundle=bundle, device_id=device_id,
+                                                 order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule.id,
                                                    message=f"Discount Amount {promotion.amount * rate} {currency}")
@@ -171,7 +177,8 @@ class PromotionService:
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=discounted, status="pending", code=code,
-                                                 is_referral=is_referral, bundle=bundle, device_id=device_id)
+                                                 is_referral=is_referral, bundle=bundle, device_id=device_id,
+                                                 order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule.id,
                                                    message=f"Discount Percentage {promotion.amount} %")
@@ -186,7 +193,7 @@ class PromotionService:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                                  user_id=user_id, referrer_user_id="0", code=code, is_referral=False,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
-                                                 device_id=device_id)
+                                                 device_id=device_id, order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule.id,
                                                    message=message)
 
@@ -256,19 +263,22 @@ class PromotionService:
             cashback_amount = amount
             if action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
                 cashback_amount = bundle.price * amount / 100
-            return await self.__handle_cashback(cashback_amount, beneficiary, user_id, referrer_user_id, code,
-                                                is_referral, promotion_rule.promotion_rule_event_id, bundle)
+            return await self.__handle_cashback(amount=cashback_amount, beneficiary=beneficiary, user_id=user_id,
+                                                referrer_user_id=referrer_user_id, code=code,
+                                                is_referral=is_referral,
+                                                event_id=promotion_rule.promotion_rule_event_id, bundle=bundle,
+                                                order_id=None)
 
         return 0
 
     async def __handle_cashback(self, amount: float, beneficiary: str, user_id: str, referrer_user_id: str,
-                                code: str, is_referral: bool, event_id, bundle: BundleDTO, referred_to: str = None,
-                                device_id: str = None):
+                                code: str, is_referral: bool, event_id, bundle: BundleDTO, order_id: str | None,
+                                referred_to: str = None, device_id: str = None):
         logger.info(
             f"handle_cashback {amount=} {beneficiary=} {user_id=} {referrer_user_id=} {code=} {event_id=} {bundle=}")
         self._insert_promotion_usage(user_id=user_id, amount=amount, status="pending", code=code,
                                      is_referral=is_referral, bundle=bundle, referred_to=referred_to,
-                                     device_id=device_id)
+                                     device_id=device_id, order_id=order_id)
         return amount
 
     async def __handle_cashback_after_success_create_order(self, amount: float, beneficiary: int, user_id: str,
@@ -295,7 +305,9 @@ class PromotionService:
         return max(original_price - discount, 0)
 
     def _insert_promotion_usage(self, user_id, amount, status, code, is_referral, bundle, referred_to: str = None,
-                                device_id: str = None):
+                                device_id: str = None,
+                                order_id: str = None
+                                ):
         bundle_id = None
         if bundle:
             bundle_id = bundle.bundle_code
@@ -307,7 +319,8 @@ class PromotionService:
             "status": status,
             "bundle_id": bundle_id,
             "referred_to": referred_to,
-            "device_id": device_id
+            "device_id": device_id,
+            "order_id": order_id
         })
 
     async def update_promotion_usage(self, user_id: str, code: str, status: str, rule_id: str, paid_amount: float = 0):
@@ -386,7 +399,8 @@ class PromotionService:
                                   details="Own Referral Code Can not be used")
 
         if referred_user:
-            old_device = self.__promotion_usage_repo.list(where={"device_id": device_id,"referral_code": promotion_code,"referred_to":referred_user.email})
+            old_device = self.__promotion_usage_repo.list(
+                where={"device_id": device_id, "referral_code": promotion_code, "referred_to": referred_user.email})
             if len(old_device) > 0:
                 raise CustomException(code=400, name="Referral Code Already Used on this device",
                                       details="Referral Code Already Used on this device")

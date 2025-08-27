@@ -57,19 +57,6 @@ class UserBundleService:
         modified_amount = bundle.price
         amount = bundle.price
         rule_id = "0"
-        if assign_request.promo_code:
-            if self.__promotion_service.is_referral_code(assign_request.promo_code):
-                self.__check_if_user_eligible_for_referral(user=user, promo_code=assign_request.promo_code)
-            validation_response = await self.__promotion_service.validate_promo_code(code=assign_request.promo_code,
-                                                                                     user_id=user.id, bundle=bundle,
-                                                                                     device_id=device_id,
-                                                                                     currency=x_currency,
-                                                                                     apply_usage=True)
-            logger.info(f"applying promo code {assign_request.promo_code} with {validation_response.message}")
-            bundle = validation_response.bundle
-            modified_amount = bundle.original_price * rate
-            amount = bundle.original_price * rate
-            rule_id = validation_response.rule_id
 
         data = {
             "user_id": user.id,
@@ -88,11 +75,31 @@ class UserBundleService:
             data.pop("promo_code")
 
         order = self.__user_order_repo.create(data)
+
+        if assign_request.promo_code:
+            if self.__promotion_service.is_referral_code(assign_request.promo_code):
+                self.__check_if_user_eligible_for_referral(user=user, promo_code=assign_request.promo_code)
+            validation_response = await self.__promotion_service.validate_promo_code(code=assign_request.promo_code,
+                                                                                     user_id=user.id, bundle=bundle,
+                                                                                     device_id=device_id,
+                                                                                     currency=x_currency,
+                                                                                     apply_usage=True,
+                                                                                     order_id=order.id)
+            logger.info(f"applying promo code {assign_request.promo_code} with {validation_response.message}")
+            bundle = validation_response.bundle
+            modified_amount = bundle.original_price * rate
+            amount = bundle.original_price * rate
+            rule_id = validation_response.rule_id
+            self.__user_order_repo.update_by(where={"id": order.id}, data={
+                "amount": int(round(amount * 100))
+            })
+
         payment_type = assign_request.payment_type
 
         if modified_amount == 0:
             await self.__bundle_service.buy_bundle(user_order=order, bundle=bundle, user_id=user.id,
-                                                   payment_status=OrderStatusEnum.SUCCESS, user=user,promo_code=assign_request.promo_code)
+                                                   payment_status=OrderStatusEnum.SUCCESS, user=user,
+                                                   promo_code=assign_request.promo_code, rule_id=rule_id)
             response = PaymentIntentResponse(order_id=order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
 

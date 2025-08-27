@@ -55,3 +55,4 @@ class PromotionUsageModel(BaseModel):
     created_at: Optional[str] = Field(None, alias="created_at")
     device_id: Optional[str] = Field(None, alias="device_id")
     referred_to: Optional[str] = Field(None, alias="referred_to")
+    order_id: Optional[str] = Field(None, alias="order_id")
