@@ -97,11 +97,12 @@ class PromotionService:
                                           details="Promo Code Can not be used for this bundle")
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                                 user_id=referrer_user.id, referrer_user_id=referrer_user.id, code=code,
+                                                 user_id=referred_user.id, referrer_user_id=referrer_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
                                                  device_id=device_id,
-                                                 order_id=order_id)
+                                                 order_id=order_id,
+                                                 referred_to=referred_user.email)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
                                                    message=f"Discount Amount {amount * rate} {currency}")
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
@@ -114,10 +115,10 @@ class PromotionService:
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                                 user_id=referrer_user.id, referrer_user_id=referrer_user.id, code=code,
+                                                 user_id=referred_user.id, referrer_user_id=referrer_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
-                                                 referred_to=referred_user.email, device_id=device_id,
+                                                 referred_to=referrer_user.email, device_id=device_id,
                                                  order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule_id,
