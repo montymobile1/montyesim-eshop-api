@@ -1,5 +1,4 @@
 {
-  "error": "Error",
   "REFRESH_TOKEN_MISSING": "X-Refresh-Token header is missing.",
   "BEARER_TOKEN_REQUIRED": "Bearer token is required for this operation.",
   "DEVICE_ID_MISSING": "X-Device-ID header is missing.",
@@ -43,5 +42,6 @@
   "INVALID_VOUCHER_CODE": "Invalid voucher code provided.",
   "VOUCHER_EXPIRED": "Voucher has expired.",
   "TOPUP_FAILED": "Top-up failed. Please try again.",
-  "ESIM_HUB_EXCEPTION": "An error occurred in the eSIM hub service."
+  "ESIM_HUB_EXCEPTION": "An error occurred in the eSIM hub service.",
+  "PLATFORM_HEADER_MISSING": "x_platform header is required"
 }

@@ -98,8 +98,7 @@ class UserBundleService:
             asyncio.create_task(
                 self.__update_order_with_delay(
                     order_id=order.id,
-                    amount=amount,
-                    modified_amount=modified_amount
+                    bundle=bundle
                 )
             )
 
@@ -410,14 +409,17 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.OWN_REFERRAL_CODE_CANNOT_BE_USED,
                                   details="Own Referral Code Can not be used")
 
-    async def __update_order_with_delay(self, order_id: str, amount: float, modified_amount: float):
+    async def __update_order_with_delay(self, order_id: str, bundle: BundleDTO):
         """Background task to update order with delay"""
         await asyncio.sleep(10)  # 2 second delay
         try:
+            modified_amount = bundle.original_price * rate
+            amount = bundle.original_price * rate
             logger.info(f"Updating order {order_id} with delayed background task at {datetime.now()}")
             self.__user_order_repo.update_by(where={"id": order_id}, data={
                 "amount": int(round(amount * 100)),
                 "modified_amount": int(round(modified_amount * 100)),
+                "bundle_data": bundle.model_dump_json()
             })
             logger.info(f"Successfully updated order {order_id} in background")
         except Exception as e:

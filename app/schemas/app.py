@@ -65,9 +65,7 @@ class ExchangeRate(BaseModel):
 
 
 class BannerResponse(BaseModel):
-    id: int
     title: str
     description: str
     image: str
     action: str
-    platform: str

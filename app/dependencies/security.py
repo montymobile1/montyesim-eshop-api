@@ -96,3 +96,8 @@ def device_token(x_device_id: str = Header(..., description=ErrorMessages.DEVICE
     if not x_device_id:
         raise CustomException(code=400, name=ErrorMessages.DEVICE_ID_MISSING, details=ErrorMessages.DEVICE_ID_MISSING)
     return x_device_id
+
+def platform_header(x_platform: str = Header(..., description=ErrorMessages.PLATFORM_HEADER_MISSING)) -> str:
+    if not x_platform:
+        raise CustomException(code=400, name=ErrorMessages.PLATFORM_HEADER_MISSING, details=ErrorMessages.PLATFORM_HEADER_MISSING)
+    return x_platform

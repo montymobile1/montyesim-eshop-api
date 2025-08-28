@@ -104,7 +104,7 @@ class PromotionService:
                                                  order_id=order_id,
                                                  referred_to=referred_user.email)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
-                                                   message=f"Discount Amount {amount * rate} {currency}")
+                                                   message=f"Discount Amount {round(amount * rate, 2)} {currency}")
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
                 discounted = (bundle.original_price * percentage) / 100
                 discounted = round(discounted, 2)
@@ -138,7 +138,7 @@ class PromotionService:
                                                  referred_to=referrer_user.email, device_id=device_id,
                                                  order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
-                                                   message=f"Cashback Amount {amount * rate} {currency}")
+                                                   message=f"Cashback Amount {round(amount * rate, 2)} {currency}")
 
         else:
             promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": code})
@@ -167,7 +167,7 @@ class PromotionService:
                                                  order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule.id,
-                                                   message=f"Discount Amount {promotion.amount * rate} {currency}")
+                                                   message=f"Discount Amount {round(promotion.amount * rate)} {currency}")
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
                 discounted = bundle.original_price * promotion.amount / 100
                 discounted = round(discounted, 2)
@@ -211,7 +211,8 @@ class PromotionService:
                                           device_id=device_id)
             else:
                 logger.error("promotion code not found")
-                raise CustomException(code=400, name=ErrorMessages.CODE_NOT_RECORDED, details="promotion code not found")
+                raise CustomException(code=400, name=ErrorMessages.CODE_NOT_RECORDED,
+                                      details="promotion code not found")
         else:
             code_type = "REFERRAL"
             rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
@@ -228,7 +229,8 @@ class PromotionService:
         promotion_rule = self.__promotion_rule_repo.get_first_by({"id": rule_id})
         is_referral = self.is_referral_code(code)
         if promotion_rule is None:
-            raise CustomException(code=400, name=ErrorMessages.PROMOTION_RULE_MISSING, details="promotion rule is missing")
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_RULE_MISSING,
+                                  details="promotion rule is missing")
 
         action_id = promotion_rule.promotion_rule_action_id
         event_id = promotion_rule.promotion_rule_event_id
@@ -247,7 +249,8 @@ class PromotionService:
         else:
             promotion_model: PromotionModel = self.__promotion_repo.get_first_by({"rule_id": rule_id, "code": code})
             if promotion_model is None:
-                raise CustomException(code=400, name=ErrorMessages.INVALID_INPUT, details="code is promotion code, should have promotion model")
+                raise CustomException(code=400, name=ErrorMessages.INVALID_INPUT,
+                                      details="code is promotion code, should have promotion model")
             amount = promotion_model.amount
 
         if action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
@@ -362,10 +365,12 @@ class PromotionService:
             raise CustomException(code=400, name=ErrorMessages.BUNDLE_MISSING, details="bundle is missing")
 
         if event_id == PromotionRuleEvent.CREATE_ACCOUNT.value and action_id != PromotionRuleAction.CASHBACK_AMOUNT.value:
-            raise CustomException(code=400, name=ErrorMessages.INVALID_ACTION, details="login event can have only cashback amount")
+            raise CustomException(code=400, name=ErrorMessages.INVALID_ACTION,
+                                  details="login event can have only cashback amount")
 
         if not is_referral and beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
-            raise CustomException(code=400, name=ErrorMessages.INVALID_INPUT, details="promotion rule for promotion can have beneficiary user only")
+            raise CustomException(code=400, name=ErrorMessages.INVALID_INPUT,
+                                  details="promotion rule for promotion can have beneficiary user only")
 
     def __validate_promotion(self, promotion: PromotionModel, user_id: str, device_id: str = None):
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
@@ -373,7 +378,8 @@ class PromotionService:
         if not promotion.is_active:
             raise CustomException(code=404, name=ErrorMessages.PROMOTION_NOT_ACTIVE, details="promotion not active")
         if promotion.times_used >= rule.max_usage:
-            raise CustomException(code=404, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE, details="times used is full")
+            raise CustomException(code=404, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE,
+                                  details="times used is full")
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed", "device_id": device_id})
         if promotion_usage:
@@ -387,40 +393,48 @@ class PromotionService:
 
         old_profiles = self.__user_profile_repo.list(where={"user_id": user_id})
         if len(old_profiles) > 0:
-            raise CustomException(code=400, name=ErrorMessages.USER_HAS_PREVIOUS_ESIM, details="User already purchased esim before, cannot use referral code")
+            raise CustomException(code=400, name=ErrorMessages.USER_HAS_PREVIOUS_ESIM,
+                                  details="User already purchased esim before, cannot use referral code")
         user_model: UsersCopyModel = self.__user_repo.get_by_id(user_id)
         if user_model.metadata["referral_code"] and user_model.metadata["referral_code"] == promotion_code:
-            raise CustomException(code=400, name=ErrorMessages.OWN_REFERRAL_CODE_CANNOT_BE_USED, details="Own Referral Code Can not be used")
+            raise CustomException(code=400, name=ErrorMessages.OWN_REFERRAL_CODE_CANNOT_BE_USED,
+                                  details="Own Referral Code Can not be used")
 
         if referred_user:
             old_device = self.__promotion_usage_repo.list(
                 where={"device_id": device_id, "referral_code": promotion_code, "referred_to": referred_user.email})
             if len(old_device) > 0:
-                raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE, details="Referral Code Already Used on this device")
+                raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE,
+                                      details="Referral Code Already Used on this device")
             referred_usage = self.__promotion_usage_repo.list(
                 where={"referred_to": referred_user.email, "user_id": user_id, "referral_code": promotion_code})
             if len(referred_usage) > 0:
                 for usage in referred_usage:
                     if usage.device_id == device_id:
                         logger.error("Referral code already used on this device")
-                        raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE, details="Referral Code Already Used on this device")
+                        raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE,
+                                              details="Referral Code Already Used on this device")
                 logger.error("Referral code already used by referred user")
-                raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED, details="Referral Code Already Used by referred user")
+                raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED,
+                                      details="Referral Code Already Used by referred user")
 
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "referral_code": promotion_code})
 
         if promotion_usage:
             logger.error("Referral code already used")
-            raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED, details="Referral Code Already Used")
+            raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED,
+                                  details="Referral Code Already Used")
 
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
         if not rule:
-            raise CustomException(code=404, name=ErrorMessages.PROMOTION_RULE_NOT_FOUND, details="promotion rule not found")
+            raise CustomException(code=404, name=ErrorMessages.PROMOTION_RULE_NOT_FOUND,
+                                  details="promotion rule not found")
 
         promotion_referral_usage = self.__promotion_usage_repo.list(where={"referral_code": promotion_code})
         if len(promotion_referral_usage) > rule.max_usage:
-            raise CustomException(code=404, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION, details="times used is full")
+            raise CustomException(code=404, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
+                                  details="times used is full")
 
     def is_referral_code(self, referral_code: str) -> bool:
         return self.__user_repo.get_first_by(where={},
@@ -524,7 +538,8 @@ class PromotionService:
         rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
         if not rule:
-            raise CustomException(code=404, name=ErrorMessages.PROMOTION_RULE_NOT_FOUND, details="promotion rule not found")
+            raise CustomException(code=404, name=ErrorMessages.PROMOTION_RULE_NOT_FOUND,
+                                  details="promotion rule not found")
 
         amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate)
         percentage = float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))

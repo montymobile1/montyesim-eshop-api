@@ -3,7 +3,7 @@ from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, Header, Request
 
-from app.dependencies.security import bearer_token, device_token, get_user_from_token
+from app.dependencies.security import bearer_token, device_token, get_user_from_token, platform_header
 from app.models.user import UserModel
 from app.schemas.app import DeviceRequest, ContactUsRequest, DeleteDeviceRequest, FaqResponse, PageContentResponse, \
     GlobalConfiguration, BannerResponse
@@ -74,8 +74,9 @@ async def configurations(accept_language: str = Header("en")):
     return currency_service.get_all_currency()
 
 
-@router.get("/banners", response_model=Response[List[BannerResponse]], dependencies=[Depends(device_token)])
+@router.get("/banners", response_model=Response[List[BannerResponse]],
+            dependencies=[Depends(device_token),Depends(platform_header)])
 def banners(accept_language: str = Header("en"), x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
             x_platform: str = Header("web"),
             x_device_id: str = Header(None)):
-    return service.banners(x_currency=x_currency, locale=accept_language,x_platform=x_platform)
+    return service.banners(x_currency=x_currency, locale=accept_language, x_platform=x_platform)

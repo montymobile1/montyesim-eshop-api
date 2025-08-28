@@ -131,4 +131,5 @@ class BannerModel(BaseModel):
     description: str
     image: str
     action: str
+    platform: str
     created_at: str

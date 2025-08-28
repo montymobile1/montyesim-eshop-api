@@ -175,5 +175,6 @@ class AppService:
 
     def banners(self, x_currency: str, locale: str = "en", x_platform: str = "web") -> Response[List[BannerResponse]]:
         banners = self.__banner_repo.list(where={"platform": x_platform})
+        logger.info(banners)
         response = [BannerResponse(**banner.model_dump()) for banner in banners]
         return ResponseHelper.success_data_response(response, len(banners))
