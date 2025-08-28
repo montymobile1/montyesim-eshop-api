@@ -1,6 +1,6 @@
 from loguru import logger
 
-from app.config.constants import UserWalletTransactionSource
+from app.config.constants import UserWalletTransactionSource, ErrorMessages
 from app.exceptions import CustomException
 from app.models.user import UserModel
 from app.repo.voucher_repo import VoucherRepo
@@ -20,12 +20,12 @@ class VoucherService:
     async def redeem(self, voucher_redeem_request: VoucherRequestRedeem, user: UserModel, x_currency: str):
         is_used = self.__voucher_repo.get_first_by(where={"is_used": True, "code": voucher_redeem_request.code})
         if is_used:
-            raise CustomException(code=400, name="Voucher Already Used",
+            raise CustomException(code=400, name=ErrorMessages.VOUCHER_ALREADY_USED,
                                   details="Voucher Already Used")
         voucher = self.__voucher_repo.get_first_by(
             where={"code": voucher_redeem_request.code, "is_active": True, "is_used": False})
         if not voucher:
-            raise CustomException(code=404, name="Invalid Voucher Code",
+            raise CustomException(code=404, name=ErrorMessages.INVALID_VOUCHER_CODE,
                                   details="Invalid Voucher Code")
         # Check if voucher is expired using only the date part (ignore time)
         from datetime import datetime, timezone
@@ -35,7 +35,7 @@ class VoucherService:
                 expired_at_dt = expired_at_dt.replace(tzinfo=timezone.utc)
             # Compare only the date part
             if expired_at_dt.date() <= datetime.now(timezone.utc).date():
-                raise CustomException(code=400, name="Voucher Expired",
+                raise CustomException(code=400, name=ErrorMessages.VOUCHER_EXPIRED,
                                       details="Voucher Expired")
 
         try:
@@ -46,5 +46,5 @@ class VoucherService:
             return ResponseHelper.success_response()
         except Exception as ex:
             logger.error(str(ex))
-            raise CustomException(code=400, name="TopUp Failed",
+            raise CustomException(code=400, name=ErrorMessages.TOPUP_FAILED,
                                   details="TopUp Failed")

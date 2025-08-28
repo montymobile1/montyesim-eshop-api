@@ -4,6 +4,7 @@ from typing import List
 
 from loguru import logger
 
+from app.config.constants import ErrorMessages
 from app.config.db import UserOrderType
 from app.config.notification_types import send_wallet_top_up_succeeded_notification
 from app.config.push_notification_manager import fcm_service
@@ -51,7 +52,7 @@ class UserWalletService:
         try:
             user_wallet: UserWalletModel = self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
             if user_wallet is None:
-                raise CustomException(code=400, name="wallet not found", details="user wallet not found")
+                raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
             current_amount = float(user_wallet.amount)
             add_amount = float(amount)
@@ -74,7 +75,7 @@ class UserWalletService:
             return ResponseHelper.success_data_response(dto, 1)
         except Exception as e:
             logger.error(str(e))
-            raise CustomException(code=400, name="wallet not found", details="user wallet not found")
+            raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
     async def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UserModel) -> Response[
         PaymentIntentResponse]:

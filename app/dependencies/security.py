@@ -17,7 +17,7 @@ security = HTTPBearer()
 
 def refresh_token(x_refresh_token: str = Header(..., description=ErrorMessages.REFRESH_TOKEN_MISSING)) -> str:
     if not x_refresh_token:
-        raise CustomException(code=401, name="X-Refresh-Token", details=ErrorMessages.REFRESH_TOKEN_MISSING)
+        raise CustomException(code=401, name=ErrorMessages.REFRESH_TOKEN_MISSING, details=ErrorMessages.REFRESH_TOKEN_MISSING)
     return x_refresh_token
 
 
@@ -46,7 +46,7 @@ def bearer_token(credentials: HTTPAuthorizationCredentials = Security(security))
 
 def bearer_token_anonymous(credentials: HTTPAuthorizationCredentials = Security(security)) -> UserModel:
     if not credentials or not credentials.credentials:
-        raise CustomException(code=401, name="Token is required", details="Bearer Token is required for this operation")
+        raise CustomException(code=401, name=ErrorMessages.TOKEN_IS_REQUIRED, details="Bearer Token is required for this operation")
     try:
         response: AuthResponse = supabase_client().auth.get_user(jwt=credentials.credentials)
         metadata = response.user.user_metadata
@@ -94,5 +94,5 @@ def get_user_from_token(jwt_token: str) -> UserModel | None:
 
 def device_token(x_device_id: str = Header(..., description=ErrorMessages.DEVICE_ID_MISSING)) -> str:
     if not x_device_id:
-        raise CustomException(code=400, name="X-Device-ID is missing", details=ErrorMessages.DEVICE_ID_MISSING)
+        raise CustomException(code=400, name=ErrorMessages.DEVICE_ID_MISSING, details=ErrorMessages.DEVICE_ID_MISSING)
     return x_device_id

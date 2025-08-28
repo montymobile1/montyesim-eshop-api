@@ -1,8 +1,10 @@
 from typing import Any
 
+from app.config.constants import ErrorMessages
+
 
 class CustomException(Exception):
-    def __init__(self, name: str, details: str, code: int):
+    def __init__(self, name: ErrorMessages, details: str, code: int):
         self.name = name
         self.details = details
         self.code = code
@@ -18,17 +20,17 @@ class EsimHubException(CustomException):
             self.details = details["message"] or details["code"]
         else:
             self.details = str(details)
-        super().__init__(name=self.name, details=self.details, code=self.code)
+        super().__init__(name=ErrorMessages.ESIM_HUB_EXCEPTION, details=self.details, code=self.code)
 
 
 class BadRequestException(CustomException):
     def __init__(self, details: str):
-        super().__init__(code=400, name="BadRequest Exception", details=details)
+        super().__init__(code=400, name=ErrorMessages.REQUEST_FAILED, details=details)
 
 
 class DatabaseException(CustomException):
     def __init__(self, details: str):
-        super().__init__(code=400, name="DataException", details=details)
+        super().__init__(code=400, name=ErrorMessages.REQUEST_FAILED, details=details)
 
 
 class DCBException(CustomException):
@@ -40,4 +42,4 @@ class DCBException(CustomException):
             self.details = details["message"] or details["code"]
         else:
             self.details = str(details)
-        super().__init__(name=self.name, details=self.details, code=self.code)
+        super().__init__(name=ErrorMessages.REQUEST_FAILED, details=self.details, code=self.code)

@@ -7,6 +7,7 @@ from fastapi import Request
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance, send_email
+from app.config.constants import ErrorMessages
 from app.config.db import ConfigKeysEnum, PaymentTypeEnum
 from app.exceptions import CustomException
 from app.models.app import DeviceModel
@@ -112,7 +113,7 @@ class AppService:
             "content": bleach.clean(contact_us_request.content),
         })
         if not response:
-            raise CustomException(code=400, details="Bad Request", name="Message was not submitted")
+            raise CustomException(code=400, details="Bad Request", name=ErrorMessages.MESSAGE_WAS_NOT_SUBMITTED)
         content = f"""
             <h1>Received New Email Message</h1>
             <p><b>From</b>: {contact_us_request.email}</p>

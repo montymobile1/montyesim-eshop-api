@@ -52,7 +52,7 @@ class UserBundleService:
         if not bundle.is_stockable:
             check_bundle_available = await self.__esim_hub_service.check_bundle_applicable(bundle.bundle_info_code)
             if not check_bundle_available:
-                raise CustomException(code=400, name="Buy Bundle", details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
+                raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         modified_amount = bundle.price
         amount = bundle.price
@@ -91,7 +91,8 @@ class UserBundleService:
             amount = bundle.original_price * rate
             rule_id = validation_response.rule_id
             self.__user_order_repo.update_by(where={"id": order.id}, data={
-                "amount": int(round(amount * 100))
+                "amount": int(round(amount * 100)),
+                "modified_amount": int(round(modified_amount * 100)),
             })
 
         payment_type = assign_request.payment_type
@@ -112,7 +113,7 @@ class UserBundleService:
                                                     assign_request=assign_request, rule_id=rule_id,
                                                     modified_amount=modified_amount, request=request)
         else:
-            raise CustomException(code=400, name="Payment Type Error",
+            raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
 
     async def assign_top_up(self, user: UserModel, assign_top_up_request: AssignTopUpRequest, device_id: str,
@@ -173,7 +174,7 @@ class UserBundleService:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                         where={"user_id": user.id, "iccid": iccid})
         if len(user_profiles) == 0:
-            raise CustomException(code=404, name="Not Found", details="user profile not found")
+            raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         return ResponseHelper.success_data_response(
             DtoMapper.to_esim_bundle_response(user_profiles[0], rate, x_currency), 0)
@@ -216,7 +217,7 @@ class UserBundleService:
                                                                            filters={
                                                                                "bundle_data ->> bundle_code": code})
         if user_profile_bundle is None:
-            raise CustomException(code=400, name="DB Exception", details="Bundle Not Found")
+            raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_BUNDLE_NOT_FOUND, details="Bundle Not Found")
         bundle = BundleDTO.model_validate(user_profile_bundle.bundle_data)
         bundle.label = bleach.clean(bundle_label_request.label)
         self.__user_profile_bundle_repo.update_by(
@@ -228,7 +229,7 @@ class UserBundleService:
                                           user: UserModel):
         user_profile_bundle = self.__user_profile_bundle_repo.get_first_by(where={"user_id": user.id, "iccid": iccid})
         if user_profile_bundle is None:
-            raise CustomException(code=400, name="DB Exception", details="Bundle Not Found")
+            raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_BUNDLE_NOT_FOUND, details="Bundle Not Found")
         bundle = BundleDTO.model_validate(user_profile_bundle.bundle_data)
         bundle.label = bleach.clean(bundle_label_request.label)
         self.__user_profile_bundle_repo.update_by(
@@ -261,15 +262,15 @@ class UserBundleService:
         if not user_order:
             raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND, details=ErrorMessages.ORDER_NOT_FOUND)
         if user_order.payment_status != OrderStatusEnum.SUCCESS:
-            raise CustomException(code=400, name=f"Payment {user_order.payment_status}",
+            raise CustomException(code=400, name=ErrorMessages.PAYMENT_FAILED,
                                   details=ErrorMessages.PAYMENT_FAILED)
         if user_order.order_status != OrderStatusEnum.SUCCESS:
-            raise CustomException(code=400, name=f"Order {user_order.order_status}",
+            raise CustomException(code=400, name=ErrorMessages.ORDER_FAILED,
                                   details=ErrorMessages.ORDER_FAILED)
         profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                    where={"user_id": user.id, "user_order_id": order_id})
         if len(profiles) == 0:
-            raise CustomException(code=404, name="Not Found", details=ErrorMessages.ORDER_NOT_FOUND)
+            raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details=ErrorMessages.ORDER_NOT_FOUND)
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         return ResponseHelper.success_data_response(
             DtoMapper.to_esim_bundle_response(user_profile=profiles[0], rate=rate, x_currency=x_currency), 0)
@@ -308,7 +309,7 @@ class UserBundleService:
             stripe.PaymentIntent.cancel(order.payment_intent_code)
             return ResponseHelper.success_response()
         except Exception as e:
-            raise CustomException(code=400, name=f" Error While Canceling Order {order_id}", details=str(e))
+            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
     async def verify_order_otp(self, user: UserModel, request: VerifyOtpRequestDto) -> Response[bool]:
         logger.info(f"receiving verification otp request {request}")
@@ -337,7 +338,7 @@ class UserBundleService:
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
-            raise CustomException(code=400, name="Error Creating Order", details=f"Error while creating order: {e}")
+            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=f"Error while creating order: {e}")
 
     async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO) -> Response[
         PaymentIntentResponse]:
@@ -351,7 +352,7 @@ class UserBundleService:
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
-            raise CustomException(code=400, name="Error Creating Order", details=f"Error while creating order: {e}")
+            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=f"Error while creating order: {e}")
 
     async def __handle_card_payment(self, user: UserModel, order: UserOrderModel, device_id: str,
                                     assign_request: AssignRequest, rule_id: str, modified_amount: float,
@@ -389,9 +390,9 @@ class UserBundleService:
     def __check_if_user_eligible_for_referral(self, user: UserModel, promo_code: str):
         old_profiles = self.__user_profile_repo.list(where={"user_id": user.id})
         if len(old_profiles) > 0:
-            raise CustomException(code=400, name="User Has Previous Esim",
+            raise CustomException(code=400, name=ErrorMessages.USER_HAS_PREVIOUS_ESIM,
                                   details="User already purchased esim before, cannot use referral code")
         user_model: UsersCopyModel = self.__user_repo.get_by_id(user.id)
         if user_model.metadata["referral_code"] and user_model.metadata["referral_code"] == promo_code:
-            raise CustomException(code=400, name="Own Referral Code Can not be used",
+            raise CustomException(code=400, name=ErrorMessages.OWN_REFERRAL_CODE_CANNOT_BE_USED,
                                   details="Own Referral Code Can not be used")

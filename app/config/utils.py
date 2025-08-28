@@ -5,6 +5,7 @@ from loguru import logger
 from stripe import PaymentIntent, Charge
 
 from app.config.config import STRIPE_SECRET_KEY
+from app.config.constants import ErrorMessages
 from app.config.db import ConfigKeysEnum
 from app.exceptions import CustomException
 from app.models.app import AppConfigModel
@@ -62,7 +63,7 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
         return payment_intent
 
     except stripe.error.StripeError as e:
-        raise CustomException(code=400, name="Payment Intent Exception",
+        raise CustomException(code=400, name=ErrorMessages.PAYMENT_INTENT_EXCEPTION,
                               details=f"Error while creating payment intent {str(e)}")
 
 
@@ -110,7 +111,7 @@ def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, m
         return payment_intent
 
     except stripe.error.StripeError as e:
-        raise CustomException(code=400, name="Payment Intent Exception",
+        raise CustomException(code=400, name=ErrorMessages.PAYMENT_INTENT_EXCEPTION,
                               details=f"Error while creating payment intent {str(e)}")
 
 
@@ -123,7 +124,7 @@ def create_payment_ephemeral(customer_id: str):
         logger.info("Ephemeral created: %s", ephemeral)
         return ephemeral
     except stripe.error.StripeError as e:
-        raise CustomException(code=400, name="Ephemeral Creation Exception",
+        raise CustomException(code=400, name=ErrorMessages.PAYMENT_INTENT_EXCEPTION,
                               details=f"Error while creating ephemeral key: {str(e)}")
 
 
