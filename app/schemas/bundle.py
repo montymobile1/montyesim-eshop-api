@@ -68,7 +68,9 @@ class PaymentIntentResponse(BaseModel):
     stripe_url_scheme: Optional[str] = "stripe"
     order_id: str
     payment_status: Optional[PaymentStatusEnum] = PaymentStatusEnum.PENDING
-
+    total_price_display: Optional[str] = "0.00"
+    tax_price_display: Optional[str] = "0.00"
+    subtotal_price_display: Optional[str] = "0.00"
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 

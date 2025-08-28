@@ -74,10 +74,10 @@ async def custom_unauthorized_handler(request: Request, exc: HTTPException):
 async def global_exception_handler(request: Request, exc: CustomException):
     logger.error(f"CustomException: {exc} {request.url.path}")
     try:
-        lang_header = request.headers.get('accept-language', 'en')
-        lang = lang_header.split('-')[0].lower()
-        messages = load_messages(lang)
-        title = messages.get(exc.name, exc.name)
+        # lang_header = request.headers.get('accept-language', 'en')
+        # lang = lang_header.split('-')[0].lower()
+        # messages = load_messages(lang)
+        title = exc.name #messages.get(exc.name, exc.name)
         response_data = ResponseHelper.error_response(status_code=exc.code, title=title,
                                                       error=title, developer_message=exc.details)
         return JSONResponse(
