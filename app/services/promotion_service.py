@@ -167,7 +167,7 @@ class PromotionService:
                                                  order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule.id,
-                                                   message=f"Discount Amount {round(promotion.amount * rate)} {currency}")
+                                                   message=f"Discount Amount {round(promotion.amount * rate,2)} {currency}")
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
                 discounted = bundle.original_price * promotion.amount / 100
                 discounted = round(discounted, 2)
@@ -189,7 +189,7 @@ class PromotionService:
                     message = f"Cashback Percentage ({promotion.amount}%) {amount * rate} {currency}"
                 else:
                     amount = promotion.amount
-                    message = f"Cashback Amount {amount * rate} {currency}"
+                    message = f"Cashback Amount {round(amount * rate,2)} {currency}"
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                                  user_id=user_id, referrer_user_id="0", code=code, is_referral=False,
