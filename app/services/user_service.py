@@ -1,4 +1,6 @@
+import asyncio
 import os
+from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List
 
@@ -52,7 +54,8 @@ class UserBundleService:
         if not bundle.is_stockable:
             check_bundle_available = await self.__esim_hub_service.check_bundle_applicable(bundle.bundle_info_code)
             if not check_bundle_available:
-                raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
+                raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
+                                      details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         modified_amount = bundle.price
         amount = bundle.price
@@ -90,10 +93,15 @@ class UserBundleService:
             modified_amount = bundle.original_price * rate
             amount = bundle.original_price * rate
             rule_id = validation_response.rule_id
-            self.__user_order_repo.update_by(where={"id": order.id}, data={
-                "amount": int(round(amount * 100)),
-                "modified_amount": int(round(modified_amount * 100)),
-            })
+            logger.info(f"scheduling background update for order {order.id}")
+            # Create background task for order update
+            asyncio.create_task(
+                self.__update_order_with_delay(
+                    order_id=order.id,
+                    amount=amount,
+                    modified_amount=modified_amount
+                )
+            )
 
         payment_type = assign_request.payment_type
 
@@ -217,7 +225,8 @@ class UserBundleService:
                                                                            filters={
                                                                                "bundle_data ->> bundle_code": code})
         if user_profile_bundle is None:
-            raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_BUNDLE_NOT_FOUND, details="Bundle Not Found")
+            raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_BUNDLE_NOT_FOUND,
+                                  details="Bundle Not Found")
         bundle = BundleDTO.model_validate(user_profile_bundle.bundle_data)
         bundle.label = bleach.clean(bundle_label_request.label)
         self.__user_profile_bundle_repo.update_by(
@@ -229,7 +238,8 @@ class UserBundleService:
                                           user: UserModel):
         user_profile_bundle = self.__user_profile_bundle_repo.get_first_by(where={"user_id": user.id, "iccid": iccid})
         if user_profile_bundle is None:
-            raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_BUNDLE_NOT_FOUND, details="Bundle Not Found")
+            raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_BUNDLE_NOT_FOUND,
+                                  details="Bundle Not Found")
         bundle = BundleDTO.model_validate(user_profile_bundle.bundle_data)
         bundle.label = bleach.clean(bundle_label_request.label)
         self.__user_profile_bundle_repo.update_by(
@@ -270,7 +280,8 @@ class UserBundleService:
         profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                    where={"user_id": user.id, "user_order_id": order_id})
         if len(profiles) == 0:
-            raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details=ErrorMessages.ORDER_NOT_FOUND)
+            raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND,
+                                  details=ErrorMessages.ORDER_NOT_FOUND)
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         return ResponseHelper.success_data_response(
             DtoMapper.to_esim_bundle_response(user_profile=profiles[0], rate=rate, x_currency=x_currency), 0)
@@ -338,7 +349,8 @@ class UserBundleService:
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
-            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=f"Error while creating order: {e}")
+            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
+                                  details=f"Error while creating order: {e}")
 
     async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO) -> Response[
         PaymentIntentResponse]:
@@ -352,7 +364,8 @@ class UserBundleService:
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
-            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=f"Error while creating order: {e}")
+            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
+                                  details=f"Error while creating order: {e}")
 
     async def __handle_card_payment(self, user: UserModel, order: UserOrderModel, device_id: str,
                                     assign_request: AssignRequest, rule_id: str, modified_amount: float,
@@ -396,3 +409,16 @@ class UserBundleService:
         if user_model.metadata["referral_code"] and user_model.metadata["referral_code"] == promo_code:
             raise CustomException(code=400, name=ErrorMessages.OWN_REFERRAL_CODE_CANNOT_BE_USED,
                                   details="Own Referral Code Can not be used")
+
+    async def __update_order_with_delay(self, order_id: str, amount: float, modified_amount: float):
+        """Background task to update order with delay"""
+        await asyncio.sleep(10)  # 2 second delay
+        try:
+            logger.info(f"Updating order {order_id} with delayed background task at {datetime.now()}")
+            self.__user_order_repo.update_by(where={"id": order_id}, data={
+                "amount": int(round(amount * 100)),
+                "modified_amount": int(round(modified_amount * 100)),
+            })
+            logger.info(f"Successfully updated order {order_id} in background")
+        except Exception as e:
+            logger.error(f"Error updating order {order_id} in background: {str(e)}")
