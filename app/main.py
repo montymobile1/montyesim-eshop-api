@@ -72,52 +72,24 @@ async def custom_unauthorized_handler(request: Request, exc: HTTPException):
 
 @esim_app.exception_handler(CustomException)
 async def global_exception_handler(request: Request, exc: CustomException):
+    logger.error(f"CustomException: {exc} {request.url.path}")
     try:
-        logger.error(f"CustomException: {exc} {request.url.path}")
         lang_header = request.headers.get('accept-language', 'en')
         lang = lang_header.split('-')[0].lower()
         messages = load_messages(lang)
         title = messages.get(exc.name, exc.name)
-
-        # Create a simple dictionary structure that's guaranteed to be JSON-serializable
-        error_response = {
-            "status_code": exc.code,
-            "title": str(title),  # Ensure title is a string
-            "error": str(exc.name),  # Ensure error is a string
-            "developer_message": str(exc.details) if exc.details else None  # Handle potential None
-        }
-
-        # Create response using the simplified structure
-        response_data = ResponseHelper.error_response(**error_response)
-
-        # Log the response data for debugging
-        logger.debug(f"Response data before encoding: {response_data}")
-
-        # Encode with custom handling
-        encoded_content = jsonable_encoder(
-            response_data,
-            exclude_none=True,  # Remove None values
-            custom_encoder={
-                datetime: lambda dt: dt.isoformat(),  # Handle datetime objects
-                bytes: lambda b: b.decode(),  # Handle byte strings
-            }
-        )
-
+        response_data = ResponseHelper.error_response(status_code=exc.code, title=title,
+                                                      error=title, developer_message=exc.details)
         return JSONResponse(
             status_code=exc.code,
-            content=encoded_content,
+            content=jsonable_encoder(response_data),
         )
     except Exception as e:
-        # If JSON encoding fails, return a basic error response
-        logger.error(f"Error in exception handler: {str(e)}")
+        response_data = ResponseHelper.error_response(status_code=500, title="INTERNAL_SERVER_ERROR",
+                                      error="INTERNAL_SERVER_ERROR", developer_message="INTERNAL_SERVER_ERROR")
         return JSONResponse(
-            status_code=500,
-            content={
-                "status_code": 500,
-                "title": "Internal Server Error",
-                "error": "JSON_ENCODING_ERROR",
-                "developer_message": "Could not encode error response"
-            }
+            status_code=exc.code,
+            content=jsonable_encoder(response_data),
         )
 
 
