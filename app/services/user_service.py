@@ -398,9 +398,9 @@ class UserBundleService:
                                          merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
                                          billing_country_code="GB",
                                          order_id=order.id,
-                                         subtotal_price_display=f"{minor_units} {order.currency}",
-                                         total_price_display=f"{minor_units} {order.currency}",
-                                         tax_price_display=f"0 {order.currency}"
+                                         subtotal_price_display=f"{minor_units / 100} {order.currency}",
+                                         total_price_display=f"{minor_units / 100} {order.currency}",
+                                         tax_price_display=f"0.00 {order.currency}"
                                          )
         return ResponseHelper.success_data_response(response, 0)
 
