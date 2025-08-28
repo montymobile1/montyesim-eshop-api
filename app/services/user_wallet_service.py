@@ -114,7 +114,10 @@ class UserWalletService:
                                          test_env=not intent.livemode,
                                          merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
                                          billing_country_code="GB",
-                                         order_id=order.id)
+                                         order_id=order.id,
+                                         total_price_display=f"{top_up_request.amount:.2f} {currency}",
+                                         subtotal_price_display=f"{top_up_request.amount:.2f} {currency}",
+                                         tax_price_display=f"0.00 {currency}",)
         return ResponseHelper.success_data_response(response, 0)
 
     def get_wallet_transactions(self, user_id: str) -> List[UserWalletTransactionModel]:
