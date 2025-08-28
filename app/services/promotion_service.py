@@ -186,7 +186,7 @@ class PromotionService:
             else:
                 if rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
                     amount = (bundle.original_price * promotion.amount) / 100
-                    message = f"Cashback Percentage ({promotion.amount}%) {amount * rate} {currency}"
+                    message = f"Cashback Percentage ({promotion.amount}%) {round(amount * rate,2)} {currency}"
                 else:
                     amount = promotion.amount
                     message = f"Cashback Amount {round(amount * rate,2)} {currency}"
