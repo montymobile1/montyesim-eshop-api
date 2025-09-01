@@ -315,8 +315,7 @@ class UserBundleService:
                                       details=ErrorMessages.ORDER_NOT_FOUND)
             self.__user_order_repo.update(order_id, {"order_status": OrderStatusEnum.CANCELED,
                                                      "payment_status": OrderStatusEnum.CANCELED})
-            self.__promotion_service.cancel_promotion_usage(user_id=user.id, promo_code=order.promo_code,
-                                                            referral_code=order.referral_code)
+            self.__promotion_service.cancel_promotion_usage(user_id=user.id, order_id=order_id)
             stripe.PaymentIntent.cancel(order.payment_intent_code)
             return ResponseHelper.success_response()
         except Exception as e:

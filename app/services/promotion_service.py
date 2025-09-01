@@ -352,7 +352,8 @@ class PromotionService:
             "order_id": order_id
         })
 
-    async def update_promotion_usage(self, user_id: str, code: str, status: str, rule_id: str, paid_amount: float = 0,order_id: str = None):
+    async def update_promotion_usage(self, user_id: str, code: str, status: str, rule_id: str, paid_amount: float = 0,
+                                     order_id: str = None):
         data = {"status": status}
         is_referral = self.is_referral_code(code)
         conditions = {"user_id": user_id, "promotion_code": code} if not is_referral else {"user_id": user_id,
@@ -546,23 +547,9 @@ class PromotionService:
                                                                             source=UserWalletTransactionSource.CASHBACK_REFERRAL)
         return None
 
-    def cancel_promotion_usage(self, user_id: str, referral_code: str | None, promo_code: str | None):
-        if referral_code:
-            self.__promotion_usage_repo.update_by(where={"user_id": user_id, "referral_code": referral_code},
-                                                  data={"status": PromotionStatusEnum.FAILED.value})
-            promotion_usage = self.__promotion_usage_repo.get_first_by(
-                where={"user_id": user_id, "referral_code": referral_code})
-            if promotion_usage:
-                referrer_user = self.__user_repo.get_first_by(where={"email": promotion_usage.referred_to})
-                referred_user = self.__user_repo.get_by_id(user_id)
-                if referrer_user:
-                    self.__promotion_usage_repo.update_by(
-                        where={"user_id": referrer_user.id, "referral_code": referral_code,
-                               "referred_to": referred_user.email},
-                        data={"status": PromotionStatusEnum.FAILED.value})
-        if promo_code:
-            self.__promotion_usage_repo.update_by(where={"user_id": user_id, "promotion_code": promo_code},
-                                                  data={"status": PromotionStatusEnum.FAILED.value})
+    def cancel_promotion_usage(self, user_id: str, order_id: str):
+        self.__promotion_usage_repo.update_by(where={"user_id": user_id, "order_id": order_id},
+                                              data={"status": PromotionStatusEnum.FAILED.value})
 
     def referral_info(self, x_currency: str, locale: str = "en") -> Response[ReferralInfoDto]:
         rate = self.__currency_service.get_rate_by_currency(x_currency)
