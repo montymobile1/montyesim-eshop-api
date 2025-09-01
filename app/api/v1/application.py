@@ -1,12 +1,11 @@
-import os
-from typing import Annotated, List
+from typing import List
 
 from fastapi import APIRouter, Depends, Header, Request
 
-from app.dependencies.security import bearer_token, device_token, get_user_from_token, platform_header
+from app.dependencies.language import accept_language_header
+from app.dependencies.security import bearer_token, device_token, get_user_from_token
 from app.models.user import UserModel
-from app.schemas.app import DeviceRequest, ContactUsRequest, DeleteDeviceRequest, FaqResponse, PageContentResponse, \
-    GlobalConfiguration, BannerResponse
+from app.schemas.app import DeviceRequest, DeleteDeviceRequest, FaqResponse, GlobalConfiguration, BannerResponse
 from app.schemas.home import CurrencyDto
 from app.schemas.response import Response
 from app.services.app_service import AppService
@@ -17,66 +16,43 @@ currency_service = CurrencyService()
 router = APIRouter()
 
 
-@router.post("/device", response_model=Response, dependencies=[Depends(device_token)])
-async def add_device(device_request: DeviceRequest, request: Request, authorization: str = Header(None),
-                     accept_language: str = Header("en"), x_device_id: str = Header(None)) -> Response:
+@router.post("/device", response_model=Response, dependencies=[Depends(device_token), Depends(accept_language_header)])
+async def add_device(device_request: DeviceRequest, request: Request, authorization: str = Header(None)) -> Response:
     user: UserModel = get_user_from_token(authorization)
-    return await service.add_device(user, x_device_id, device_request, request)
+    return await service.add_device(user=user, device_request=device_request, request=request)
 
 
-@router.delete("/device", response_model=Response, dependencies=[Depends(bearer_token), Depends(device_token)])
-async def delete_device(delete_request: DeleteDeviceRequest, user: Annotated[UserModel, Depends(bearer_token)],
-                        accept_language: str = Header("en"), x_device_id: str = Header(None)) -> Response:
+@router.delete("/device", response_model=Response,
+               dependencies=[Depends(bearer_token), Depends(accept_language_header)])
+async def delete_device(delete_request: DeleteDeviceRequest) -> Response:
     return await service.delete_device(delete_device_request=delete_request)
 
 
 @router.get("/faq", response_model=Response[List[FaqResponse]],
-            dependencies=[Depends(device_token)])
-async def faq(accept_language: str = Header("en"), x_device_id: str = Header(None)):
-    return await service.faq(accept_language)
+            dependencies=[Depends(device_token), Depends(accept_language_header)])
+async def get_faq() -> Response:
+    return await service.faq()
 
 
-@router.get("/about_us", response_model=Response[PageContentResponse], dependencies=[Depends(device_token)])
-async def about_us(accept_language: str = Header("en"), x_device_id: str = Header(None)):
-    return await service.about_us(accept_language)
-
-
-@router.get("/privacy_policy", response_model=Response[PageContentResponse], dependencies=[Depends(device_token)])
-async def about_us(accept_language: str = Header("en"), x_device_id: str = Header(None)):
-    return await service.privacy_policy(accept_language)
-
-
-@router.post("/contact", response_model=Response, dependencies=[Depends(device_token)])
-async def contact(contact_us_request: ContactUsRequest, accept_language: str = Header("en"),
-                  x_device_id: str = Header(None)):
-    return await service.contact_us(contact_us_request)
-
-
-@router.get("/terms-and-conditions", response_model=Response[PageContentResponse], dependencies=[Depends(device_token)])
-async def terms_and_conditions(accept_language: str = Header("en"),
-                               x_device_id: str = Header(None)):
-    return await service.terms_and_conditions(accept_language)
-
-
-@router.get("/user-guide", response_model=Response, dependencies=[Depends(device_token)])
-async def user_guide(accept_language: str = Header("en"),
-                     x_device_id: str = Header(None)):
+@router.get("/user-guide", response_model=Response,
+            dependencies=[Depends(device_token), Depends(accept_language_header)])
+async def user_guide():
     return await service.user_guide()
 
 
-@router.get("/configurations", response_model=Response[List[GlobalConfiguration]], dependencies=[Depends(device_token)])
-async def configurations(accept_language: str = Header("en")):
+@router.get("/configurations", response_model=Response[List[GlobalConfiguration]],
+            dependencies=[Depends(device_token), Depends(accept_language_header)])
+async def configurations():
     return await service.configurations()
 
 
-@router.get("/currency", response_model=Response[List[CurrencyDto]], dependencies=[Depends(device_token)])
-async def configurations(accept_language: str = Header("en")):
+@router.get("/banner", response_model=Response[List[BannerResponse]],
+            dependencies=[Depends(device_token), Depends(accept_language_header)])
+async def get_banners() -> Response:
+    return service.banners()
+
+
+@router.get("/currency", response_model=Response[List[CurrencyDto]],
+            dependencies=[Depends(device_token), Depends(accept_language_header)])
+async def get_currencies() -> Response:
     return currency_service.get_all_currency()
-
-
-@router.get("/banners", response_model=Response[List[BannerResponse]],
-            dependencies=[Depends(device_token),Depends(platform_header)])
-def banners(accept_language: str = Header("en"), x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
-            x_platform: str = Header("web"),
-            x_device_id: str = Header(None)):
-    return service.banners(x_currency=x_currency, locale=accept_language, x_platform=x_platform)

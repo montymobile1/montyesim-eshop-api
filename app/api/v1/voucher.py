@@ -1,10 +1,9 @@
-import os
-from typing import Annotated
+from fastapi import APIRouter, Depends
 
-from fastapi import APIRouter, Depends, Header
-
+from app.config.context import currency_context, auth_user_context
+from app.dependencies.currency import x_currency_header
+from app.dependencies.language import accept_language_header
 from app.dependencies.security import bearer_token, device_token
-from app.models.user import UserModel
 from app.schemas.response import Response
 from app.schemas.voucher import VoucherRequestRedeem
 from app.services.voucher_service import VoucherService
@@ -15,7 +14,8 @@ service = VoucherService()
 
 
 @router.post("/redeem", response_model=Response,
-             dependencies=[Depends(bearer_token), Depends(device_token)])
-async def assign(voucher_redeem_request: VoucherRequestRedeem, user: Annotated[UserModel, Depends(bearer_token)],
-                 x_device_id: str = Header(None), x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))):
-    return await service.redeem(voucher_redeem_request=voucher_redeem_request, user=user, x_currency=x_currency)
+             dependencies=[Depends(bearer_token), Depends(device_token), Depends(accept_language_header),
+                           Depends(x_currency_header)])
+async def assign(voucher_redeem_request: VoucherRequestRedeem):
+    return await service.redeem(voucher_redeem_request=voucher_redeem_request, user=auth_user_context.get(),
+                                x_currency=currency_context.get())

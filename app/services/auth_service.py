@@ -8,6 +8,7 @@ from loguru import logger
 
 from app.config.config import authenticate, supabase_client, generate_otp, dcb_service_instance
 from app.config.constants import ErrorMessages
+from app.config.context import device_id_context, currency_context
 from app.exceptions import CustomException, BadRequestException
 from app.models.user import UserModel
 from app.repo.device_repo import DeviceRepo
@@ -40,7 +41,7 @@ class AuthService:
             logger.error(f"exception on login: {e}")
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
-    async def temporary_login(self, login_request, x_device_id) -> Response[AuthResponseDTO]:
+    async def temporary_login(self, login_request) -> Response[AuthResponseDTO]:
         try:
             user = self.__user_repo.get_first_by(where={"email": login_request.email})
             response = supabase_client().auth.sign_in_anonymously(
@@ -49,7 +50,7 @@ class AuthService:
                         "data": {
                             "email": login_request.email,
                             "user_id": None if user is None else user.id,
-                            "device_id": x_device_id,
+                            "device_id": device_id_context.get(),
                             "msisdn": "",
                             "should_notify": False,
                         }
@@ -89,9 +90,10 @@ class AuthService:
         except Exception:
             return ResponseHelper.success_data_response(False, 0)
 
-    async def verify_otp(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
+    async def verify_otp(self, verify_otp_request: VerifyOtpRequest) -> Response[
         AuthResponseDTO]:
         try:
+            device_id = device_id_context.get()
             if verify_otp_request.user_email:
                 return await self.__handle_email_otp_verify(verify_otp_request=verify_otp_request, device_id=device_id)
             elif verify_otp_request.phone:
@@ -103,7 +105,8 @@ class AuthService:
             logger.error(f"exception on verify otp: {e}")
             raise CustomException(code=400, name=ErrorMessages.VERIFY_FAILED, details=str(e))
 
-    def logout(self, user: UserModel, device_id: str) -> Response[None]:
+    def logout(self, user: UserModel) -> Response[None]:
+        device_id = device_id_context.get()
         logger.info(f"logging out user {user} device {device_id}")
         try:
             supabase_client().auth.sign_out(options={
@@ -124,19 +127,21 @@ class AuthService:
         except Exception as e:
             raise CustomException(code=400, name=ErrorMessages.DELETE_ACCOUNT_FAILED, details=str(e))
 
-    async def get_user_info(self, user: UserModel, currency_code: str):
+    async def get_user_info(self, user: UserModel):
         try:
             response = supabase_client().auth.get_user(user.token)
-            user_wallet = await self.create_wallet_if_not_exists(user_id=user.id, currency_code=currency_code)
+            user_wallet = await self.create_wallet_if_not_exists(user_id=user.id, currency_code=currency_context.get())
             return ResponseHelper.success_data_response(
-                DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet, currency=currency_code),
+                DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet,
+                                           currency=currency_context.get()),
                 0)
         except Exception as e:
             logger.error(f"exception on get user info: {e}")
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
-    async def update_user_info(self, user: UserModel, update_request: UpdateUserInfoRequest, currency_code: str):
+    async def update_user_info(self, user: UserModel, update_request: UpdateUserInfoRequest):
         try:
+            currency_code = currency_context.get()
             response = supabase_client().auth.admin.update_user_by_id(user.id, {
                 'user_metadata': {
                     'display_email': update_request.email,
@@ -154,8 +159,9 @@ class AuthService:
             logger.error(f"exception on user info: {e}")
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
-    async def refresh_token(self, x_refresh_token: str, currency_code: str):
+    async def refresh_token(self, x_refresh_token: str):
         logger.info(f"received refresh token request: {x_refresh_token}")
+        currency_code = currency_context.get()
         try:
             response = supabase_client().auth.refresh_session(refresh_token=x_refresh_token)
             user_wallet = await self.create_wallet_if_not_exists(user_id=response.user.id, currency_code=currency_code)

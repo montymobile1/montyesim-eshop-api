@@ -8,6 +8,7 @@ from coverage.html import os
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance, send_email, generate_qr_code, get_email_template
+from app.config.context import currency_context, language_context
 from app.config.db import UserBundleType, OrderStatusEnum
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
@@ -49,8 +50,10 @@ class BundleService:
             logger.error(f"error while getting bundle {e}")
             return False
 
-    async def get_bundle(self, bundle_id: str, currency_name: str, locale: str = "en") -> Response[BundleDTO]:
+    async def get_bundle(self, bundle_id: str) -> Response[BundleDTO]:
         bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=bundle_id)
+        currency_name = currency_context.get()
+        locale = language_context.get()
         rate = self.__currency_service.get_rate_by_currency(currency_name)
 
         tags_id = [bundle_country.id for bundle_country in bundle.countries]
@@ -65,12 +68,15 @@ class BundleService:
 
         return ResponseHelper.success_data_response(DtoMapper.bundle_currency_update(bundle, currency_name, rate), 1)
 
-    async def get_regions(self, locale: str) -> Response[List[RegionDTO]]:
+    async def get_regions(self) -> Response[List[RegionDTO]]:
+        locale = language_context.get()
         regions = await self.__grouping_service.get_all_regions(locale=locale)
         return ResponseHelper.success_data_response(regions, len(regions))
 
-    async def get_bundles_by_country(self, country_codes: str, currency_name: str, locale: str) -> Response[
+    async def get_bundles_by_country(self, country_codes: str) -> Response[
         List[BundleDTO]]:
+        currency_name = currency_context.get()
+        locale = language_context.get()
         if country_codes is None or len(country_codes) == 0:
             raise BadRequestException("country_codes cannot be empty")
 
@@ -123,7 +129,9 @@ class BundleService:
         filtered_bundles = self.__filter_by_gprs_limit(bundles)
         return ResponseHelper.success_data_response(filtered_bundles, len(filtered_bundles))
 
-    async def get_bundles_by_region(self, region_code: str, currency: str, locale: str) -> Response[List[BundleDTO]]:
+    async def get_bundles_by_region(self, region_code: str) -> Response[List[BundleDTO]]:
+        currency = currency_context.get()
+        locale = language_context.get()
         start_time = datetime.now()
         regions = await self.__grouping_service.get_all_regions(locale)
 
@@ -169,7 +177,8 @@ class BundleService:
         logger.info(f"get_bundles_by_region executed in {duration} seconds")
         return ResponseHelper.success_data_response(filtered, len(filtered))
 
-    async def get_countries(self, locale: str):
+    async def get_countries(self):
+        locale = language_context.get()
         countries = await self.__grouping_service.get_all_countries(locale)
         return ResponseHelper.success_data_response(countries, len(countries))
 
@@ -196,7 +205,7 @@ class BundleService:
             self.__user_order_repo.update_by({"id": user_order.id}, data=user_order.model_dump(exclude={"id"}))
             logger.info(f"error creating esim hub profile for order {user_order.id}")
             await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="failed",
-                                                                  rule_id=rule_id)
+                                                                  rule_id=rule_id,order_id=user_order.id)
             return BadRequestException("Payment failed")
         else:
             user_order.esim_order_id = esim_hub_order.orderId

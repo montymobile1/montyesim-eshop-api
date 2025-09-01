@@ -43,5 +43,8 @@
   "VOUCHER_EXPIRED": "Voucher has expired.",
   "TOPUP_FAILED": "Top-up failed. Please try again.",
   "ESIM_HUB_EXCEPTION": "An error occurred in the eSIM hub service.",
-  "PLATFORM_HEADER_MISSING": "x_platform header is required"
+  "PLATFORM_HEADER_MISSING": "x_platform header is required",
+  "DISCOUNT_PERCENTAGE": "Discount Percentage",
+  "DISCOUNT_AMOUNT": "Discount Amount",
+  "CASHBACK_AMOUNT": "Cashback Amount"
 }

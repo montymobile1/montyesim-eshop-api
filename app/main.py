@@ -13,6 +13,9 @@ from starlette.responses import JSONResponse
 
 from app.api.v1 import router
 from app.exceptions import CustomException
+from app.middleware.currency_middleware import CurrencyMiddleware
+from app.middleware.device_middleware import DeviceMiddleware
+from app.middleware.language_middleware import LanguageMiddleware
 from app.schemas.response import ResponseHelper
 from app.services.scheduler_service import SchedulerService
 
@@ -29,6 +32,12 @@ async def lifespan(app: FastAPI):
 esim_app = FastAPI(lifespan=lifespan, title="eSIM Reseller Backend Open Source",
                    description="eSIM Reseller Backend Open Source using FAST API Framework",
                    version="1.0")
+
+# Add the language middleware
+esim_app.add_middleware(LanguageMiddleware)
+esim_app.add_middleware(DeviceMiddleware)
+esim_app.add_middleware(CurrencyMiddleware)
+
 logger.add("esim_opensource.log", rotation="10 MB", level="INFO", compression="zip")
 logger.info("Application started")
 
@@ -86,7 +95,8 @@ async def global_exception_handler(request: Request, exc: CustomException):
         )
     except Exception as e:
         response_data = ResponseHelper.error_response(status_code=500, title="INTERNAL_SERVER_ERROR",
-                                      error="INTERNAL_SERVER_ERROR", developer_message="INTERNAL_SERVER_ERROR")
+                                                      error="INTERNAL_SERVER_ERROR",
+                                                      developer_message="INTERNAL_SERVER_ERROR")
         return JSONResponse(
             status_code=exc.code,
             content=jsonable_encoder(response_data),
