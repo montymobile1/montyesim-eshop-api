@@ -50,6 +50,8 @@ class PromotionService:
         transactions = self.__user_wallet_service.get_wallet_transactions(user_id=user_id)
         history = []
         for transaction in transactions:
+            if transaction.source == UserWalletTransactionSource.PURCHASE_BUNDLE:
+                continue;
             promotion_history = PromotionHistoryDto(
                 is_referral=transaction.source != UserWalletTransactionSource.CASHBACK,
                 amount=f"{transaction.amount} {x_currency}",
