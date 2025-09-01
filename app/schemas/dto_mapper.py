@@ -7,6 +7,7 @@ from typing import List
 from gotrue import AuthResponse
 from loguru import logger
 
+from app.config.context import currency_context
 from app.config.db import PaymentTypeEnum
 from app.models.app import CurrencyModel
 from app.models.notification import NotificationModel
@@ -39,8 +40,7 @@ class DtoMapper:
         bundle_regions = [DtoMapper.to_region_dto(region) for region in bundle.get("supportedZones", [])]
         bundle_category = bundle.get("bundleCategory", {})
         countries = [DtoMapper.to_country_dto(c) for c in bundle.get("supportedCountries", [])]
-        currency_code = os.getenv("DEFAULT_CURRENCY",
-                                  "EUR") if currency is None else currency
+        currency_code = currency_context.get() if currency is None else currency
         original_price = bundle["price"]
         price = bundle["exchangedPrice"] if bundle["exchangedPrice"] is not None else original_price
         gprs_limit = bundle_info.get("gprsLimit", 0)

@@ -43,5 +43,8 @@
   "VOUCHER_EXPIRED": "انتهت صلاحية القسيمة.",
   "TOPUP_FAILED": "فشل شحن الرصيد. يرجى المحاولة مرة أخرى.",
   "ESIM_HUB_EXCEPTION": "حدث خطأ في خدمة eSIM hub.",
-  "PLATFORM_HEADER_MISSING": "PLATFORM_HEADER_MISSING"
+  "PLATFORM_HEADER_MISSING": "رأس x_platform مطلوب",
+  "DISCOUNT_PERCENTAGE": "نسبة الخصم",
+  "DISCOUNT_AMOUNT": "قيمة الخصم",
+  "CASHBACK_AMOUNT": "قيمة الاسترجاع النقدي"
 }

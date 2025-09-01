@@ -9,6 +9,7 @@ from loguru import logger
 
 from app.config.config import supabase_client
 from app.config.constants import ErrorMessages
+from app.config.context import auth_user_context
 from app.exceptions import CustomException
 from app.models.user import UserModel
 
@@ -33,12 +34,14 @@ def bearer_token(credentials: HTTPAuthorizationCredentials = Security(security))
         response: AuthResponse = supabase_client().auth.get_user(jwt=credentials.credentials)
         if response.user.is_anonymous and not response.user.email:
             raise HTTPException(status_code=401, detail="Anonymous user is not allowed")
-        return UserModel(id=response.user.id, email=response.user.email,
+        user = UserModel(id=response.user.id, email=response.user.email,
                          token=credentials.credentials,
                          msisdn=response.user.user_metadata.get("msisdn", None),
                          is_verified=response.user.user_metadata.get("email_verified", False),
                          is_anonymous=response.user.is_anonymous
                          )
+        auth_user_context.set(user)
+        return user
     except Exception as ex:
         logger.error(f"Token Introspection Exception: {ex}")
         raise HTTPException(status_code=401, detail=ErrorMessages.BEARER_TOKEN_REQUIRED)
@@ -84,10 +87,12 @@ def get_user_from_token(jwt_token: str) -> UserModel | None:
     jwt_token = jwt_token.replace("Bearer ", "").replace("bearer ", "")
     try:
         response = supabase_client().auth.get_user(jwt=jwt_token)
-        return UserModel(id=response.user.id, email=response.user.email,
+        user = UserModel(id=response.user.id, email=response.user.email,
                          token=jwt_token,
                          msisdn=response.user.user_metadata.get("msisdn", None),
                          is_verified=response.user.user_metadata.get("email_verified", False))
+        auth_user_context.set(user)
+        return user
     except Exception:
         return None
 

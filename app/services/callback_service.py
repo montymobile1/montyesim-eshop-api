@@ -152,7 +152,7 @@ class CallbackService:
             if reseller_id and reseller_id == os.getenv("RESELLER_ID"):
                 if operation == "delete":
                     logger.info(f"deleting bundle {bundle_id} for reseller {reseller_id}")
-                    asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
+                    asyncio.run(self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=False))
                 elif operation == "assign" or operation == "edit_price":
                     logger.info(f"{operation} for bundle {bundle_id} for reseller {reseller_id}")
                     bundle = asyncio.run(
@@ -161,7 +161,7 @@ class CallbackService:
                     asyncio.run(self.__sync_service.sync_bundle(bundle))
                 elif operation == "unassign":
                     logger.info(f"unassigning bundle {bundle_id} for reseller {reseller_id}")
-                    asyncio.run(self.__sync_service.delete_bundle(bundle_id))
+                    asyncio.run(self.__sync_service.update_bundle_status(bundle_id, status=False))
                 elif operation == "activate":
                     logger.info(f"activating bundle {bundle_id} for reseller {reseller_id}")
                     asyncio.run(self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=True))
@@ -169,7 +169,7 @@ class CallbackService:
                     logger.info(f"deactivating bundle {bundle_id} for reseller {reseller_id}")
                     asyncio.run(self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=False))
             if operation == "update":
-                asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
+                asyncio.run(self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=False))
                 bundle = asyncio.run(
                     self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
                                                              currency_code=os.getenv("DEFAULT_CURRENCY")))
@@ -216,7 +216,7 @@ class CallbackService:
             logger.info(f"payment failed for order {order_id}")
             if promo_code:
                 await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="failed",
-                                                                      rule_id=rule_id)
+                                                                      rule_id=rule_id, order_id=order_id)
             return HTTPException(status_code=200, detail="Payment Failed")
 
         if payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.ASSIGN:
@@ -241,7 +241,7 @@ class CallbackService:
 
     async def __send_email_80_consumption(self, user: UsersCopyModel, bundle_name, iccid):
         try:
-            msisdn = os.getenv("WHATSAPP_NUMBER").replace("+", "").replace("-", "").replace(" ", "")
+            msisdn = os.getenv("WHATSAPP_NUMBER", "").replace("+", "").replace("-", "").replace(" ", "")
             display_email = user.metadata.get("display_email", None)
             email = user.metadata.get("email", user.email) if display_email is None else display_email
 
@@ -261,7 +261,7 @@ class CallbackService:
 
     async def __send_email_100_consumption(self, user: UsersCopyModel, bundle_name, iccid):
         try:
-            msisdn = os.getenv("WHATSAPP_NUMBER").replace("+", "").replace("-", "").replace(" ", "")
+            msisdn = os.getenv("WHATSAPP_NUMBER", "").replace("+", "").replace("-", "").replace(" ", "")
             display_email = user.metadata.get("display_email", None)
             email = user.metadata.get("email", user.email) if display_email is None else display_email
 
