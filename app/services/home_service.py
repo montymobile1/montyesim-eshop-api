@@ -5,7 +5,6 @@ import aiocache
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance
-from app.config.context import currency_context, language_context
 from app.config.db import ConfigKeysEnum
 from app.schemas.home import HomeResponseDto, BundleDTO
 from app.schemas.response import Response, ResponseHelper
@@ -38,9 +37,7 @@ class HomeService:
         }
         return ResponseHelper.success_data_response(HomeResponseDto(**home_response), 0)
 
-    async def home_v2(self) -> Response[HomeResponseDto]:
-        currency = currency_context.get()
-        locale = language_context.get()
+    async def home_v2(self, currency: str, locale: str) -> Response[HomeResponseDto]:
         from app.repo.config_repo import ConfigRepo
         config_repo = ConfigRepo()
         bundle_key_config = config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
@@ -74,9 +71,7 @@ class HomeService:
         await self.__store_in_cache(cache_key, home_dto)
         return ResponseHelper.success_data_response(home_dto, 0)
 
-    async def get_cruise_bundles(self) -> Response[HomeResponseDto]:
-        currency = currency_context.get()
-        locale = language_context.get()
+    async def get_cruise_bundles(self, currency: str, locale: str) -> Response[HomeResponseDto]:
         rate = self.__currency_service.get_rate_by_currency(currency)
         cruise_bundles = await self.__grouping_service.get_cruise_bundle(rate=rate, currency_name=currency,
                                                                          locale=locale)
@@ -89,9 +84,7 @@ class HomeService:
         }
         return ResponseHelper.success_data_response(HomeResponseDto(**home_response), 0)
 
-    async def get_land_bundles(self) -> Response[HomeResponseDto]:
-        currency = currency_context.get()
-        locale = language_context.get()
+    async def get_land_bundles(self, currency: str, locale: str) -> Response[HomeResponseDto]:
         all_countries = await self.__get_countries_v2(locale)
         regions = await self.__get_regions_v2(locale)
         rate = self.__currency_service.get_rate_by_currency(currency)

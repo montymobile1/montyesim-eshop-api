@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends
+import os
+from typing import Annotated
 
-from app.config.context import auth_user_context, currency_context
-from app.dependencies.currency import x_currency_header
-from app.dependencies.language import accept_language_header
+from fastapi import APIRouter, Depends, Header
+
 from app.dependencies.security import bearer_token, device_token
+from app.models.user import UserModel
 from app.schemas.bundle import PaymentIntentResponse
 from app.schemas.response import Response, ResponseHelper
 from app.schemas.user_wallet import UserWalletResponse, TopUpWalletRequest
@@ -13,9 +14,7 @@ router = APIRouter()
 service = UserWalletService()
 
 
-@router.get("/user_wallet_by_id/{user_wallet_id}", response_model=Response[UserWalletResponse],
-            dependencies=[Depends(bearer_token), Depends(device_token), Depends(accept_language_header),
-                          Depends(x_currency_header)])
+@router.get("/user_wallet_by_id/{user_wallet_id}", response_model=Response[UserWalletResponse])
 async def get_user_wallet_by_id(user_wallet_id: str) -> Response[UserWalletResponse]:
     wallet = await service.get_user_wallet_by_id(user_wallet_id=user_wallet_id)
     count = 1 if wallet else 0
@@ -23,18 +22,17 @@ async def get_user_wallet_by_id(user_wallet_id: str) -> Response[UserWalletRespo
 
 
 @router.get("/user_wallet_by_user", response_model=Response[UserWalletResponse],
-            dependencies=[Depends(bearer_token), Depends(device_token), Depends(accept_language_header),
-                          Depends(x_currency_header)])
-async def get_user_wallet_by_user_id() -> Response[
+            dependencies=[Depends(bearer_token), Depends(device_token)])
+async def get_user_wallet_by_user_id(user: Annotated[UserModel, Depends(bearer_token)],
+                                     x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))) -> Response[
     UserWalletResponse]:
-    user = auth_user_context.get()
-    wallet = await service.get_user_wallet_by_user_id(user_id=user.id, currency_code=currency_context.get())
+    wallet = await service.get_user_wallet_by_user_id(user_id=user.id, currency_code=x_currency)
     count = 1 if wallet else 0
     return ResponseHelper.success_data_response(wallet, count)
 
 
 @router.post("/top-up", response_model=Response[PaymentIntentResponse],
              dependencies=[Depends(device_token), Depends(bearer_token)])
-async def top_up_wallet(top_up_request: TopUpWalletRequest) -> \
+async def top_up_wallet(top_up_request: TopUpWalletRequest, user: Annotated[UserModel, Depends(bearer_token)]) -> \
         Response[PaymentIntentResponse]:
-    return await service.top_up_wallet(top_up_request=top_up_request, user=auth_user_context.get())
+    return await service.top_up_wallet(top_up_request=top_up_request, user=user)

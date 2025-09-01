@@ -8,7 +8,6 @@ from loguru import logger
 
 from app.config.config import esim_hub_service_instance, send_email
 from app.config.constants import ErrorMessages
-from app.config.context import device_id_context, language_context
 from app.config.db import ConfigKeysEnum, PaymentTypeEnum
 from app.exceptions import CustomException
 from app.models.app import DeviceModel
@@ -31,10 +30,9 @@ class AppService:
         self.__config_repo = ConfigRepo()
         self.__banner_repo = BannerRepo()
 
-    async def add_device(self, user: UserModel | None, device_request: DeviceRequest,
+    async def add_device(self, user: UserModel | None, device_id: str, device_request: DeviceRequest,
                          request: Request) -> \
             Response[None]:
-        device_id = device_id_context.get()
         user_id = None
         if user:
             user_id = user.id
@@ -90,9 +88,8 @@ class AppService:
         logger.info(f"deleting device {delete_device_request.device_id}")
         return ResponseHelper.success_response()
 
-    async def faq(self) -> Response[List[FaqResponse]]:
-        locale = language_context.get()
-        results = await self.__esim_hub_service.get_content_tags(tag="FAQ", lang_code=locale)
+    async def faq(self, accepted_language: str) -> Response[List[FaqResponse]]:
+        results = await self.__esim_hub_service.get_content_tags(tag="FAQ", lang_code=accepted_language)
         faqs = []
         for item in results:
             if len(item.children) == 0:
@@ -106,9 +103,8 @@ class AppService:
         faqs.reverse()
         return ResponseHelper.success_data_response(faqs, len(faqs))
 
-    async def about_us(self) -> Response[PageContentResponse]:
-        locale = language_context.get()
-        response = await self.__esim_hub_service.get_content_tag("ABOUT_US", locale)
+    async def about_us(self, accepted_language: str) -> Response[PageContentResponse]:
+        response = await self.__esim_hub_service.get_content_tag("ABOUT_US", accepted_language)
         return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
 
     async def contact_us(self, contact_us_request: ContactUsRequest):
@@ -129,14 +125,12 @@ class AppService:
             logger.error(f"Error sending email: {e}")
         return ResponseHelper.success_response()
 
-    async def terms_and_conditions(self) -> Response[PageContentResponse]:
-        locale = language_context.get()
-        response = await self.__esim_hub_service.get_content_tag("TERM_CONDITION", locale)
+    async def terms_and_conditions(self, accepted_language) -> Response[PageContentResponse]:
+        response = await self.__esim_hub_service.get_content_tag("TERM_CONDITION", accepted_language)
         return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
 
-    async def privacy_policy(self) -> Response[PageContentResponse]:
-        locale = language_context.get()
-        response = await self.__esim_hub_service.get_content_tag("PRIVACY_POLICY", locale)
+    async def privacy_policy(self, accepted_language: str) -> Response[PageContentResponse]:
+        response = await self.__esim_hub_service.get_content_tag("PRIVACY_POLICY", accepted_language)
         return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
 
     async def user_guide(self):
@@ -179,7 +173,8 @@ class AppService:
             logger.error(f"Failed to fetch location for IP {ip}: {response.status_code} {response.text}")
         return None
 
-    def banners(self, x_platform: str = "web") -> Response[List[BannerResponse]]:
+    def banners(self, x_currency: str, locale: str = "en", x_platform: str = "web") -> Response[List[BannerResponse]]:
         banners = self.__banner_repo.list(where={"platform": x_platform})
+        logger.info(banners)
         response = [BannerResponse(**banner.model_dump()) for banner in banners]
         return ResponseHelper.success_data_response(response, len(banners))

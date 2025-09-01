@@ -20,7 +20,7 @@ async def check_promotion_validation(user: Annotated[UserModel, Depends(bearer_t
                                      promotion_validation_request: PromotionValidationRequest,
                                      x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
                                      x_device_id: str = Header(None),
-                                     accept_language: str = Header("en")) -> Response[BundleDTO]:
+                                     accept_language:str=Header("en")) -> Response[BundleDTO]:
     return await promotion_service.validate_promotion_code(promotion_validation_request, x_currency, user.id,
                                                            device_id=x_device_id,locale=accept_language)
 

@@ -3,7 +3,6 @@ from typing import List
 
 from deep_translator import GoogleTranslator
 
-from app.config.context import language_context
 from app.models.app import TagModel
 from app.repo.bundle_repo import BundleRepo
 from app.repo.bundle_tage_repo import BundleTagRepo
@@ -108,8 +107,7 @@ class GroupingService:
                     bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency_name, rate))
         return bundles
 
-    async def translate_tags(self):
-        locale = language_context.get()
+    async def translate_tags(self, locale: str):
         tags = self.__tag_repo.list(where={})
         for tag in tags:
             old_translation = self.__tag_translation_repo.get_first_by(where={"tag_id": tag.id, "locale": locale})

@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends
+import os
 
-from app.dependencies.currency import x_currency_header
-from app.dependencies.language import accept_language_header
+from fastapi import APIRouter, Depends, Header
+
 from app.dependencies.security import device_token
 from app.schemas.home import HomeResponseDto
 from app.schemas.response import Response
@@ -12,20 +12,19 @@ router = APIRouter()
 service = HomeService()
 
 
-@router.get("/", response_model=Response[HomeResponseDto],
-            dependencies=[Depends(device_token), Depends(accept_language_header), Depends(x_currency_header)])
-async def home() -> \
+@router.get("/", response_model=Response[HomeResponseDto], dependencies=[Depends(device_token)])
+async def home(x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")), accept_language: str = Header("en"), ) -> \
         Response[HomeResponseDto]:
-    return await service.home_v2()
+    return await service.home_v2(currency=x_currency, locale=accept_language)
 
 
-@router.get("/cruise", response_model=Response[HomeResponseDto],
-            dependencies=[Depends(device_token), Depends(accept_language_header), Depends(x_currency_header)])
-async def get_cruise_bundles() -> Response[HomeResponseDto]:
-    return await service.get_cruise_bundles()
+@router.get("/cruise", response_model=Response[HomeResponseDto], dependencies=[Depends(device_token)])
+async def get_cruise_bundles(x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
+                             accept_language: str = Header("en")) -> Response[HomeResponseDto]:
+    return await service.get_cruise_bundles(currency=x_currency, locale=accept_language)
 
 
-@router.get("/land", response_model=Response[HomeResponseDto],
-            dependencies=[Depends(device_token), Depends(accept_language_header), Depends(x_currency_header)])
-async def get_land_bundles() -> Response[HomeResponseDto]:
-    return await service.get_land_bundles()
+@router.get("/land", response_model=Response[HomeResponseDto], dependencies=[Depends(device_token)])
+async def get_land_bundles(x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
+                           accept_language: str = Header("en")) -> Response[HomeResponseDto]:
+    return await service.get_land_bundles(currency=x_currency, locale=accept_language)

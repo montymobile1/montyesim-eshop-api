@@ -11,7 +11,6 @@ from loguru import logger
 
 from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance
 from app.config.constants import ErrorMessages, PaymentStatusEnum, UserWalletTransactionSource
-from app.config.context import auth_user_context, currency_context, device_id_context, language_context
 from app.config.db import DatabaseTables, PaymentTypeEnum
 from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details
 from app.exceptions import BadRequestException, CustomException
@@ -46,13 +45,10 @@ class UserBundleService:
         self.__currency_service = CurrencyService()
         self.__user_repo = UserRepo()
 
-    async def assign(self, assign_request: AssignRequest, request: Request) -> Response[PaymentIntentResponse] | \
-                                                                               Response[bool]:
-        x_currency = currency_context.get()
-        locale = language_context.get()
-        user: UserModel = auth_user_context.get()
-        device_id = device_id_context.get()
-        bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_request.bundle_code)
+    async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
+                     locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
+        bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_request.bundle_code,
+                                                                 currency_name=x_currency, locale=locale)
         bundle = bundle_response.data
 
         if not bundle.is_stockable:
@@ -128,10 +124,10 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
 
-    async def assign_top_up(self, assign_top_up_request: AssignTopUpRequest, request: Request) -> Response:
-        user = auth_user_context.get()
-        device_id = device_id_context.get()
-        bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_top_up_request.bundle_code)
+    async def assign_top_up(self, user: UserModel, assign_top_up_request: AssignTopUpRequest, device_id: str,
+                            request: Request, x_currency: str, locale: str) -> Response:
+        bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_top_up_request.bundle_code,
+                                                                 currency_name=x_currency, locale=locale)
         bundle = bundle_response.data
 
         order = self.__user_order_repo.create({
@@ -167,10 +163,7 @@ class UserBundleService:
                                          billing_country_code="GB", order_id=order.id)
         return ResponseHelper.success_data_response(response, 0)
 
-    async def get_user_esims(self) -> Response[List[EsimBundleResponse]]:
-        user = auth_user_context.get()
-        x_currency = currency_context.get()
-
+    async def get_user_esims(self, user: UserModel, x_currency: str) -> Response[List[EsimBundleResponse]]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                         where={"user_id": user.id})
         esim_bundle_response = []
@@ -185,9 +178,7 @@ class UserBundleService:
                 logger.error(f"Failed to map profile {profile.id if hasattr(profile, 'id') else 'unknown'}: {e}")
         return ResponseHelper.success_data_response(esim_bundle_response, len(esim_bundle_response))
 
-    async def get_user_esim(self, iccid: str) -> Response[EsimBundleResponse | None]:
-        user = auth_user_context.get()
-        x_currency = currency_context.get()
+    async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str) -> Response[EsimBundleResponse | None]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                         where={"user_id": user.id, "iccid": iccid})
         if len(user_profiles) == 0:
@@ -196,31 +187,25 @@ class UserBundleService:
         return ResponseHelper.success_data_response(
             DtoMapper.to_esim_bundle_response(user_profiles[0], rate, x_currency), 0)
 
-    async def consumption(self, iccid: str) -> Response[ConsumptionResponse]:
-        user = auth_user_context.get()
+    async def consumption(self, user: UserModel, iccid: str) -> Response[ConsumptionResponse]:
         profile = self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
         consumption = await self.__esim_hub_service.get_bundle_consumption(profile.esim_hub_order_id)
         return ResponseHelper.success_data_response(consumption, 0)
 
-    async def user_notifications(self, page_index: int, page_size: int) -> Response[
+    async def user_notifications(self, user: UserModel, page_index: int, page_size: int) -> Response[
         List[UserNotificationResponse]]:
-        user = auth_user_context.get()
         notifications = self.__notification_repo.list(where={"user_id": user.id}, limit=page_size,
                                                       offset=((page_index - 1) * page_size), order_by="created_at",
                                                       desc=True)
         return ResponseHelper.success_data_response(
             [DtoMapper.to_user_notification_response(data) for data in notifications], 1)
 
-    async def read_user_notification(self) -> Response:
-        user = auth_user_context.get()
-        device_id = device_id_context.get()
+    async def read_user_notification(self, user: UserModel, device_id) -> Response:
         logger.info(f"read user notification for user {user.email=} {device_id=}")
         self.__notification_repo.update_by(where={"user_id": user.id}, data={"status": True})
         return ResponseHelper.success_response()
 
-    async def bundle_exists(self, bundle_id: str) -> Response[bool]:
-        user = auth_user_context.get()
-        user_id = user.id
+    async def bundle_exists(self, user_id: str, bundle_id: str) -> Response[bool]:
         orders = self.__user_order_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE: "*"}, where={
             "user_id": user_id,
             "bundle_id": bundle_id,
@@ -235,8 +220,7 @@ class UserBundleService:
             return ResponseHelper.success_data_response(True, 0)
         return ResponseHelper.success_data_response(False, 0)
 
-    async def update_bundle_name(self, code: str, bundle_label_request: UpdateBundleLabelRequest):
-        user = auth_user_context.get()
+    async def update_bundle_name(self, code: str, bundle_label_request: UpdateBundleLabelRequest, user: UserModel):
         user_profile_bundle = self.__user_profile_bundle_repo.get_first_by(where={"user_id": user.id},
                                                                            filters={
                                                                                "bundle_data ->> bundle_code": code})
@@ -250,8 +234,8 @@ class UserBundleService:
             data={"bundle_data": bundle.model_dump()})
         return ResponseHelper.success_response()
 
-    async def update_bundle_name_by_iccid(self, iccid: str, bundle_label_request: UpdateBundleLabelRequest):
-        user = auth_user_context.get()
+    async def update_bundle_name_by_iccid(self, iccid: str, bundle_label_request: UpdateBundleLabelRequest,
+                                          user: UserModel):
         user_profile_bundle = self.__user_profile_bundle_repo.get_first_by(where={"user_id": user.id, "iccid": iccid})
         if user_profile_bundle is None:
             raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_BUNDLE_NOT_FOUND,
@@ -263,8 +247,9 @@ class UserBundleService:
             data={"bundle_data": bundle.model_dump()})
         return ResponseHelper.success_response()
 
-    async def get_topup_related_bundle(self, bundle_code: str, iccid: str) -> Response[List[BundleDTO]]:
-        user = auth_user_context.get()
+    async def get_topup_related_bundle(self, bundle_code: str, iccid: str, user: UserModel, accept_language: str = "en",
+                                       currency_code: str = os.getenv("DEFAULT_CURRENCY")) -> Response[
+        List[BundleDTO]]:
         logger.info(f"get_topup_related_bundle {bundle_code=} {iccid=} {user=}")
         profile = self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
         if not profile:
@@ -273,16 +258,16 @@ class UserBundleService:
         all_bundles = []
         for bundle in bundles:
             if await self.__bundle_service.bundle_exists(bundle.bundle_code):
-                local_bundle = await self.__bundle_service.get_bundle(bundle_id=bundle.bundle_code)
+                local_bundle = await self.__bundle_service.get_bundle(bundle_id=bundle.bundle_code,
+                                                                      currency_name=currency_code,
+                                                                      locale=accept_language)
                 logger.debug(f"local bundle {local_bundle.data}")
                 all_bundles.append(local_bundle.data)
 
         return ResponseHelper.success_data_response(all_bundles, len(all_bundles))
 
-    async def get_user_esim_by_order_id(self, order_id: str) -> Response[
+    async def get_user_esim_by_order_id(self, order_id: str, user: UserModel, x_currency: str) -> Response[
         EsimBundleResponse]:
-        user = auth_user_context.get()
-        x_currency = currency_context.get()
         user_order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
         if not user_order:
             raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND, details=ErrorMessages.ORDER_NOT_FOUND)
@@ -301,11 +286,8 @@ class UserBundleService:
         return ResponseHelper.success_data_response(
             DtoMapper.to_esim_bundle_response(user_profile=profiles[0], rate=rate, x_currency=x_currency), 0)
 
-    async def get_order_history(self, page_index: int, page_size: int) -> Response[
+    async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str) -> Response[
         List[UserOrderHistoryResponse]]:
-        user = auth_user_context.get()
-        user_id = user.id
-        x_currency = currency_context.get()
         rate = self.__currency_service.get_currency_rate(os.getenv("DEFAULT_CURRENCY"), to_currency=x_currency)
         user_orders = self.__user_order_repo.list(
             where={"user_id": user_id, "payment_status": OrderStatusEnum.SUCCESS,
@@ -316,11 +298,8 @@ class UserBundleService:
              user_orders],
             len(user_orders))
 
-    async def get_order_history_by_id(self, order_id: str) -> Response[
+    async def get_order_history_by_id(self, user_id: str, order_id: str, x_currency: str) -> Response[
         UserOrderHistoryResponse]:
-        user = auth_user_context.get()
-        user_id = user.id
-        x_currency = currency_context.get()
         order = self.__user_order_repo.get_first_by({"user_id": user_id, "id": order_id})
         rate = self.__currency_service.get_currency_rate(from_currency=order.currency, to_currency=x_currency)
         payment_details = stripe_get_payment_details(order.payment_intent_code)
@@ -328,8 +307,7 @@ class UserBundleService:
         user_order_history.payment_details = payment_details
         return ResponseHelper.success_data_response(user_order_history, 1)
 
-    async def cancel_order(self, order_id: str) -> Response[None]:
-        user = auth_user_context.get()
+    async def cancel_order(self, order_id: str, user: UserModel) -> Response[None]:
         try:
             order: UserOrderModel = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
             if not order:
@@ -344,8 +322,7 @@ class UserBundleService:
         except Exception as e:
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
-    async def verify_order_otp(self, request: VerifyOtpRequestDto) -> Response[bool]:
-        user = auth_user_context.get()
+    async def verify_order_otp(self, user: UserModel, request: VerifyOtpRequestDto) -> Response[bool]:
         logger.info(f"receiving verification otp request {request}")
         user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=request.order_id)
         if not user_order:
