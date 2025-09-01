@@ -6,6 +6,7 @@ from loguru import logger
 
 from app.config.constants import UserWalletTransactionSource, ErrorMessages
 from app.config.db import PromotionRuleAction, Beneficiary, PromotionRuleEvent, ConfigKeysEnum, PromotionStatusEnum
+from app.config.i18n import I18n
 from app.config.utils import get_config
 from app.exceptions import CustomException
 from app.models.promotion import PromotionModel, PromotionUsageModel
@@ -59,11 +60,11 @@ class PromotionService:
         return ResponseHelper.success_data_response_with_message(history, "Success", len(history))
 
     async def validate_promotion_code(self, promotion_validation_request: PromotionValidationRequest, x_currency: str,
-                                      user_id: str, device_id: str) -> Response[BundleDTO]:
+                                      user_id: str, device_id: str, locale: str = "en") -> Response[BundleDTO]:
         from app.services.bundle_service import BundleService
         bundle_service = BundleService()
         bundle_response = await bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
-                                                          currency_name=x_currency, locale="en")
+                                                          currency_name=x_currency, locale=locale)
         bundle: BundleDTO = bundle_response.data
         validation_response = await self.validate_promo_code(code=promotion_validation_request.promo_code,
                                                              bundle=bundle, user_id=user_id, device_id=device_id,
@@ -75,7 +76,8 @@ class PromotionService:
 
     async def validate_promo_code(self, code: str, user_id: str, bundle: BundleDTO, device_id: str,
                                   currency: str, apply_usage: bool = False,
-                                  order_id: str = None) -> PromotionValidationResponse | None:
+                                  order_id: str = None,
+                                  locale: str = "en") -> PromotionValidationResponse | None:
         # check if the code is promotion
         is_referral = self.is_referral_code(code)
         rate = self.__currency_service.get_rate_by_currency(currency)
@@ -85,8 +87,8 @@ class PromotionService:
             amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
             rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
             self.__validate_referral(user_id=user_id, promotion_code=code, rule_id=rule_id, device_id=device_id)
-            referrer_user: UsersCopyModel = self.__user_repo.get_by_id(record_id=user_id)
-            referred_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
+            referred_user: UsersCopyModel = self.__user_repo.get_by_id(record_id=user_id)
+            referrer_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
                                                                           filters={
                                                                               self.__user_repo.referral_code_key(): code})
             if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
@@ -97,14 +99,21 @@ class PromotionService:
                                           details="Promo Code Can not be used for this bundle")
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                                 user_id=referred_user.id, referrer_user_id=referrer_user.id, code=code,
+                                                 user_id=referrer_user.id, referrer_user_id=referred_user.id, code=code,
+                                                 is_referral=True,
+                                                 event_id=rule.promotion_rule_event_id, bundle=bundle,
+                                                 device_id=device_id,
+                                                 order_id=order_id,
+                                                 referred_to=referrer_user.email)
+                    await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
+                                                 user_id=referred_user.id, referrer_user_id=referred_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
                                                  device_id=device_id,
                                                  order_id=order_id,
                                                  referred_to=referred_user.email)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
-                                                   message=f"Discount Amount {round(amount * rate, 2)} {currency}")
+                                                   message=f"{I18n.get_message(key='DISCOUNT_AMOUNT',lang=locale)} {round(amount * rate, 2)} {currency}")
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
                 discounted = (bundle.original_price * percentage) / 100
                 discounted = round(discounted, 2)
@@ -115,30 +124,36 @@ class PromotionService:
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                                 user_id=referred_user.id, referrer_user_id=referrer_user.id, code=code,
-                                                 is_referral=True,
-                                                 event_id=rule.promotion_rule_event_id, bundle=bundle,
-                                                 referred_to=referrer_user.email, device_id=device_id,
-                                                 order_id=order_id)
-                return PromotionValidationResponse(bundle=bundle,
-                                                   rule_id=rule_id,
-                                                   message=f"Discount Percentage {percentage} %")
-            else:
-                if apply_usage:
-                    await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                                 user_id=referrer_user.id, referrer_user_id=referrer_user.id, code=code,
+                                                 user_id=referrer_user.id, referrer_user_id=referred_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
                                                  referred_to=referred_user.email, device_id=device_id,
                                                  order_id=order_id)
+                    await self.__handle_cashback(amount=discounted, beneficiary=str(rule.beneficiary),
+                                                 user_id=referred_user.id, referrer_user_id=referred_user.id, code=code,
+                                                 is_referral=True,
+                                                 event_id=rule.promotion_rule_event_id, bundle=bundle,
+                                                 referred_to=referred_user.email, device_id=device_id,
+                                                 order_id=order_id)
+                return PromotionValidationResponse(bundle=bundle,
+                                                   rule_id=rule_id,
+                                                   message=f"{I18n.get_message(key='DISCOUNT_PERCENTAGE',lang=locale)} {percentage} %")
+            else:
+                if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
-                                                 user_id=referred_user.id, referrer_user_id=referrer_user.id, code=code,
+                                                 user_id=referred_user.id, referrer_user_id=referred_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
                                                  referred_to=referrer_user.email, device_id=device_id,
                                                  order_id=order_id)
+                    await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
+                                                 user_id=referrer_user.id, referrer_user_id=referred_user.id, code=code,
+                                                 is_referral=True,
+                                                 event_id=rule.promotion_rule_event_id, bundle=bundle,
+                                                 referred_to=referred_user.email, device_id=device_id,
+                                                 order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
-                                                   message=f"Cashback Amount {round(amount * rate, 2)} {currency}")
+                                                   message=f"{I18n.get_message(key='CASHBACK_AMOUNT',lang=locale)} {round(amount * rate, 2)} {currency}")
 
         else:
             promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": code})
@@ -167,7 +182,7 @@ class PromotionService:
                                                  order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule.id,
-                                                   message=f"Discount Amount {round(promotion.amount * rate,2)} {currency}")
+                                                   message=f"{I18n.get_message(key='DISCOUNT_AMOUNT',lang=locale)} {round(promotion.amount * rate, 2)} {currency}")
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
                 discounted = bundle.original_price * promotion.amount / 100
                 discounted = round(discounted, 2)
@@ -182,14 +197,14 @@ class PromotionService:
                                                  order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle,
                                                    rule_id=rule.id,
-                                                   message=f"Discount Percentage {promotion.amount} %")
+                                                   message=f"{I18n.get_message(key='DISCOUNT_PERCENTAGE',lang=locale)} {promotion.amount} %")
             else:
                 if rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
                     amount = (bundle.original_price * promotion.amount) / 100
-                    message = f"Cashback Percentage ({promotion.amount}%) {amount * rate} {currency}"
+                    message = f"{I18n.get_message(key='CASHBACK_PERCENTAGE',lang=locale)} ({promotion.amount}%) {amount * rate} {currency}"
                 else:
                     amount = promotion.amount
-                    message = f"Cashback Amount {round(amount * rate,2)} {currency}"
+                    message = f"{I18n.get_message(key='CASHBACK_AMOUNT',lang=locale)} {round(amount * rate, 2)} {currency}"
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                                  user_id=user_id, referrer_user_id="0", code=code, is_referral=False,
@@ -507,12 +522,14 @@ class PromotionService:
                 logger.error(f"No pending promotion usage found for user {user_id} with referral code {referral_code}")
                 return
             else:
-                if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
-                    amount = round((paid_amount * float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE, 20))) / 100,
-                                   2)
-                logger.info(f"Adding cashback for REFERRED user {user_id} with amount {amount}")
-                await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
-                                                                        source=UserWalletTransactionSource.CASHBACK_REFERRAL)
+                if promotion_rule.promotion_rule_action_id in [PromotionRuleAction.CASHBACK_PERCENTAGE.value,
+                                                               PromotionRuleAction.CASHBACK_AMOUNT.value]:
+                    if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
+                        amount = round(
+                            (paid_amount * float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE, 20))) / 100, 2)
+                    logger.info(f"Adding cashback for REFERRED user {user_id} with amount {amount}")
+                    await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
+                                                                            source=UserWalletTransactionSource.CASHBACK_REFERRAL)
         return None
 
     def cancel_promotion_usage(self, user_id: str, referral_code: str | None, promo_code: str | None):
