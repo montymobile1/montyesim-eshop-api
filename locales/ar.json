@@ -44,7 +44,8 @@
   "TOPUP_FAILED": "فشل شحن الرصيد. يرجى المحاولة مرة أخرى.",
   "ESIM_HUB_EXCEPTION": "حدث خطأ في خدمة eSIM hub.",
   "PLATFORM_HEADER_MISSING": "رأس x_platform مطلوب",
-  "DISCOUNT_PERCENTAGE": "نسبة الخصم",
-  "DISCOUNT_AMOUNT": "قيمة الخصم",
-  "CASHBACK_AMOUNT": "قيمة الاسترجاع النقدي"
+  "CASHBACK_PERCENTAGE": "نسبة الاسترداد",
+  "CASHBACK_AMOUNT": "مبلغ الاسترداد",
+  "DISCOUNT_AMOUNT": "مبلغ الخصم",
+  "DISCOUNT_PERCENTAGE": "نسبة الخصم"
 }
