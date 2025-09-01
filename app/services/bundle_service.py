@@ -226,8 +226,8 @@ class BundleService:
             "bundle_data": bundle.model_dump(),
         })
         # await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
-        if user_order.promo_code:
-            await self.__promotion_service.apply_promotion_code_after_purchase(user_id=user_id, code=promo_code,
+        if user_order.promo_code or user_order.referral_code:
+            await self.__promotion_service.apply_promotion_code_after_purchase(user_id=user_id, code=user_order.promo_code or user_order.referral_code,
                                                                                status="completed",
                                                                                rule_id=rule_id)
 
