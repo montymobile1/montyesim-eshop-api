@@ -350,11 +350,13 @@ class PromotionService:
             "order_id": order_id
         })
 
-    async def update_promotion_usage(self, user_id: str, code: str, status: str, rule_id: str, paid_amount: float = 0):
+    async def update_promotion_usage(self, user_id: str, code: str, status: str, rule_id: str, paid_amount: float = 0,order_id: str = None):
         data = {"status": status}
         is_referral = self.is_referral_code(code)
         conditions = {"user_id": user_id, "promotion_code": code} if not is_referral else {"user_id": user_id,
                                                                                            "referral_code": code}
+        if order_id:
+            conditions["order_id"] = order_id
         referrer_user = self.__user_repo.get_first_by(where={},
                                                       filters={self.__user_repo.referral_code_key(): code})
         self.__promotion_usage_repo.update_by(where=conditions, data=data)

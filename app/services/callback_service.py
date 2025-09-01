@@ -216,7 +216,7 @@ class CallbackService:
             logger.info(f"payment failed for order {order_id}")
             if promo_code:
                 await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="failed",
-                                                                      rule_id=rule_id)
+                                                                      rule_id=rule_id,order_id=order_id)
             return HTTPException(status_code=200, detail="Payment Failed")
 
         if payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.ASSIGN:
