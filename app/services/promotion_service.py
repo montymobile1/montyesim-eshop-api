@@ -36,9 +36,18 @@ class PromotionService:
         self.__currency_service = CurrencyService()
         self.__user_profile_repo = UserProfileRepo()
 
-    async def history(self) -> Response[List[PromotionHistoryDto]]:
-        user_id = auth_user_context.get().id
-        x_currency = currency_context.get()
+    async def referral_code_rewards(self, referral_reward_request: ReferralRewardRequest, user_id: str,
+                                    device_id: str = None) -> Response:
+        promotion_code_details = self.code_type_and_get_rule(referral_reward_request.referral_code,
+                                                             user_id, device_id)
+        await self.add_reward(rule_id=promotion_code_details.data.rule_id, user_id=user_id,
+                              bundle_id=referral_reward_request.bundle_code, code=referral_reward_request.referral_code)
+        return ResponseHelper.success_data_response_with_message(None,
+                                                                 "Success",
+                                                                 0)
+
+    async def history(self, user_id: str, x_currency: str) -> Response[List[PromotionHistoryDto]]:
+        rate = self.__currency_service.get_rate_by_currency(x_currency)
         transactions = self.__user_wallet_service.get_wallet_transactions(user_id=user_id)
         history = []
         for transaction in transactions:
@@ -53,14 +62,12 @@ class PromotionService:
             history.append(promotion_history)
         return ResponseHelper.success_data_response_with_message(history, "Success", len(history))
 
-    async def validate_promotion_code(self, promotion_validation_request: PromotionValidationRequest) -> \
-            Response[BundleDTO]:
-        user_id = auth_user_context.get().id
-        x_currency = currency_context.get()
-        device_id = device_id_context.get()
+    async def validate_promotion_code(self, promotion_validation_request: PromotionValidationRequest, x_currency: str,
+                                      user_id: str, device_id: str) -> Response[BundleDTO]:
         from app.services.bundle_service import BundleService
         bundle_service = BundleService()
-        bundle_response = await bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code)
+        bundle_response = await bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
+                                                          currency_name=x_currency, locale="en")
         bundle: BundleDTO = bundle_response.data
         validation_response = await self.validate_promo_code(code=promotion_validation_request.promo_code,
                                                              bundle=bundle, user_id=user_id, device_id=device_id,
@@ -74,7 +81,6 @@ class PromotionService:
                                   currency: str, apply_usage: bool = False,
                                   order_id: str = None) -> PromotionValidationResponse | None:
         # check if the code is promotion
-        lang = language_context.get()
         is_referral = self.is_referral_code(code)
         rate = self.__currency_service.get_rate_by_currency(currency)
         if is_referral:
@@ -147,7 +153,7 @@ class PromotionService:
                                                  user_id=referrer_user.id, referrer_user_id=referred_user.id, code=code,
                                                  is_referral=True,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
-                                                 referred_to=referred_user.email, device_id=device_id,
+                                                 referred_to=referrer_user.email, device_id=device_id,
                                                  order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule_id,
                                                    message=f"{I18n.get_message(key='CASHBACK_AMOUNT', lang=lang)} {round(amount * rate, 2)} {currency}")
@@ -484,9 +490,7 @@ class PromotionService:
             self.__promotion_usage_repo.update_by(where={"user_id": user_id, "promotion_code": promo_code},
                                                   data={"status": PromotionStatusEnum.FAILED.value})
 
-    def referral_info(self) -> Response[ReferralInfoDto]:
-        x_currency = currency_context.get()
-        locale = language_context.get()
+    def referral_info(self, x_currency: str, locale: str = "en") -> Response[ReferralInfoDto]:
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
