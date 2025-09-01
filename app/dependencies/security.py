@@ -34,12 +34,14 @@ def bearer_token(credentials: HTTPAuthorizationCredentials = Security(security))
         response: AuthResponse = supabase_client().auth.get_user(jwt=credentials.credentials)
         if response.user.is_anonymous and not response.user.email:
             raise HTTPException(status_code=401, detail="Anonymous user is not allowed")
-        return UserModel(id=response.user.id, email=response.user.email,
+        user = UserModel(id=response.user.id, email=response.user.email,
                          token=credentials.credentials,
                          msisdn=response.user.user_metadata.get("msisdn", None),
                          is_verified=response.user.user_metadata.get("email_verified", False),
                          is_anonymous=response.user.is_anonymous
                          )
+        auth_user_context.set(user)
+        return user
     except Exception as ex:
         logger.error(f"Token Introspection Exception: {ex}")
         raise HTTPException(status_code=401, detail=ErrorMessages.BEARER_TOKEN_REQUIRED)
