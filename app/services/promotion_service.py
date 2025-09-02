@@ -422,12 +422,14 @@ class PromotionService:
 
         if referred_user:
             old_device = self.__promotion_usage_repo.list(
-                where={"device_id": device_id, "referral_code": promotion_code, "referred_to": referred_user.email})
+                where={"device_id": device_id, "referral_code": promotion_code, "referred_to": referred_user.email,
+                       "status": PromotionStatusEnum.COMPLETED.value})
             if len(old_device) > 0:
                 raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE,
                                       details="Referral Code Already Used on this device")
             referred_usage = self.__promotion_usage_repo.list(
-                where={"referred_to": referred_user.email, "user_id": user_id, "referral_code": promotion_code, "status": PromotionStatusEnum.COMPLETED.value})
+                where={"referred_to": referred_user.email, "user_id": user_id, "referral_code": promotion_code,
+                       "status": PromotionStatusEnum.COMPLETED.value})
             if len(referred_usage) > 0:
                 for usage in referred_usage:
                     if usage.device_id == device_id:
@@ -439,7 +441,7 @@ class PromotionService:
                                       details="Referral Code Already Used by referred user")
 
         promotion_usage = self.__promotion_usage_repo.list(
-            where={"user_id": user_id, "referral_code": promotion_code,"status": PromotionStatusEnum.COMPLETED.value})
+            where={"user_id": user_id, "referral_code": promotion_code, "status": PromotionStatusEnum.COMPLETED.value})
 
         if promotion_usage:
             logger.error("Referral code already used")
