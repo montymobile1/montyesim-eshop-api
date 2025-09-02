@@ -316,12 +316,13 @@ class DtoMapper:
                               currency: str = None) -> UserOrderHistoryResponse:
         if currency == user_order.currency:
             rate = 1.0
+        amount = (user_order.modified_amount or user_order.amount)
         data = {
             "order_number": user_order.id,
             "order_status": user_order.payment_status,
-            "order_amount": (user_order.modified_amount * rate),
+            "order_amount": (amount * rate),
             "order_currency": user_order.currency,
-            "order_display_price": f"{round((float(user_order.modified_amount) / 100) * rate, 2)} {currency}",
+            "order_display_price": f"{round((float(amount) / 100) * rate, 2)} {currency}",
             "order_date": user_order.created_at,
             "order_type": user_order.order_type,
             "bundle_details": BundleDTO.model_validate_json(user_order.bundle_data),
