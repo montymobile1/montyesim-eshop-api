@@ -40,7 +40,7 @@ class PromotionService:
         history = []
         for transaction in transactions:
             if transaction.source == UserWalletTransactionSource.PURCHASE_BUNDLE:
-                continue;
+                continue
             promotion_history = PromotionHistoryDto(
                 is_referral=transaction.source != UserWalletTransactionSource.CASHBACK,
                 amount=f"{transaction.amount} {x_currency}",
@@ -98,7 +98,7 @@ class PromotionService:
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
                                                  device_id=device_id,
                                                  order_id=order_id,
-                                                 referred_to=referred_by_user.email)
+                                                 referred_to=referred_to_user.email)
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                                  user_id=referred_to_user.id, referrer_user_id=referred_by_user.id,
                                                  code=code,
@@ -344,6 +344,11 @@ class PromotionService:
                                   details="Own Referral Code Can not be used")
 
         if referred_user:
+            previously_used = self.__promotion_usage_repo.list(
+                where={"device_id": device_id, "status": PromotionStatusEnum.COMPLETED.value})
+            if len(previously_used) > 0:
+                raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE,
+                                      details=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE)
             old_device = self.__promotion_usage_repo.list(
                 where={"device_id": device_id, "referral_code": promotion_code, "referred_to": referred_user.email,
                        "status": PromotionStatusEnum.COMPLETED.value})
@@ -448,8 +453,6 @@ class PromotionService:
 
         if promotion_rule.beneficiary in [Beneficiary.REFERRER.value, Beneficiary.BOTH.value]:
             logger.info(f"Adding cashback for REFERRER user {referrer_user_id} with amount {amount}")
-            self.__promotion_usage_repo.update_by(where={"user_id": referrer_user_id, "referral_code": referral_code},
-                                                  data={"status": "completed"})
             await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=referrer_user_id,
                                                                     source=UserWalletTransactionSource.CASHBACK_REFERRAL)
 
@@ -463,8 +466,7 @@ class PromotionService:
                                                                PromotionRuleAction.CASHBACK_PERCENTAGE.value]:
                     if promotion_rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
                         amount = round(
-                            (paid_amount * float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE, 20))) / 100,
-                            2)
+                            (paid_amount * float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE, 20))) / 100, 2)
                     logger.info(f"Adding cashback for REFERRED user {user_id} with amount {amount}")
                     await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
                                                                             source=UserWalletTransactionSource.CASHBACK_REFERRAL)
