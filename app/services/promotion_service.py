@@ -321,12 +321,16 @@ class PromotionService:
         if not promotion.is_active:
             raise CustomException(code=404, name=ErrorMessages.PROMOTION_NOT_ACTIVE, details="promotion not active")
 
-        # Validate promotion date range
         from datetime import datetime
         today = datetime.now().date()
-        if promotion.start_date and promotion.end_date:
-            start_date = promotion.start_date.date()
-            end_date = promotion.end_date.date()
+        if promotion.valid_from and promotion.valid_to:
+            def parse_date(date_str):
+                try:
+                    return datetime.strptime(date_str, "%Y-%m-%d").date()
+                except ValueError:
+                    return datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+            start_date = parse_date(promotion.valid_from)
+            end_date = parse_date(promotion.valid_to)
             if not (start_date <= today <= end_date):
                 raise CustomException(code=404, name=ErrorMessages.PROMOTION_NOT_ACTIVE,
                                    details="Promotion is not active for current date")
