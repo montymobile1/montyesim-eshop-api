@@ -139,29 +139,21 @@ class UserBundleService:
             "bundle_data": bundle.model_dump_json(),
             "searched_countries": None,
         })
-        payment_intent = create_payment_intent(user_bundle_order=order, user_email=user.email, metadata={
-            "order_id": order.id,
-            "user_id": order.user_id,
-            "device_id": device_id,
-            "bundle_code": order.bundle_id,
-            "order_type": order.order_type,
-            "iccid": assign_top_up_request.iccid,
-            "env": os.getenv("ENVIRONMENT", "DEV")
-        }, ip_address=request.client.host)
-        order.payment_intent_code = payment_intent.id
-        order.modified_amount = order.amount
-        self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
 
-        ephemeral = create_payment_ephemeral(payment_intent.customer)
-        response = PaymentIntentResponse(publishable_key=os.getenv("STRIPE_PUBLIC_KEY"),
-                                         merchant_identifier=os.getenv("MERCHANT_ID"),
-                                         payment_intent_client_secret=payment_intent.client_secret,
-                                         customer_id=payment_intent.customer,
-                                         customer_ephemeral_key_secret=ephemeral.secret,
-                                         test_env=not payment_intent.livemode,
-                                         merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
-                                         billing_country_code="GB", order_id=order.id)
-        return ResponseHelper.success_data_response(response, 0)
+        payment_type = assign_top_up_request.payment_type
+
+        if payment_type == PaymentTypeEnum.WALLET:
+            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order,
+                                                      iccid=assign_top_up_request.iccid)
+        elif payment_type == PaymentTypeEnum.DCB:
+            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
+        elif payment_type == PaymentTypeEnum.CARD:
+            return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
+                                                    assign_request=None, rule_id="0",
+                                                    modified_amount=bundle.price, request=request)
+        else:
+            raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
+                                  details=f"Payment type {payment_type} is not supported")
 
     async def get_user_esims(self, user: UserModel, x_currency: str) -> Response[List[EsimBundleResponse]]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
@@ -335,7 +327,8 @@ class UserBundleService:
         return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
                                                       payment_status=payment_status, user=user)
 
-    async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel) -> Response[
+    async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,
+                                      iccid: str = None) -> Response[
         PaymentIntentResponse]:
         wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user.id)
         if wallet.balance < bundle.price:
@@ -343,8 +336,13 @@ class UserBundleService:
         try:
             await self.__user_wallet_service.add_wallet_transaction(amount=(bundle.price * -1), user_id=user.id,
                                                                     source=UserWalletTransactionSource.PURCHASE_BUNDLE)
-            await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                   payment_status=OrderStatusEnum.SUCCESS, user=user)
+            if user_order.order_type == UserOrderType.ASSIGN:
+                await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
+                                                       payment_status=OrderStatusEnum.SUCCESS, user=user)
+            elif user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
+                await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
+                                                          payment_status=OrderStatusEnum.SUCCESS, user=user,
+                                                          iccid=iccid)
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
@@ -367,23 +365,27 @@ class UserBundleService:
                                   details=f"Error while creating order: {e}")
 
     async def __handle_card_payment(self, user: UserModel, order: UserOrderModel, device_id: str,
-                                    assign_request: AssignRequest, rule_id: str, modified_amount: float,
-                                    request: Request) -> Response:
+                                    assign_request: AssignRequest | None, rule_id: str, modified_amount: float,
+                                    request: Request, iccid: str = None) -> Response:
         amount = Decimal(str(modified_amount))
         minor_units = (amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
         minor_units = int(minor_units)
+        metadata = {
+            "order_id": order.id,
+            "user_id": order.user_id,
+            "device_id": device_id,
+            "bundle_code": order.bundle_id,
+            "order_type": order.order_type,
+            "env": os.environ.get("ENVIRONMENT", "DEV"),
+            "promo_code": assign_request.promo_code,
+            "rule_id": rule_id,
+            "amount": minor_units
+        }
+        if order.order_type == UserOrderType.BUNDLE_TOP_UP and iccid:
+            metadata["iccid"] = iccid
         payment_intent = create_payment_intent(user_bundle_order=order, user_email=user.email,
-                                               metadata={
-                                                   "order_id": order.id,
-                                                   "user_id": order.user_id,
-                                                   "device_id": device_id,
-                                                   "bundle_code": order.bundle_id,
-                                                   "order_type": order.order_type,
-                                                   "env": os.environ.get("ENVIRONMENT", "DEV"),
-                                                   "promo_code": assign_request.promo_code,
-                                                   "rule_id": rule_id,
-                                                   "amount": minor_units
-                                               },
+                                               metadata=metadata
+                                               ,
                                                ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id
         self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))

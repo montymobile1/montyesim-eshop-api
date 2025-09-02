@@ -16,8 +16,8 @@ from app.repo import PromotionRepo, PromotionRuleRepo, PromotionUsageRepo, UserR
 from app.repo.bundle_repo import BundleRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
-from app.schemas.promotion import PromotionCodeDetailsResponse, PromotionValidationRequest, ReferralRewardRequest, \
-    PromotionHistoryDto, PromotionValidationResponse, ReferralInfoDto
+from app.schemas.promotion import PromotionCodeDetailsResponse, PromotionValidationRequest, PromotionHistoryDto, \
+    PromotionValidationResponse, ReferralInfoDto
 from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
 from app.services.user_wallet_service import UserWalletService
@@ -34,16 +34,6 @@ class PromotionService:
         self.__bundle_repo = BundleRepo()
         self.__currency_service = CurrencyService()
         self.__user_profile_repo = UserProfileRepo()
-
-    async def referral_code_rewards(self, referral_reward_request: ReferralRewardRequest, user_id: str,
-                                    device_id: str = None) -> Response:
-        promotion_code_details = self.code_type_and_get_rule(referral_reward_request.referral_code,
-                                                             user_id, device_id)
-        await self.add_reward(rule_id=promotion_code_details.data.rule_id, user_id=user_id,
-                              bundle_id=referral_reward_request.bundle_code, code=referral_reward_request.referral_code)
-        return ResponseHelper.success_data_response_with_message(None,
-                                                                 "Success",
-                                                                 0)
 
     async def history(self, user_id: str, x_currency: str) -> Response[List[PromotionHistoryDto]]:
         rate = self.__currency_service.get_rate_by_currency(x_currency)
@@ -360,6 +350,7 @@ class PromotionService:
                                                                                            "referral_code": code}
         if order_id:
             conditions["order_id"] = order_id
+            conditions.pop("user_id")
         referrer_user = self.__user_repo.get_first_by(where={},
                                                       filters={self.__user_repo.referral_code_key(): code})
         self.__promotion_usage_repo.update_by(where=conditions, data=data)
@@ -436,7 +427,7 @@ class PromotionService:
                 raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE,
                                       details="Referral Code Already Used on this device")
             referred_usage = self.__promotion_usage_repo.list(
-                where={"referred_to": referred_user.email, "user_id": user_id, "referral_code": promotion_code})
+                where={"referred_to": referred_user.email, "user_id": user_id, "referral_code": promotion_code, "status": PromotionStatusEnum.COMPLETED.value})
             if len(referred_usage) > 0:
                 for usage in referred_usage:
                     if usage.device_id == device_id:
@@ -448,7 +439,7 @@ class PromotionService:
                                       details="Referral Code Already Used by referred user")
 
         promotion_usage = self.__promotion_usage_repo.list(
-            where={"user_id": user_id, "referral_code": promotion_code})
+            where={"user_id": user_id, "referral_code": promotion_code,"status": PromotionStatusEnum.COMPLETED.value})
 
         if promotion_usage:
             logger.error("Referral code already used")
