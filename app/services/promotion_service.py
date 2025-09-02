@@ -320,6 +320,17 @@ class PromotionService:
 
         if not promotion.is_active:
             raise CustomException(code=404, name=ErrorMessages.PROMOTION_NOT_ACTIVE, details="promotion not active")
+
+        # Validate promotion date range
+        from datetime import datetime
+        today = datetime.now().date()
+        if promotion.start_date and promotion.end_date:
+            start_date = promotion.start_date.date()
+            end_date = promotion.end_date.date()
+            if not (start_date <= today <= end_date):
+                raise CustomException(code=404, name=ErrorMessages.PROMOTION_NOT_ACTIVE,
+                                   details="Promotion is not active for current date")
+
         if promotion.times_used >= rule.max_usage:
             raise CustomException(code=404, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE,
                                   details="times used is full")

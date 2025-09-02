@@ -150,7 +150,8 @@ class UserBundleService:
         elif payment_type == PaymentTypeEnum.CARD:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
                                                     assign_request=None, rule_id="0",
-                                                    modified_amount=bundle.price, request=request,iccid=assign_top_up_request.iccid)
+                                                    modified_amount=bundle.price, request=request,
+                                                    iccid=assign_top_up_request.iccid)
         else:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
@@ -384,8 +385,7 @@ class UserBundleService:
         if order.order_type == UserOrderType.BUNDLE_TOP_UP and iccid:
             metadata["iccid"] = iccid
         payment_intent = create_payment_intent(user_bundle_order=order, user_email=user.email,
-                                               metadata=metadata
-                                               ,
+                                               metadata=metadata,
                                                ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id
         self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
