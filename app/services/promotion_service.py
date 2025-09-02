@@ -202,7 +202,7 @@ class PromotionService:
             else:
                 if rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
                     amount = (bundle.original_price * promotion.amount) / 100
-                    message = f"{I18n.get_message(key='CASHBACK_PERCENTAGE', lang=locale)} ({promotion.amount}%) {amount * rate} {currency}"
+                    message = f"{I18n.get_message(key='CASHBACK_PERCENTAGE', lang=locale)} ({promotion.amount}%) {round(amount * rate, 2)} {currency}"
                 else:
                     amount = promotion.amount
                     message = f"{I18n.get_message(key='CASHBACK_AMOUNT', lang=locale)} {round(amount * rate, 2)} {currency}"
@@ -465,6 +465,7 @@ class PromotionService:
     async def apply_promotion_code_after_purchase(self, user_id: str, code: str,
                                                   status: Literal["pending", "failed", "completed"],
                                                   rule_id: str,
+                                                  order_id: str = None,
                                                   paid_amount: float = 0):
         is_referral = self.is_referral_code(code)
         referrer_user = self.__user_repo.get_first_by(where={},
@@ -473,6 +474,11 @@ class PromotionService:
             f"applying {'referral' if is_referral else 'promotion'} code {code} for user {user_id} with status {status}")
         condition = {"user_id": user_id, "referral_code": code} if is_referral else {"user_id": user_id,
                                                                                      "promotion_code": code}
+
+        if order_id:
+            condition["order_id"] = order_id
+            condition.pop("user_id")
+
         if status != "completed":
             self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
             return
@@ -540,8 +546,8 @@ class PromotionService:
                                                                             source=UserWalletTransactionSource.CASHBACK_REFERRAL)
         return None
 
-    def cancel_promotion_usage(self, user_id: str, order_id: str):
-        self.__promotion_usage_repo.update_by(where={"user_id": user_id, "order_id": order_id},
+    def cancel_promotion_usage(self, order_id: str):
+        self.__promotion_usage_repo.update_by(where={"order_id": order_id},
                                               data={"status": PromotionStatusEnum.FAILED.value})
 
     def referral_info(self, x_currency: str, locale: str = "en") -> Response[ReferralInfoDto]:

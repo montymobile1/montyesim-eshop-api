@@ -196,7 +196,7 @@ class BundleService:
             self.__user_order_repo.update_by({"id": user_order.id}, data=user_order.model_dump(exclude={"id"}))
             logger.info(f"error creating esim hub profile for order {user_order.id}")
             await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="failed",
-                                                                  rule_id=rule_id)
+                                                                  rule_id=rule_id,order_id=order_id)
             return BadRequestException("Payment failed")
         else:
             user_order.esim_order_id = esim_hub_order.orderId
@@ -229,6 +229,7 @@ class BundleService:
         if user_order.promo_code or user_order.referral_code:
             await self.__promotion_service.apply_promotion_code_after_purchase(user_id=user_id, code=user_order.promo_code or user_order.referral_code,
                                                                                status="completed",
+                                                                               order_id=order_id,
                                                                                rule_id=rule_id)
 
         await self.__send_buy_notification(bundle_name=bundle.bundle_name, iccid=esim_hub_order.iccid,
