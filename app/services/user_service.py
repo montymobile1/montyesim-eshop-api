@@ -150,7 +150,7 @@ class UserBundleService:
         elif payment_type == PaymentTypeEnum.CARD:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
                                                     assign_request=None, rule_id="0",
-                                                    modified_amount=bundle.price, request=request)
+                                                    modified_amount=bundle.price, request=request,iccid=assign_top_up_request.iccid)
         else:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
