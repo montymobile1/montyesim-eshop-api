@@ -1,5 +1,4 @@
 import os
-from datetime import datetime
 from typing import List, Literal
 
 from loguru import logger
@@ -16,7 +15,7 @@ from app.repo import PromotionRepo, PromotionRuleRepo, PromotionUsageRepo, UserR
 from app.repo.bundle_repo import BundleRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
-from app.schemas.promotion import PromotionCodeDetailsResponse, PromotionValidationRequest, PromotionHistoryDto, \
+from app.schemas.promotion import PromotionValidationRequest, PromotionHistoryDto, \
     PromotionValidationResponse, ReferralInfoDto
 from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
@@ -214,82 +213,6 @@ class PromotionService:
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule.id,
                                                    message=message)
 
-    def code_type_and_get_rule(self, promotion_code: str, user_id: str, device_id: str = None) -> Response[
-        PromotionCodeDetailsResponse]:
-        if not self.is_referral_code(promotion_code):
-
-            promotion: PromotionModel = self.__promotion_repo.get_first_by(where={"code": promotion_code})
-
-            if promotion is not None:
-                code_type = "PROMOTION"
-                rule_id = promotion.rule_id
-                self.__validate_promotion(promotion=promotion, user_id=user_id,
-                                          device_id=device_id)
-            else:
-                logger.error("promotion code not found")
-                raise CustomException(code=400, name=ErrorMessages.CODE_NOT_RECORDED,
-                                      details="promotion code not found")
-        else:
-            code_type = "REFERRAL"
-            rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
-            self.__validate_referral(user_id=user_id, promotion_code=promotion_code, rule_id=rule_id)
-
-        response = PromotionCodeDetailsResponse(code_type=code_type, rule_id=rule_id)
-        return ResponseHelper.success_data_response(response, 1)
-
-    @staticmethod
-    def convert_timestamp(date_str: str, date_format: str = "%Y-%m-%dT%H:%M:%S") -> datetime:
-        return datetime.strptime(date_str, date_format)
-
-    async def add_reward(self, rule_id: str, user_id: str, bundle_id, code: str) -> float:
-        promotion_rule = self.__promotion_rule_repo.get_first_by({"id": rule_id})
-        is_referral = self.is_referral_code(code)
-        if promotion_rule is None:
-            raise CustomException(code=400, name=ErrorMessages.PROMOTION_RULE_MISSING,
-                                  details="promotion rule is missing")
-
-        action_id = promotion_rule.promotion_rule_action_id
-        event_id = promotion_rule.promotion_rule_event_id
-        beneficiary = promotion_rule.beneficiary
-
-        referrer_user_id = 0
-
-        bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=bundle_id) if bundle_id else None
-        self.__validate_rule_constraints(event_id, action_id, bundle, is_referral, beneficiary)
-
-        if is_referral:
-            amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
-            user = self.__user_repo.get_first_by(where={},
-                                                 filters={self.__user_repo.referral_code_key(): code})
-            referrer_user_id = user.id
-        else:
-            promotion_model: PromotionModel = self.__promotion_repo.get_first_by({"rule_id": rule_id, "code": code})
-            if promotion_model is None:
-                raise CustomException(code=400, name=ErrorMessages.INVALID_INPUT,
-                                      details="code is promotion code, should have promotion model")
-            amount = promotion_model.amount
-
-        if action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
-            return await self.__handle_discount(bundle.price, amount, beneficiary, user_id, referrer_user_id, code,
-                                                is_referral, bundle)
-
-        if action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
-            discounted = bundle.price * amount / 100
-            return await self.__handle_discount(bundle.price, discounted, beneficiary, user_id, referrer_user_id, code,
-                                                is_referral, bundle)
-
-        if action_id in [PromotionRuleAction.CASHBACK_AMOUNT.value, PromotionRuleAction.CASHBACK_PERCENTAGE.value]:
-            cashback_amount = amount
-            if action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
-                cashback_amount = bundle.price * amount / 100
-            return await self.__handle_cashback(amount=cashback_amount, beneficiary=beneficiary, user_id=user_id,
-                                                referrer_user_id=referrer_user_id, code=code,
-                                                is_referral=is_referral,
-                                                event_id=promotion_rule.promotion_rule_event_id, bundle=bundle,
-                                                order_id=None)
-
-        return 0
-
     async def __handle_cashback(self, amount: float, beneficiary: str, user_id: str, referrer_user_id: str,
                                 code: str, is_referral: bool, event_id, bundle: BundleDTO, order_id: str | None,
                                 referred_to: str = None, device_id: str = None):
@@ -472,12 +395,13 @@ class PromotionService:
                                                       filters={self.__user_repo.referral_code_key(): code})
         logger.info(
             f"applying {'referral' if is_referral else 'promotion'} code {code} for user {user_id} with status {status}")
-        condition = {"user_id": user_id, "referral_code": code} if is_referral else {"user_id": user_id,
-                                                                                     "promotion_code": code}
-
+        condition = {"user_id": user_id, "promotion_code": code} if not is_referral else {"user_id": user_id,
+                                                                                          "referral_code": code}
         if order_id:
             condition["order_id"] = order_id
             condition.pop("user_id")
+
+        logger.info(f"condition for updating promotion usage: {condition}")
 
         if status != "completed":
             self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
