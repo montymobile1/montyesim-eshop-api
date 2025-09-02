@@ -377,7 +377,7 @@ class UserBundleService:
             "bundle_code": order.bundle_id,
             "order_type": order.order_type,
             "env": os.environ.get("ENVIRONMENT", "DEV"),
-            "promo_code": assign_request.promo_code,
+            "promo_code": assign_request.promo_code if assign_request else None,
             "rule_id": rule_id,
             "amount": minor_units
         }
