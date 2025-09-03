@@ -111,7 +111,13 @@ class DtoMapper:
         return BundleCategoryDTO.model_validate(bundle_category_data)
 
     @staticmethod
-    def to_transaction_history_response(user_profile_bundle: UserProfileBundleModel) -> TransactionHistoryResponse:
+    def to_transaction_history_response(user_profile_bundle: UserProfileBundleModel,
+                                        x_currency: str,
+                                        rate: float = 1) -> TransactionHistoryResponse:
+        bundle = None
+        if user_profile_bundle.bundle_data:
+            bundle = BundleDTO.model_validate(user_profile_bundle.bundle_data)
+            bundle = DtoMapper.bundle_currency_update(bundle, currency=x_currency, rate=rate)
         data = {
             "user_order_id": user_profile_bundle.user_order_id,
             "iccid": user_profile_bundle.iccid,
@@ -119,8 +125,7 @@ class DtoMapper:
             "plan_started": user_profile_bundle.plan_started,
             "bundle_expired": user_profile_bundle.bundle_expired,
             "created_at": user_profile_bundle.created_at,
-            "bundle": BundleDTO.model_validate(
-                user_profile_bundle.bundle_data) if user_profile_bundle.bundle_data else None,
+            "bundle": bundle,
         }
         return TransactionHistoryResponse.model_validate(data)
 
@@ -245,8 +250,11 @@ class DtoMapper:
             "bundle_message": [],
             "countries": countries_sorted,
             "icon": icon_url,
-            "transaction_history": [DtoMapper.to_transaction_history_response(bundle) for bundle in
-                                    user_profile.bundles],
+            "transaction_history": [
+                DtoMapper.to_transaction_history_response(user_profile_bundle=bundle, rate=rate, x_currency=x_currency)
+                for
+                bundle in
+                user_profile.bundles],
         }
         return EsimBundleResponse.model_validate(data)
 

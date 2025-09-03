@@ -12,6 +12,7 @@ from app.config.db import UserBundleType, OrderStatusEnum
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
 from app.exceptions import BadRequestException
+from app.models.app import BundleModel
 from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel, UserModel
 from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
 from app.repo.bundle_repo import BundleRepo
@@ -48,6 +49,14 @@ class BundleService:
         except Exception as e:
             logger.error(f"error while getting bundle {e}")
             return False
+
+    async def get_bundle_by_id(self, bundle_id: str) -> BundleModel | None:
+        try:
+            bundle = self.__bundle_repo.get_by_id(record_id=bundle_id)
+            return bundle
+        except Exception as e:
+            logger.error(f"error while getting bundle {e}")
+            return None
 
     async def get_bundle(self, bundle_id: str, currency_name: str, locale: str = "en") -> Response[BundleDTO]:
         bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=bundle_id)
