@@ -176,7 +176,7 @@ class CallbackService:
                                                              currency_code=os.getenv("DEFAULT_CURRENCY")))
                 logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
                 old_bundle: BundleModel = asyncio.run(self.__bundle_service.get_bundle_by_id(bundle_id=bundle_id))
-                if old_bundle and old_bundle.is_active:
+                if old_bundle:
                     asyncio.run(self.__sync_service.sync_bundle(bundle))
                 else:
                     logger.info(f"bundle {bundle_id} not found ignoring callback")
