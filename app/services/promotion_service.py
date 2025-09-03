@@ -319,7 +319,7 @@ class PromotionService:
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
 
         if not promotion.is_active:
-            raise CustomException(code=404, name=ErrorMessages.PROMOTION_NOT_ACTIVE, details="promotion not active")
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_NOT_ACTIVE, details="promotion not active")
 
         from datetime import datetime
         today = datetime.now().date()
@@ -332,16 +332,16 @@ class PromotionService:
             start_date = parse_date(promotion.valid_from)
             end_date = parse_date(promotion.valid_to)
             if not (start_date <= today <= end_date):
-                raise CustomException(code=404, name=ErrorMessages.PROMOTION_NOT_ACTIVE,
+                raise CustomException(code=400, name=ErrorMessages.PROMOTION_NOT_ACTIVE,
                                    details="Promotion is not active for current date")
 
         if promotion.times_used >= rule.max_usage:
-            raise CustomException(code=404, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE,
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE,
                                   details="times used is full")
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed", "device_id": device_id})
         if promotion_usage:
-            raise CustomException(code=404, name=ErrorMessages.PROMOTION_ALREADY_USED, details="Promotion Already Used")
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_ALREADY_USED, details="Promotion Already Used")
 
     def __validate_referral(self, user_id: str, promotion_code: str, rule_id: str, device_id: str = None):
 
@@ -393,12 +393,12 @@ class PromotionService:
 
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
         if not rule:
-            raise CustomException(code=404, name=ErrorMessages.PROMOTION_RULE_NOT_FOUND,
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_RULE_NOT_FOUND,
                                   details="promotion rule not found")
 
         promotion_referral_usage = self.__promotion_usage_repo.list(where={"referral_code": promotion_code})
         if len(promotion_referral_usage) > rule.max_usage:
-            raise CustomException(code=404, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
                                   details="times used is full")
 
     def is_referral_code(self, referral_code: str) -> bool:
@@ -496,7 +496,7 @@ class PromotionService:
         rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
         if not rule:
-            raise CustomException(code=404, name=ErrorMessages.PROMOTION_RULE_NOT_FOUND,
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_RULE_NOT_FOUND,
                                   details="promotion rule not found")
 
         amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate)
