@@ -384,7 +384,7 @@ class UserBundleService:
         }
         if order.order_type == UserOrderType.BUNDLE_TOP_UP and iccid:
             metadata["iccid"] = iccid
-        payment_intent = create_payment_intent(user_bundle_order=order, user_email=user.email,
+        payment_intent,tax = create_payment_intent(user_bundle_order=order, user_email=user.email,
                                                metadata=metadata,
                                                ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id
@@ -400,8 +400,9 @@ class UserBundleService:
                                          billing_country_code="GB",
                                          order_id=order.id,
                                          subtotal_price_display=f"{minor_units / 100} {order.currency}",
-                                         total_price_display=f"{minor_units / 100} {order.currency}",
-                                         tax_price_display=f"0.00 {order.currency}"
+                                         total_price_display=f"{payment_intent.amount / 100} {order.currency}",
+                                         tax_price_display=f"{round(tax.amount_total if tax else 0,2)} {order.currency}",
+                                         has_tax=tax is not None and tax.amount_total > 0
                                          )
         return ResponseHelper.success_data_response(response, 0)
 
