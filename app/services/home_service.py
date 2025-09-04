@@ -52,10 +52,12 @@ class HomeService:
         rate = self.__currency_service.get_rate_by_currency(currency)
         cruise_bundles = await self.__grouping_service.get_cruise_bundle(rate=rate, currency_name=currency,
                                                                          locale=locale)
-        cruise_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
+        if len(cruise_bundles) > 0:
+            cruise_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
         all_global_bundles = await self.__grouping_service.get_global_bundle(rate=rate, currency_name=currency,
                                                                              locale=locale)
-        all_global_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
+        if len(all_global_bundles) > 0:
+            all_global_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
         global_bundles = [bundle for bundle in all_global_bundles
                           if len(bundle.countries) >= int(os.getenv("GLOBAL_COUNTRIES_COUNT", 50))]
 
