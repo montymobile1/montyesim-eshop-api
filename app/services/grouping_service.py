@@ -58,8 +58,10 @@ class GroupingService:
             )
 
             for bundle_tag in bundler_tags:
-                bundle:BundleModel = self.__bundle_repo.list(where={"id":bundle_tag.bundle_id,"is_active":True})
-
+                bundles = self.__bundle_repo.list(where={"id":bundle_tag.bundle_id,"is_active":True})
+                if len(bundles) == 0:
+                    continue
+                bundle = bundles[0]
                 if bundle and bundle.data:
                     bundle_dto = BundleDTO(**bundle.data)
                     if locale != os.getenv("DEFAULT_LOCALE", "en"):
@@ -91,7 +93,10 @@ class GroupingService:
             )
 
             for bundle_tag in bundler_tags:
-                bundle:BundleModel = self.__bundle_repo.list(where={"id":bundle_tag.bundle_id,"is_active":True})
+                bundles = self.__bundle_repo.list(where={"id":bundle_tag.bundle_id,"is_active":True})
+                if len(bundles) == 0:
+                    continue
+                bundle = bundles[0]
                 if bundle and bundle.data:
                     bundle_dto = BundleDTO(**bundle.data)
                     if locale != os.getenv("DEFAULT_LOCALE", "en"):
