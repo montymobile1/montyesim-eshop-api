@@ -9,7 +9,7 @@ from app.repo.bundle_tage_repo import BundleTagRepo
 from app.repo.tag_repo import TagRepo, TagTranslationRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import CountryDTO, RegionDTO, BundleDTO
-
+from app.models.app import BundleModel
 
 class GroupingService:
     def __init__(self):
@@ -58,7 +58,7 @@ class GroupingService:
             )
 
             for bundle_tag in bundler_tags:
-                bundle = self.__bundle_repo.get_by_id(record_id=bundle_tag.bundle_id)
+                bundle:BundleModel = self.__bundle_repo.list(where={"id":bundle_tag.bundle_id,"is_active":True})
 
                 if bundle and bundle.data:
                     bundle_dto = BundleDTO(**bundle.data)
@@ -91,7 +91,7 @@ class GroupingService:
             )
 
             for bundle_tag in bundler_tags:
-                bundle = self.__bundle_repo.get_by_id(record_id=bundle_tag.bundle_id)
+                bundle:BundleModel = self.__bundle_repo.list(where={"id":bundle_tag.bundle_id,"is_active":True})
                 if bundle and bundle.data:
                     bundle_dto = BundleDTO(**bundle.data)
                     if locale != os.getenv("DEFAULT_LOCALE", "en"):
