@@ -9,7 +9,6 @@ from app.repo.bundle_tage_repo import BundleTagRepo
 from app.repo.tag_repo import TagRepo, TagTranslationRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import CountryDTO, RegionDTO, BundleDTO
-from app.models.app import BundleModel
 
 class GroupingService:
     def __init__(self):
@@ -58,10 +57,10 @@ class GroupingService:
             )
 
             for bundle_tag in bundler_tags:
-                bundles = self.__bundle_repo.list(where={"id":bundle_tag.bundle_id,"is_active":True})
-                if len(bundles) == 0:
+                bundles_list = self.__bundle_repo.list(where={"id":bundle_tag.bundle_id,"is_active":True})
+                if len(bundles_list) == 0:
                     continue
-                bundle = bundles[0]
+                bundle = bundles_list[0]
                 if bundle and bundle.data:
                     bundle_dto = BundleDTO(**bundle.data)
                     if locale != os.getenv("DEFAULT_LOCALE", "en"):
@@ -93,10 +92,10 @@ class GroupingService:
             )
 
             for bundle_tag in bundler_tags:
-                bundles = self.__bundle_repo.list(where={"id":bundle_tag.bundle_id,"is_active":True})
-                if len(bundles) == 0:
+                bundles_list = self.__bundle_repo.list(where={"id":bundle_tag.bundle_id,"is_active":True})
+                if len(bundles_list) == 0:
                     continue
-                bundle = bundles[0]
+                bundle = bundles_list[0]
                 if bundle and bundle.data:
                     bundle_dto = BundleDTO(**bundle.data)
                     if locale != os.getenv("DEFAULT_LOCALE", "en"):
