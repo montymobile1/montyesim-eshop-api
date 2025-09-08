@@ -499,7 +499,7 @@ class PromotionService:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_RULE_NOT_FOUND,
                                   details="promotion rule not found")
 
-        amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate)
+        amount = round(float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate))
         percentage = float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
         if rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_AMOUNT.value:
             message = f"Get {amount} {x_currency} credit for every friend that signs up and completes a purchase. Your friends get {amount} {x_currency} credit for their first purchase."
