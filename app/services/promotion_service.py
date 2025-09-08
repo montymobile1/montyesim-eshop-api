@@ -329,11 +329,12 @@ class PromotionService:
                     return datetime.strptime(date_str, "%Y-%m-%d").date()
                 except ValueError:
                     return datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+
             start_date = parse_date(promotion.valid_from)
             end_date = parse_date(promotion.valid_to)
             if not (start_date <= today <= end_date):
                 raise CustomException(code=400, name=ErrorMessages.PROMOTION_NOT_ACTIVE,
-                                   details="Promotion is not active for current date")
+                                      details="Promotion is not active for current date")
 
         if promotion.times_used >= rule.max_usage:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE,
@@ -499,7 +500,7 @@ class PromotionService:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_RULE_NOT_FOUND,
                                   details="promotion rule not found")
 
-        amount = round(float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate))
+        amount = round(float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate), 2)
         percentage = float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
         if rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_AMOUNT.value:
             message = f"Get {amount} {x_currency} credit for every friend that signs up and completes a purchase. Your friends get {amount} {x_currency} credit for their first purchase."
