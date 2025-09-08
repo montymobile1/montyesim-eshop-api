@@ -260,7 +260,7 @@ class EsimHubService:
                                            params=params)
         if "success" not in response:
             raise EsimHubException(response)
-        data = response["data"]["items"]
+        data = response["data"]["items"][0]
         return DtoMapper.to_bundle_dto(bundle=data, currency=currency_code)
 
     async def get_bundle_consumption(self, order_id: str) -> ConsumptionResponse:
