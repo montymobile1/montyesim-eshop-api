@@ -14,7 +14,6 @@ from app.config.notification_types import send_consumption_80_bundle_notificatio
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
 from app.config.push_notification_manager import fcm_service
-from app.models.app import BundleModel
 from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel, UserProfileBundleModel, \
     UserProfileModel
 from app.repo import UserOrderRepo, UserProfileRepo, UserRepo, UserProfileBundleRepo
@@ -174,12 +173,9 @@ class CallbackService:
                 bundle = asyncio.run(
                     self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
                                                              currency_code=os.getenv("DEFAULT_CURRENCY")))
-                logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
-                old_bundle: BundleModel = asyncio.run(self.__bundle_service.get_bundle_by_id(bundle_id=bundle_id))
-                if old_bundle:
+                if bundle:
+                    logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
                     asyncio.run(self.__sync_service.sync_bundle(bundle))
-                else:
-                    logger.info(f"bundle {bundle_id} not found ignoring callback")
             asyncio.run(self.__sync_service.update_sync_version())
         except Exception as e:
             logger.error(f"error while syncing bundle {id}: {str(e)}")
