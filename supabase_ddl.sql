@@ -786,8 +786,7 @@ UNIQUE (name, tag_group_id);
 
 create table banner
 (
-    id          integer not null
-        primary key,
+    id serial4 primary key,
     title       varchar,
     description varchar,
     action      varchar,
