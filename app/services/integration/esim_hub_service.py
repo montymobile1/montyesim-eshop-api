@@ -256,11 +256,11 @@ class EsimHubService:
             "RecordGuid": bundle_id,
             "CurrencyCode": currency_code
         }
-        response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_RESELLER_BUNDLE_BY_ID,
+        response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_BUNDLE_BY_ID,
                                            params=params)
         if "success" not in response:
             raise EsimHubException(response)
-        data = response["data"]["items"]
+        data = response["data"]["item"]
         return DtoMapper.to_bundle_dto(bundle=data, currency=currency_code)
 
     async def get_bundle_consumption(self, order_id: str) -> ConsumptionResponse:
