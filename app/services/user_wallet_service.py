@@ -1,14 +1,17 @@
 import os
 import threading
+from typing import List
 
+from fastapi import Request
 from loguru import logger
 
+from app.config.constants import ErrorMessages
 from app.config.db import UserOrderType
 from app.config.notification_types import send_wallet_top_up_succeeded_notification
 from app.config.push_notification_manager import fcm_service
 from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral
 from app.exceptions import CustomException
-from app.models.user import UserWalletModel, UserModel
+from app.models.user import UserWalletModel, UserModel, UserWalletTransactionModel
 from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo
 from app.schemas.bundle import PaymentIntentResponse
 from app.schemas.dto_mapper import DtoMapper
@@ -50,7 +53,7 @@ class UserWalletService:
         try:
             user_wallet: UserWalletModel = self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
             if user_wallet is None:
-                raise CustomException(code=400, name="wallet not found", details="user wallet not found")
+                raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
             current_amount = float(user_wallet.amount)
             add_amount = float(amount)
@@ -65,15 +68,17 @@ class UserWalletService:
                 "source": source,
                 "status": "success"
             })
-            thread = threading.Thread(target=self.__send_push, args=(amount, user_wallet.currency, user_id,))
-            thread.start()
+            if amount > 0:
+                thread = threading.Thread(target=self.__send_push,
+                                          args=(amount, user_wallet.currency, user_id,))
+                thread.start()
             dto = DtoMapper.to_user_wallet_response(user_wallet)
             return ResponseHelper.success_data_response(dto, 1)
         except Exception as e:
             logger.error(str(e))
-            raise CustomException(code=400, name="wallet not found", details="user wallet not found")
+            raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
-    async def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UserModel) -> Response[
+    async def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UserModel, request: Request) -> Response[
         PaymentIntentResponse]:
         currency = os.getenv("DEFAULT_CURRENCY")
         user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user.id})
@@ -90,14 +95,14 @@ class UserWalletService:
             "anonymous_user_id": None,
         })
 
-        intent = create_wallet_top_up_intent(user_email=user.email, amount=round(top_up_request.amount * 100),
-                                             currency=currency,
-                                             metadata={
-                                                 "user_id": user.id,
-                                                 "user_wallet_id": user_wallet.id,
-                                                 "order_id": order.id,
-                                                 "env": os.environ.get("ENVIRONMENT", "DEV"),
-                                             })
+        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=round(top_up_request.amount * 100),
+                                                  currency=currency,
+                                                  metadata={
+                                                      "user_id": user.id,
+                                                      "user_wallet_id": user_wallet.id,
+                                                      "order_id": order.id,
+                                                      "env": os.environ.get("ENVIRONMENT", "DEV"),
+                                                  }, ip_address=request.client.host)
 
         order.payment_intent_code = intent.id
         self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
@@ -110,8 +115,21 @@ class UserWalletService:
                                          test_env=not intent.livemode,
                                          merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
                                          billing_country_code="GB",
-                                         order_id=order.id)
+                                         order_id=order.id,
+                                         total_price_display=f"{top_up_request.amount:.2f} {currency}",
+                                         subtotal_price_display=f"{intent.amount:.2f} {currency}",
+                                         tax_price_display=f"{round(tax.amount_total if tax else 0, 2)} {currency}",
+                                         has_tax=tax is not None and tax.amount_total > 0
+                                         )
         return ResponseHelper.success_data_response(response, 0)
+
+    def get_wallet_transactions(self, user_id: str) -> List[UserWalletTransactionModel]:
+        user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
+        if not user_wallet:
+            return []
+        transactions = self.__user_wallet_transaction_repo.list(where={"wallet_id": user_wallet.id},
+                                                                order_by="created_at", desc=True)
+        return transactions
 
     def __create_wallet(self, user_id: str, amount: float, currency: str):
         wallet = self.__user_wallet_repo.create(data={

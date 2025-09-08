@@ -68,7 +68,10 @@ class PaymentIntentResponse(BaseModel):
     stripe_url_scheme: Optional[str] = "stripe"
     order_id: str
     payment_status: Optional[PaymentStatusEnum] = PaymentStatusEnum.PENDING
-
+    total_price_display: Optional[str] = "0.00"
+    tax_price_display: Optional[str] = "0.00"
+    subtotal_price_display: Optional[str] = "0.00"
+    has_tax: Optional[bool] = False
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
@@ -135,6 +138,7 @@ class EsimBundleResponse(BaseModel):
     price_display: str
     unlimited: bool
     validity: int
+    validity_label: str
     validity_display: str
     plan_type: str
     activity_policy: str

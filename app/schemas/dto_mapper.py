@@ -7,6 +7,7 @@ from typing import List
 from gotrue import AuthResponse
 from loguru import logger
 
+from app.config.context import currency_context
 from app.config.db import PaymentTypeEnum
 from app.models.app import CurrencyModel
 from app.models.notification import NotificationModel
@@ -39,8 +40,7 @@ class DtoMapper:
         bundle_regions = [DtoMapper.to_region_dto(region) for region in bundle.get("supportedZones", [])]
         bundle_category = bundle.get("bundleCategory", {})
         countries = [DtoMapper.to_country_dto(c) for c in bundle.get("supportedCountries", [])]
-        currency_code = os.getenv("DEFAULT_CURRENCY",
-                                  "EUR") if currency is None else currency
+        currency_code = currency_context.get() if currency is None else currency
         original_price = bundle["price"]
         price = bundle["exchangedPrice"] if bundle["exchangedPrice"] is not None else original_price
         gprs_limit = bundle_info.get("gprsLimit", 0)
@@ -111,7 +111,13 @@ class DtoMapper:
         return BundleCategoryDTO.model_validate(bundle_category_data)
 
     @staticmethod
-    def to_transaction_history_response(user_profile_bundle: UserProfileBundleModel) -> TransactionHistoryResponse:
+    def to_transaction_history_response(user_profile_bundle: UserProfileBundleModel,
+                                        x_currency: str,
+                                        rate: float = 1) -> TransactionHistoryResponse:
+        bundle = None
+        if user_profile_bundle.bundle_data:
+            bundle = BundleDTO.model_validate(user_profile_bundle.bundle_data)
+            bundle = DtoMapper.bundle_currency_update(bundle, currency=x_currency, rate=rate)
         data = {
             "user_order_id": user_profile_bundle.user_order_id,
             "iccid": user_profile_bundle.iccid,
@@ -119,8 +125,7 @@ class DtoMapper:
             "plan_started": user_profile_bundle.plan_started,
             "bundle_expired": user_profile_bundle.bundle_expired,
             "created_at": user_profile_bundle.created_at,
-            "bundle": BundleDTO.model_validate(
-                user_profile_bundle.bundle_data) if user_profile_bundle.bundle_data else None,
+            "bundle": bundle,
         }
         return TransactionHistoryResponse.model_validate(data)
 
@@ -238,14 +243,18 @@ class DtoMapper:
             "price_display": f"{round(bundle_data.original_price * rate, 2)} {x_currency}",
             "unlimited": bundle_data.unlimited,
             "validity": bundle_data.validity,
+            "validity_label": bundle_data.validity_label,
             "validity_display": bundle_data.validity_display,
             "plan_type": bundle_data.plan_type,
             "activity_policy": "",
             "bundle_message": [],
             "countries": countries_sorted,
             "icon": icon_url,
-            "transaction_history": [DtoMapper.to_transaction_history_response(bundle) for bundle in
-                                    user_profile.bundles],
+            "transaction_history": [
+                DtoMapper.to_transaction_history_response(user_profile_bundle=bundle, rate=rate, x_currency=x_currency)
+                for
+                bundle in
+                user_profile.bundles],
         }
         return EsimBundleResponse.model_validate(data)
 
@@ -313,12 +322,15 @@ class DtoMapper:
     @staticmethod
     def to_user_order_history(user_order: UserOrderModel, rate: float = 1.0,
                               currency: str = None) -> UserOrderHistoryResponse:
+        if currency == user_order.currency:
+            rate = 1.0
+        amount = (user_order.modified_amount or user_order.amount)
         data = {
             "order_number": user_order.id,
             "order_status": user_order.payment_status,
-            "order_amount": (user_order.modified_amount * rate),
+            "order_amount": (amount * rate),
             "order_currency": user_order.currency,
-            "order_display_price": f"{round((float(user_order.modified_amount) / 100) * rate, 2)} {currency}",
+            "order_display_price": f"{round((float(amount) / 100) * rate, 2)} {currency}",
             "order_date": user_order.created_at,
             "order_type": user_order.order_type,
             "bundle_details": BundleDTO.model_validate_json(user_order.bundle_data),
@@ -419,15 +431,15 @@ class DtoMapper:
 
     @staticmethod
     def to_promotion_history_dto(promotion_usage: PromotionUsageModel, name: str,
-                                 promotion_name) -> PromotionHistoryDto:
+                                 promotion_name, rate: float, currency: str) -> PromotionHistoryDto:
         is_referral = False
         if promotion_usage.referral_code:
             is_referral = True
 
         promotion_history_data = {
             "is_referral": is_referral,
-            "amount": f'{round(promotion_usage.amount, 2):.2f} {os.getenv("DEFAULT_CURRENCY")}',
-            "name": name,
+            "amount": f'{round(promotion_usage.amount * rate, 2):.2f} {currency}',
+            "name": promotion_usage.referred_to,
             "promotion_name": promotion_name,
             "date": promotion_usage.created_at
         }

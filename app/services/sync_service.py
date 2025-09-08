@@ -75,8 +75,7 @@ class SyncService:
 
     async def delete_bundle(self, bundle_id: str):
         try:
-            self.__bundle_tag_repo.delete_by({"bundle_id": bundle_id})
-            self.__bundle_repo.delete(record_id=bundle_id)
+            await self.update_bundle_status(bundle_id=bundle_id, status=False)
             logger.info(f"deleted bundle {bundle_id}")
         except Exception as e:
             logger.error(f"error while deleting bundle {bundle_id=} {e}")

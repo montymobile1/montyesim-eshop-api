@@ -367,16 +367,24 @@ CREATE TABLE promotion
     created_at       TIMESTAMP    DEFAULT NOW()
 );
 
-CREATE TABLE promotion_usage
+create table promotion_usage
 (
-    id             UUID                 DEFAULT gen_random_uuid() PRIMARY KEY,
-    user_id        UUID REFERENCES auth.users (id),
-    promotion_code VARCHAR REFERENCES promotion (code),
-    referral_code  VARCHAR,
-    bundle_id      UUID REFERENCES bundle(id),
-    amount         FLOAT4    DEFAULT 0 CHECK (amount >= 0),
-    status         VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK ( status IN ('pending', 'completed', 'failed') ),
-    created_at     TIMESTAMP            DEFAULT now()
+    id             uuid        default gen_random_uuid()            not null primary key,
+    user_id        uuid,
+    promotion_code varchar
+        references promotion (code),
+    referral_code  varchar,
+    amount         real        default 0
+        constraint promotion_usage_amount_check
+            check (amount >= (0)::double precision),
+    status         varchar(20) default 'pending'::character varying not null
+        constraint promotion_usage_status_check
+            check ((status)::text = ANY
+                   ((ARRAY ['pending'::character varying, 'completed'::character varying, 'failed'::character varying])::text[])),
+    created_at     timestamp   default now(),
+    bundle_id      uuid,
+    device_id      varchar(250),
+    referred_to    varchar
 );
 
 CREATE TABLE user_wallet
@@ -775,3 +783,14 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 ALTER TABLE tag
 ADD CONSTRAINT unique_tag_name_per_group
 UNIQUE (name, tag_group_id);
+
+create table banner
+(
+    id          integer not null
+        primary key,
+    title       varchar,
+    description varchar,
+    action      varchar,
+    image       varchar,
+    created_at  timestamp default CURRENT_TIMESTAMP
+);

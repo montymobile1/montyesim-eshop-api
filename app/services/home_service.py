@@ -52,10 +52,12 @@ class HomeService:
         rate = self.__currency_service.get_rate_by_currency(currency)
         cruise_bundles = await self.__grouping_service.get_cruise_bundle(rate=rate, currency_name=currency,
                                                                          locale=locale)
-        cruise_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
+        if len(cruise_bundles) > 0:
+            cruise_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
         all_global_bundles = await self.__grouping_service.get_global_bundle(rate=rate, currency_name=currency,
                                                                              locale=locale)
-        all_global_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
+        if len(all_global_bundles) > 0:
+            all_global_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
         global_bundles = [bundle for bundle in all_global_bundles
                           if len(bundle.countries) >= int(os.getenv("GLOBAL_COUNTRIES_COUNT", 50))]
 
@@ -144,7 +146,9 @@ class HomeService:
 
     async def __store_in_cache(self, cache_key: str, data: HomeResponseDto):
         try:
-            await aiocache.caches.get("default").set(cache_key, data.model_dump_json(), ttl=333600)
+            cache = aiocache.caches.get("default")
+            await cache.clear()  # Remove all old cache keys before storing new
+            await cache.set(cache_key, data.model_dump_json(), ttl=333600)
             logger.info(f"Stored data in cache with key: {cache_key}")
         except Exception as e:
             logger.error(f"Error storing data in cache: {e}")

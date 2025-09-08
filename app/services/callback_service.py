@@ -9,11 +9,12 @@ from fastapi import Request, HTTPException
 from loguru import logger
 
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email, get_email_template
-from app.config.constants import PaymentIntentEvents
+from app.config.constants import PaymentIntentEvents, UserWalletTransactionSource
 from app.config.notification_types import send_consumption_80_bundle_notification, \
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
 from app.config.push_notification_manager import fcm_service
+from app.models.app import BundleModel
 from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel, UserProfileBundleModel, \
     UserProfileModel
 from app.repo import UserOrderRepo, UserProfileRepo, UserRepo, UserProfileBundleRepo
@@ -167,14 +168,18 @@ class CallbackService:
                     asyncio.run(self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=True))
                 elif operation == "deactivate":
                     logger.info(f"deactivating bundle {bundle_id} for reseller {reseller_id}")
-                    asyncio.run(self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=False))
+                    asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
             if operation == "update":
                 asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
                 bundle = asyncio.run(
                     self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
                                                              currency_code=os.getenv("DEFAULT_CURRENCY")))
                 logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
-                asyncio.run(self.__sync_service.sync_bundle(bundle))
+                old_bundle: BundleModel = asyncio.run(self.__bundle_service.get_bundle_by_id(bundle_id=bundle_id))
+                if old_bundle:
+                    asyncio.run(self.__sync_service.sync_bundle(bundle))
+                else:
+                    logger.info(f"bundle {bundle_id} not found ignoring callback")
             asyncio.run(self.__sync_service.update_sync_version())
         except Exception as e:
             logger.error(f"error while syncing bundle {id}: {str(e)}")
@@ -218,7 +223,8 @@ class CallbackService:
         if payment_status == OrderStatusEnum.FAILURE:
             logger.info(f"payment failed for order {order_id}")
             if promo_code:
-                await self.__promotion_service.update_promotion_usage(user_id, promo_code, "failed", rule_id)
+                await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="failed",
+                                                                      rule_id=rule_id, order_id=order_id)
             return HTTPException(status_code=200, detail="Payment Failed")
         if payment_status == OrderStatusEnum.SUCCESS and tax_calculation:
             try:
@@ -231,16 +237,10 @@ class CallbackService:
                 logger.error(f"Error while creating tax transaction: {str(e)}")
 
         if payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.ASSIGN:
-            await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
-            if promo_code:
-                logger.info(f"updating promotion usage for user {user_id} with promo code {promo_code}")
-                await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code,
-                                                                      status="completed", rule_id=rule_id,
-                                                                      paid_amount=(float(amount) / 100))
             return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
                                                           payment_status=payment_status,
-                                                          user_id=user_id, user=user)
-
+                                                          user_id=user_id, user=user, promo_code=promo_code,
+                                                          rule_id=rule_id)
         elif payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.BUNDLE_TOP_UP:
             if not iccid:
                 logger.error(f"invalid iccid ({iccid}) for topup request ({user_order.id})")
@@ -306,7 +306,8 @@ class CallbackService:
             if event_type == "payment_intent.succeeded":
                 amount = (order.amount / 100)
                 logger.info(f"updating user wallet: {user_wallet} with new {amount=}")
-                await self.__user_wallet_service.add_wallet_transaction(amount, user_id)
+                await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
+                                                                        source=UserWalletTransactionSource.TOP_UP_WALLET)
                 self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.SUCCESS})
                 logger.info(
                     f"Top-Up for user {user_id} wallet {user_wallet} with amount {amount} {order.currency} succeeded")

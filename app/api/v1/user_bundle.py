@@ -52,8 +52,8 @@ async def assign_top_up(assign_top_up_request: AssignTopUpRequest, request: Requ
 
 
 @router.delete("/order/cancel/{id}", response_model=Response,
-               dependencies=[Depends(bearer_token), Depends(device_token)])
-async def cancel_order(id: str, user: Annotated[UserModel, Depends(bearer_token)]):
+               dependencies=[Depends(bearer_token_anonymous), Depends(device_token)])
+async def cancel_order(id: str, user: Annotated[UserModel, Depends(bearer_token_anonymous)]):
     return await service.cancel_order(order_id=id, user=user)
 
 

@@ -4,6 +4,7 @@ from typing import Optional
 from pydantic import BaseModel, field_validator
 
 from app.config.db import PromotionRuleAction
+from app.schemas.home import BundleDTO
 
 
 class PromotionCodeDetailsResponse(BaseModel):
@@ -41,3 +42,16 @@ class PromotionHistoryDto(BaseModel):
             return None
         dt = datetime.fromisoformat(value)
         return str(int(dt.timestamp()))
+
+
+class PromotionValidationResponse(BaseModel):
+    bundle: BundleDTO
+    message: str
+    rule_id: str
+
+
+class ReferralInfoDto(BaseModel):
+    amount: float
+    currency: str
+    type: str
+    message: str

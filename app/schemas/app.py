@@ -62,3 +62,10 @@ class ExchangeRate(BaseModel):
     currency_code: str
     current_rate: float
     new_rate: float
+
+
+class BannerResponse(BaseModel):
+    title: str
+    description: str
+    image: str
+    action: str

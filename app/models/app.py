@@ -123,3 +123,13 @@ class CurrencyModel(BaseModel):
     rate: Optional[float] = Field(True, alias="rate")
     updated_at: Optional[str] = None
     created_at: Optional[str] = None
+
+
+class BannerModel(BaseModel):
+    id: int
+    title: str
+    description: str
+    image: str
+    action: str
+    platform: str
+    created_at: str

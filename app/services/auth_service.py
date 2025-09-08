@@ -38,7 +38,7 @@ class AuthService:
 
         except Exception as e:
             logger.error(f"exception on login: {e}")
-            raise CustomException(code=400, name="Login Failed", details=str(e))
+            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
     async def temporary_login(self, login_request, x_device_id) -> Response[AuthResponseDTO]:
         try:
@@ -59,7 +59,7 @@ class AuthService:
             return ResponseHelper.success_data_response(DtoMapper.to_auth_response(supabase_response=response), 0)
         except Exception as e:
             logger.error(f"Exception on temporary login: {e}")
-            raise CustomException(code=400, name="Temporary Login Failed", details=str(e))
+            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
     async def create_wallet_if_not_exists(self, user_id: str, currency_code: str) -> UserWalletResponse | None:
         user_wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user_id,
@@ -101,7 +101,7 @@ class AuthService:
 
         except Exception as e:
             logger.error(f"exception on verify otp: {e}")
-            raise CustomException(code=400, name="Verify Failed", details=str(e))
+            raise CustomException(code=400, name=ErrorMessages.VERIFY_FAILED, details=str(e))
 
     def logout(self, user: UserModel, device_id: str) -> Response[None]:
         logger.info(f"logging out user {user} device {device_id}")
@@ -122,7 +122,7 @@ class AuthService:
             supabase_client().auth.admin.delete_user(id=user.id)
             return ResponseHelper.success_response()
         except Exception as e:
-            raise CustomException(code=400, name="Delete Account Failed", details=str(e))
+            raise CustomException(code=400, name=ErrorMessages.DELETE_ACCOUNT_FAILED, details=str(e))
 
     async def get_user_info(self, user: UserModel, currency_code: str):
         try:
@@ -133,7 +133,7 @@ class AuthService:
                 0)
         except Exception as e:
             logger.error(f"exception on get user info: {e}")
-            raise CustomException(code=400, name="Get User Info Failed", details=str(e))
+            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
     async def update_user_info(self, user: UserModel, update_request: UpdateUserInfoRequest, currency_code: str):
         try:
@@ -152,7 +152,7 @@ class AuthService:
                 0)
         except Exception as e:
             logger.error(f"exception on user info: {e}")
-            raise CustomException(code=400, name="User Failed", details=str(e))
+            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
     async def refresh_token(self, x_refresh_token: str, currency_code: str):
         logger.info(f"received refresh token request: {x_refresh_token}")
@@ -164,7 +164,7 @@ class AuthService:
                 0)
         except Exception as e:
             logger.error(f"exception on refresh token: {e}")
-            raise CustomException(code=401, name="Refresh Token Failed", details=str(e))
+            raise CustomException(code=401, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
     def __generate_referral_code(self):
         code = uuid.uuid4().hex[:8].upper()

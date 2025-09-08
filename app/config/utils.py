@@ -5,6 +5,7 @@ from loguru import logger
 from stripe import PaymentIntent, Charge
 
 from app.config.config import STRIPE_SECRET_KEY
+from app.config.constants import ErrorMessages
 from app.config.db import ConfigKeysEnum
 from app.exceptions import CustomException
 from app.models.app import AppConfigModel
@@ -15,7 +16,7 @@ from app.schemas.bundle import PaymentDetailsDTO
 stripe.api_key = STRIPE_SECRET_KEY
 
 
-def get_config(key: ConfigKeysEnum | str, default_value: str = None) -> str | None:
+def get_config(key: ConfigKeysEnum | str, default_value: str | int | float | None = None) -> str | None:
     config_repo = ConfigRepo()
     val: AppConfigModel = config_repo.get_first_by(where={"key": key.value})
     if val is None:
@@ -27,9 +28,10 @@ def get_config(key: ConfigKeysEnum | str, default_value: str = None) -> str | No
 
 
 def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
-                          metadata: dict, ip_address: str = None) -> PaymentIntent:
+                          metadata: dict, ip_address: str = None) -> tuple[
+    PaymentIntent, stripe.tax.Calculation | None]:
+    tax = None
     try:
-        logger.info(f"Creating payment intent for request: {user_bundle_order}")
         customers = stripe.Customer.list(email=user_email)
         if not customers:
             customer = stripe.Customer.create(email=user_email)
@@ -54,17 +56,17 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
                 logger.info(
                     f"applying tax calculation: {tax.id} for order {user_bundle_order.id} with amount {order_amount}")
         payment_intent = stripe.PaymentIntent.create(
-            amount=order_amount,
+            amount=int(order_amount),
             currency=user_bundle_order.currency,
             payment_method_types=["card"],
             description=f"Bundle order ({user_bundle_order.order_type}) for bundle {user_bundle_order.bundle_id}",
             metadata=metadata,
             customer=customer.id
         )
-        return payment_intent
+        return payment_intent, tax
 
     except stripe.error.StripeError as e:
-        raise CustomException(code=400, name="Payment Intent Exception",
+        raise CustomException(code=400, name=ErrorMessages.PAYMENT_INTENT_EXCEPTION,
                               details=f"Error while creating payment intent {str(e)}")
 
 
@@ -92,7 +94,8 @@ def calculate_tax(currency: str, amount: float, reference: str, tax_code: str,
         return None
 
 
-def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, metadata: dict) -> PaymentIntent:
+def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, metadata: dict,
+                                ip_address: str = None) -> tuple[PaymentIntent, stripe.tax.Calculation | None]:
     try:
         logger.info("Creating payment intent for wallet top-up")
         customers = stripe.Customer.list(email=user_email)
@@ -100,6 +103,22 @@ def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, m
             customer = stripe.Customer.create(email=user_email)
         else:
             customer = customers.get("data")[0]
+        if os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() in ("true", "1", "yes"):
+            logger.info(f"Automatic tax calculation enabled, calculating tax for amount {amount}")
+            tax = calculate_tax(currency=currency, amount=amount,
+                                tax_code=get_config(ConfigKeysEnum.STRIPE_TAX_CODE, "txcd_10103101"),
+                                tax_behavior="inclusive", request_ip=ip_address,
+                                reference=f"wallet_topup:{user_email}")
+            if tax:
+                tax_excl = getattr(tax, "tax_amount_exclusive", 0)
+                tax_incl = getattr(tax, "tax_amount_inclusive", 0)
+                logger.info(f"Tax calculation result: exclusive={tax_excl}, inclusive={tax_incl}")
+                amount = tax.amount_total
+                metadata = {str(k): str(v) for k, v in {**metadata, "tax_calculation": tax.id}.items() if
+                            v is not None}
+
+                logger.info(f"applying tax calculation: {tax.id} for wallet top up {user_email} with amount {amount}")
+
         payment_intent = stripe.PaymentIntent.create(
             amount=amount,
             currency=currency,
@@ -109,10 +128,10 @@ def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, m
             customer=customer.id
         )
         logger.debug(f"Payment intent:  {payment_intent}")
-        return payment_intent
+        return payment_intent, tax
 
     except stripe.error.StripeError as e:
-        raise CustomException(code=400, name="Payment Intent Exception",
+        raise CustomException(code=400, name=ErrorMessages.PAYMENT_INTENT_EXCEPTION,
                               details=f"Error while creating payment intent {str(e)}")
 
 
@@ -125,7 +144,7 @@ def create_payment_ephemeral(customer_id: str):
         logger.info("Ephemeral created: %s", ephemeral)
         return ephemeral
     except stripe.error.StripeError as e:
-        raise CustomException(code=400, name="Ephemeral Creation Exception",
+        raise CustomException(code=400, name=ErrorMessages.PAYMENT_INTENT_EXCEPTION,
                               details=f"Error while creating ephemeral key: {str(e)}")
 
 

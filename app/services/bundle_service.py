@@ -1,5 +1,5 @@
-import asyncio
 import os
+import threading
 from collections import defaultdict
 from datetime import datetime
 from typing import List
@@ -12,6 +12,7 @@ from app.config.db import UserBundleType, OrderStatusEnum
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
 from app.exceptions import BadRequestException
+from app.models.app import BundleModel
 from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel, UserModel
 from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
 from app.repo.bundle_repo import BundleRepo
@@ -23,6 +24,7 @@ from app.schemas.home import BundleDTO, RegionDTO, CountryDTO
 from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
 from app.services.grouping_service import GroupingService
+from app.services.promotion_service import PromotionService
 
 
 class BundleService:
@@ -38,6 +40,7 @@ class BundleService:
         self.__user_order_repo = UserOrderRepo()
         self.__user_profile_repo = UserProfileRepo()
         self.__user_profile_bundle_repo = UserProfileBundleRepo()
+        self.__promotion_service = PromotionService()
 
     async def bundle_exists(self, bundle_id: str) -> bool:
         try:
@@ -46,6 +49,14 @@ class BundleService:
         except Exception as e:
             logger.error(f"error while getting bundle {e}")
             return False
+
+    async def get_bundle_by_id(self, bundle_id: str) -> BundleModel | None:
+        try:
+            bundle = self.__bundle_repo.get_by_id(record_id=bundle_id)
+            return bundle
+        except Exception as e:
+            logger.error(f"error while getting bundle {e}")
+            return None
 
     async def get_bundle(self, bundle_id: str, currency_name: str, locale: str = "en") -> Response[BundleDTO]:
         bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=bundle_id)
@@ -172,7 +183,8 @@ class BundleService:
         return ResponseHelper.success_data_response(countries, len(countries))
 
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
-                         payment_status: str, user: UserModel | UsersCopyModel = None):
+                         payment_status: str, user: UserModel | UsersCopyModel = None, promo_code: str = None,
+                         rule_id: str = None):
         if isinstance(user, UsersCopyModel):
             msisdn = user.metadata.get("msisdn", "")
             email = user.email
@@ -192,6 +204,8 @@ class BundleService:
             user_order.order_status = OrderStatusEnum.FAILURE
             self.__user_order_repo.update_by({"id": user_order.id}, data=user_order.model_dump(exclude={"id"}))
             logger.info(f"error creating esim hub profile for order {user_order.id}")
+            await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="failed",
+                                                                  rule_id=rule_id, order_id=order_id)
             return BadRequestException("Payment failed")
         else:
             user_order.esim_order_id = esim_hub_order.orderId
@@ -220,16 +234,19 @@ class BundleService:
             "bundle_expired": False,
             "bundle_data": bundle.model_dump(),
         })
+        # await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
+        if user_order.promo_code or user_order.referral_code:
+            await self.__promotion_service.apply_promotion_code_after_purchase(user_id=user_id,
+                                                                               code=user_order.promo_code or user_order.referral_code,
+                                                                               status="completed",
+                                                                               order_id=user_order.id,
+                                                                               rule_id=rule_id)
+
         await self.__send_buy_notification(bundle_name=bundle.bundle_name, iccid=esim_hub_order.iccid,
                                            user_id=user_order.user_id)
         user = self.__user_repo.get_by_id(record_id=user_order.user_id)
-        asyncio.create_task(
-            self.__send_email(
-                user=user,
-                user_profile=user_profile,
-                bundle=bundle
-            )
-        )
+        thread = threading.Thread(target=self.__send_email, args=(user, user_profile, bundle, user_order))
+        thread.start()
 
         return ResponseHelper.success_response()
 
@@ -284,7 +301,8 @@ class BundleService:
                                              user_id=user_order.user_id)
         return ResponseHelper.success_response()
 
-    async def __send_email(self, user: UsersCopyModel, user_profile: UserProfileModel, bundle: BundleDTO):
+    def __send_email(self, user: UsersCopyModel, user_profile: UserProfileModel, bundle: BundleDTO,
+                     user_order: UserOrderModel):
         try:
             qr = generate_qr_code(f"LPA:1${user_profile.smdp_address}${user_profile.activation_code}")
             msisdn = os.getenv("WHATSAPP_NUMBER")
@@ -296,7 +314,7 @@ class BundleService:
             data = {
                 "bundle_name": bundle.bundle_name,
                 "gprs_limit_display": bundle.gprs_limit_display,
-                "price": bundle.price_display,
+                "price": f"{round(user_order.modified_amount / 100, 2)} {user_order.currency.upper()}",
                 "coverage": coverage,
                 "validity": bundle.validity_display,
                 "iccid": user_profile.iccid,
