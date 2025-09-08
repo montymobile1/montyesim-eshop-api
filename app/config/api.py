@@ -7,6 +7,7 @@ class EsimHubEndpoint(StrEnum):
     API_GET_BUNDLES_BY_CATEGORY = "/catalog/api/v1/Bundle/get-by-category-with-currency"
     API_GET_BUNDLES_BY_ZONE = "/catalog/api/v1/Bundle/get-by-zone-with-currency"
     API_GET_BUNDLE_BY_ID = "/catalog/api/v1/Bundle/get-by-id-with-currency"
+    API_GET_RESELLER_BUNDLE_BY_ID = "/catalog/api/reseller/v1/Bundle/get-all-basic/active"
     API_GET_BUNDLES_BY_COUNTRY = "/catalog/api/v1/BundleCountry/get-by-country-with-currency"
     API_SEARCH_BUNDLES_BY_COUNTRY = "/catalog/api/admin/v1/Bundle/search-by-countries"
     API_GET_TOPUP_RELATED_BUNDLES = "/core/api/v1/order/compatible-topup-with-currency"

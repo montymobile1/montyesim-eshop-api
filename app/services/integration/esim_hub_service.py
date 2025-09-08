@@ -230,7 +230,7 @@ class EsimHubService:
         return bundles
 
     async def get_topup_related_bundles(self, order_id: str, currency_code: str = os.getenv("DEFAULT_CURRENCY")) -> \
-    List[BundleDTO]:
+            List[BundleDTO]:
         params = {
             "orderId": order_id,
             "CurrencyCode": currency_code,
@@ -256,7 +256,8 @@ class EsimHubService:
             "RecordGuid": bundle_id,
             "CurrencyCode": currency_code
         }
-        response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_BUNDLE_BY_ID, params=params)
+        response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_RESELLER_BUNDLE_BY_ID,
+                                           params=params)
         if "success" not in response:
             raise EsimHubException(response)
         data = response["data"]["item"]
