@@ -42,7 +42,8 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
             logger.info(f"Automatic tax calculation enabled, calculating tax for amount {order_amount}")
             tax = calculate_tax(currency=user_bundle_order.currency, amount=order_amount,
                                 tax_code=get_config(ConfigKeysEnum.STRIPE_TAX_CODE, "txcd_10103101"),
-                                tax_behavior="inclusive", request_ip=ip_address,
+                                tax_behavior=get_config(ConfigKeysEnum.STRIPE_TAX_BEHAVIOR, "exclusive"),
+                                request_ip=ip_address,
                                 reference=f"bundle:{user_bundle_order.bundle_id}")
             if tax:
                 tax_excl = getattr(tax, "tax_amount_exclusive", 0)
