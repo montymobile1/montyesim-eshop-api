@@ -268,11 +268,13 @@ class AuthService:
             DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet), 0)
 
     def __upsert_device(self, user_id: str, device_id: str, is_logged_in: bool = False):
-        self.__device_repo.upsert({
+        data = {
             "is_logged_in": is_logged_in,
             "user_id": user_id,
             "device_id": device_id,
-            "timestamp_logout": datetime.now(timezone.utc).strftime(
-                '%Y-%m-%d %H:%M:%S.%f') if not is_logged_in else None,
-            "timestamp_login": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f') if is_logged_in else None,
-        }, "device_id,user_id")
+        }
+        if is_logged_in:
+            data["timestamp_login"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
+        else:
+            data["timestamp_logout"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
+        self.__device_repo.upsert(data=data, on_conflict="device_id,user_id")

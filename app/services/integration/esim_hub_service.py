@@ -253,7 +253,7 @@ class EsimHubService:
 
     async def get_bundle_by_id(self, bundle_id: str, currency_code: str = os.getenv("DEFAULT_CURRENCY")) -> BundleDTO:
         params = {
-            "bundleCode": bundle_id,
+            "RecordGuid": bundle_id,
             "CurrencyCode": currency_code
         }
         response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_RESELLER_BUNDLE_BY_ID,
