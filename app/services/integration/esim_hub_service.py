@@ -251,7 +251,7 @@ class EsimHubService:
             bundles.append(DtoMapper.to_bundle_dto(bundle=bundle, currency=currency_code))
         return bundles
 
-    async def get_bundle_by_id(self, bundle_id: str, currency_code: str = os.getenv("DEFAULT_CURRENCY")) -> BundleDTO:
+    async def get_bundle_by_id(self, bundle_id: str, currency_code: str = os.getenv("DEFAULT_CURRENCY")) -> BundleDTO | None:
         params = {
             "RecordGuid": bundle_id,
             "CurrencyCode": currency_code
@@ -260,6 +260,9 @@ class EsimHubService:
                                            params=params)
         if "success" not in response:
             raise EsimHubException(response)
+        items = response["data"].get("items", [])
+        if not items:
+            return None
         data = response["data"]["items"][0]
         return DtoMapper.to_bundle_dto(bundle=data, currency=currency_code)
 
