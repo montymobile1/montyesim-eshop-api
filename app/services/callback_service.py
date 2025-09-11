@@ -125,9 +125,23 @@ class CallbackService:
 
     async def handle_exchange_rate_update(self, request: Request):
         json_request = await request.json()
-        currency = json_request["currency"]
-        rate = json_request["rate"]
-        logger.info(f"updating exchange rate for currency: {currency} with rate: {rate}")
+        system_currency_code = json_request["systemCurrencyCode"]
+        currency_code = json_request["currencyCode"]
+        rate = json_request["newRate"]
+        logger.info(f"receiving exchange rate update request {json_request}")
+        if system_currency_code != "USD":
+            logger.info(f"ignoring exchange rate update request for {system_currency_code}")
+            return ResponseHelper.success_response()
+        from app.repo.currency_repo import CurrencyRepo
+        currency_repo = CurrencyRepo()
+        currency = currency_repo.get_first_by(where={"name": currency_code, "default_currency": "USD"})
+        if not currency:
+            logger.info(f"currency {currency_code} not found, creating new currency")
+            currency_repo.create({"name": currency_code, "default_currency": "USD", "rate": rate})
+            return ResponseHelper.success_response()
+        currency_repo.update_by(where={"name": currency_code, "default_currency": "USD"}, data={"rate": rate})
+        logger.info(f"updated exchange rate for {currency_code} to {rate}")
+        return ResponseHelper.success_response()
 
     async def handle_sync_one_bundle(self, request: Request):
         json_data = await request.json()

@@ -199,7 +199,8 @@ class AuthService:
             return ResponseHelper.success_response()
 
     def __handle_phone_login(self, login_request: LoginRequest) -> Response[None]:
-        user_email = f"{login_request.phone}_esim@gmail.com"
+        # user_email = f"{login_request.phone}_esim@gmail.com"
+        user_email = login_request.email if login_request.email else f"{login_request.phone}_user@esim.com"
         user_exists: UserModel = self.__user_repo.get_first_by(where={"email": user_email})
         otp = generate_otp()
         if user_exists:
@@ -207,6 +208,7 @@ class AuthService:
             supabase_client().auth.admin.update_user_by_id(uid=user_exists.id, attributes={
                 'user_metadata': {
                     "otp": otp,
+                    "msisdn": login_request.phone
                 }
             })
             self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone)
@@ -250,10 +252,11 @@ class AuthService:
     async def __handle_phone_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
         logger.info(f"verify_otp phone request received: {verify_otp_request}")
-        user_email = f"{verify_otp_request.phone}_esim@gmail.com"
-        user = self.__user_repo.get_first_by(where={"email": user_email})
+        user = self.__user_repo.get_first_by(filters={"metadata ->> msisdn ": verify_otp_request.phone}, where={})
         if not user:
-            raise BadRequestException(f"user {verify_otp_request.phone} not found")
+            raise CustomException(code=400, name=ErrorMessages.USER_NOT_FOUND,
+                                  details=f"User {verify_otp_request.phone} not found")
+        user_email = user.email
         otp = user.metadata.get("otp", None)
         if otp != verify_otp_request.verification_pin:
             raise BadRequestException(ErrorMessages.INVALID_OTP)
