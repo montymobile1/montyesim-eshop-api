@@ -47,5 +47,6 @@
   "CASHBACK_PERCENTAGE": "Cashback Percentage",
   "CASHBACK_AMOUNT": "Cashback Amount",
   "DISCOUNT_AMOUNT": "Discount Amount",
-  "DISCOUNT_PERCENTAGE": "Discount Percentage"
+  "DISCOUNT_PERCENTAGE": "Discount Percentage",
+  "USER_NOT_FOUND": "User not found."
 }

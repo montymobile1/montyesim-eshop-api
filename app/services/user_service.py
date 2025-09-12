@@ -47,14 +47,15 @@ class UserBundleService:
 
     async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
                      locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
-        bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_request.bundle_code,
-                                                                 currency_name=x_currency, locale=locale)
-        bundle = bundle_response.data
 
+        bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id=assign_request.bundle_code)
+        if not bundle or not bundle.is_active:
+            raise CustomException(code=400, name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
+                                  details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
         if not bundle.is_stockable:
             check_bundle_available = await self.__esim_hub_service.check_bundle_applicable(bundle.bundle_info_code)
             if not check_bundle_available:
-                raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
+                raise CustomException(code=400, name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
                                       details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         modified_amount = bundle.price
@@ -384,9 +385,9 @@ class UserBundleService:
         }
         if order.order_type == UserOrderType.BUNDLE_TOP_UP and iccid:
             metadata["iccid"] = iccid
-        payment_intent,tax = create_payment_intent(user_bundle_order=order, user_email=user.email,
-                                               metadata=metadata,
-                                               ip_address=request.client.host)
+        payment_intent, tax = create_payment_intent(user_bundle_order=order, user_email=user.email,
+                                                    metadata=metadata,
+                                                    ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id
         self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
         ephemeral = create_payment_ephemeral(payment_intent.customer)
@@ -401,7 +402,7 @@ class UserBundleService:
                                          order_id=order.id,
                                          subtotal_price_display=f"{minor_units / 100} {order.currency}",
                                          total_price_display=f"{payment_intent.amount / 100} {order.currency}",
-                                         tax_price_display=f"{round(tax.amount_total if tax else 0,2)} {order.currency}",
+                                         tax_price_display=f"{round(tax.amount_total if tax else 0, 2)} {order.currency}",
                                          has_tax=tax is not None and tax.amount_total > 0
                                          )
         return ResponseHelper.success_data_response(response, 0)
