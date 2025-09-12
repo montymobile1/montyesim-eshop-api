@@ -10,6 +10,7 @@ from app.repo.tag_repo import TagRepo, TagTranslationRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import CountryDTO, RegionDTO, BundleDTO
 
+
 class GroupingService:
     def __init__(self):
         self.__tag_repo = TagRepo()
@@ -18,7 +19,8 @@ class GroupingService:
         self.__tag_translation_repo = TagTranslationRepo()
 
     async def __get_all_tags_by_group_id(self, group_id) -> List[TagModel]:
-        tags = self.__tag_repo.list(where={"tag_group_id": group_id})
+        tags = self.__tag_repo.select_procedure(function_name="get_active_tag_names_and_data_by_group",
+                                                where={"_tag_group_id": group_id})
         return tags
 
     async def __get_all_tags_by_group_id_with_language(self, group_id: int, locale: str = 'en') -> List[TagModel]:
@@ -57,7 +59,7 @@ class GroupingService:
             )
 
             for bundle_tag in bundler_tags:
-                bundles_list = self.__bundle_repo.list(where={"id":bundle_tag.bundle_id,"is_active":True})
+                bundles_list = self.__bundle_repo.list(where={"id": bundle_tag.bundle_id, "is_active": True})
                 if len(bundles_list) == 0:
                     continue
                 bundle = bundles_list[0]
@@ -92,7 +94,7 @@ class GroupingService:
             )
 
             for bundle_tag in bundler_tags:
-                bundles_list = self.__bundle_repo.list(where={"id":bundle_tag.bundle_id,"is_active":True})
+                bundles_list = self.__bundle_repo.list(where={"id": bundle_tag.bundle_id, "is_active": True})
                 if len(bundles_list) == 0:
                     continue
                 bundle = bundles_list[0]

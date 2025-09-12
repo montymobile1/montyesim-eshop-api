@@ -1875,3 +1875,16 @@ grant execute on function export_referrals_data(uuid, text) to authenticated;
 
 grant execute on function export_referrals_data(uuid, text) to service_role;
 
+CREATE OR REPLACE FUNCTION get_active_tag_names_and_data_by_group(_tag_group_id integer)
+RETURNS TABLE(id uuid,tag_group_id int,name text,icon text, data jsonb)
+LANGUAGE sql
+AS $$
+    SELECT t.id,t.tag_group_id,t.name,t.icon,t.data
+    FROM tag t
+    INNER JOIN bundle_tag bt ON t.id = bt.tag_id
+    INNER JOIN bundle b ON bt.bundle_id = b.id
+    WHERE t.tag_group_id = _tag_group_id
+      AND b.is_active
+    GROUP BY t.id,t.tag_group_id,t.name,t.icon,t.data
+    ORDER BY t.name;
+$$;
