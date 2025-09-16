@@ -25,7 +25,8 @@ create table device
         unique (device_id, user_id)
 );
 
-comment on table device is 'List of user devices';
+comment
+on table device is 'List of user devices';
 
 alter table device
     owner to postgres;
@@ -36,11 +37,15 @@ grant select, update, usage on sequence device_id_seq to authenticated;
 
 grant select, update, usage on sequence device_id_seq to service_role;
 
-grant delete, insert, references, select, trigger, truncate, update on device to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on device to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on device to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on device to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on device to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on device to service_role;
 
 create table contact_us
 (
@@ -60,11 +65,15 @@ grant select, update, usage on sequence contact_us_id_seq to authenticated;
 
 grant select, update, usage on sequence contact_us_id_seq to service_role;
 
-grant delete, insert, references, select, trigger, truncate, update on contact_us to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on contact_us to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on contact_us to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on contact_us to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on contact_us to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on contact_us to service_role;
 
 create table notification
 (
@@ -90,11 +99,15 @@ grant select, update, usage on sequence notification_id_seq to authenticated;
 
 grant select, update, usage on sequence notification_id_seq to service_role;
 
-grant delete, insert, references, select, trigger, truncate, update on notification to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on notification to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on notification to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on notification to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on notification to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on notification to service_role;
 
 create table users_copy
 (
@@ -108,11 +121,15 @@ create table users_copy
 alter table users_copy
     owner to postgres;
 
-grant delete, insert, references, select, trigger, truncate, update on users_copy to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on users_copy to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on users_copy to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on users_copy to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on users_copy to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on users_copy to service_role;
 
 create table app_config
 (
@@ -133,11 +150,15 @@ grant select, update, usage on sequence app_config_id_seq to authenticated;
 
 grant select, update, usage on sequence app_config_id_seq to service_role;
 
-grant delete, insert, references, select, trigger, truncate, update on app_config to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on app_config to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on app_config to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on app_config to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on app_config to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on app_config to service_role;
 
 create table promotion_rule_action
 (
@@ -149,11 +170,15 @@ create table promotion_rule_action
 alter table promotion_rule_action
     owner to postgres;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion_rule_action to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on promotion_rule_action to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion_rule_action to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on promotion_rule_action to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion_rule_action to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on promotion_rule_action to service_role;
 
 create table promotion_rule_event
 (
@@ -165,11 +190,15 @@ create table promotion_rule_event
 alter table promotion_rule_event
     owner to postgres;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion_rule_event to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on promotion_rule_event to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion_rule_event to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on promotion_rule_event to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion_rule_event to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on promotion_rule_event to service_role;
 
 create table promotion_rule
 (
@@ -182,38 +211,45 @@ create table promotion_rule
     max_usage                integer   default 1                 not null,
     beneficiary              integer   default 0
         constraint promotion_rule_beneficiary_check
-            check (beneficiary = ANY (ARRAY [0, 1, 2])),
+            check (beneficiary = ANY (ARRAY[0, 1, 2])),
     created_at               timestamp default now(),
-    id_text                  text generated always as ((id)::text) stored,
+    id_text                  text generated always as ((id)::text
+) stored,
     name                     text      default ''::text
 );
 
-comment on column promotion_rule.name is 'rule name combination of :action,event,max usage';
+comment
+on column promotion_rule.name is 'rule name combination of :action,event,max usage';
 
 alter table promotion_rule
     owner to postgres;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion_rule to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on promotion_rule to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion_rule to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on promotion_rule to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion_rule to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on promotion_rule to service_role;
 
 create table promotion
 (
-    id               uuid         default gen_random_uuid() not null
+    id          uuid         default gen_random_uuid() not null
         primary key,
-    rule_id          uuid                                   not null
+    rule_id     uuid                                   not null
         references promotion_rule,
-    code             varchar(50)                            not null
+    code        varchar(50)                            not null
         unique
         constraint promotion_code_check
             check (length(TRIM(BOTH FROM (code)::text)) >= 2),
-    bundle_code      varchar(200) default NULL::character varying,
-    type             varchar(50),
-    amount           real         default 0
+    bundle_code varchar(200) default NULL::character varying,
+    type        varchar(50),
+    amount      real         default 0
         constraint promotion_amount_check
-            check (amount > (0)::double precision),
+            check (amount > (0):: double precision
+) ,
     callback_url     text,
     callback_headers text,
     valid_from       timestamp,
@@ -232,21 +268,21 @@ alter table promotion
 
 create table user_order
 (
-    id                  uuid        default gen_random_uuid()            not null
+    id                  uuid        default gen_random_uuid() not null
         constraint user_bundle_order_pkey
             primary key,
-    user_id             uuid        default auth.uid()                   not null
+    user_id             uuid        default auth.uid()        not null
         constraint user_bundle_order_user_id_fkey
             references ??? (),
     esim_order_id       varchar,
     bundle_id           varchar,
-    amount              integer                                          not null,
-    currency            varchar                                          not null,
+    amount              integer                               not null,
+    currency            varchar                               not null,
     order_type          varchar     default 'assign'::character varying  not null,
     payment_status      varchar     default 'pending'::character varying not null,
     order_status        varchar     default 'pending'::character varying not null,
     payment_time        timestamp,
-    created_at          timestamp   default now()                        not null,
+    created_at          timestamp   default now()             not null,
     callback_time       timestamp,
     bundle_data         text,
     searched_countries  varchar,
@@ -264,11 +300,15 @@ create table user_order
 alter table user_order
     owner to postgres;
 
-grant delete, insert, references, select, trigger, truncate, update on user_order to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on user_order to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on user_order to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on user_order to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on user_order to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on user_order to service_role;
 
 create table user_profile
 (
@@ -293,30 +333,34 @@ create table user_profile
 alter table user_profile
     owner to postgres;
 
-grant delete, insert, references, select, trigger, truncate, update on user_profile to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on user_profile to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on user_profile to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on user_profile to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on user_profile to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on user_profile to service_role;
 
 create table user_profile_bundle
 (
     id                bigint generated by default as identity
         constraint user_bundle_pkey
             primary key,
-    user_id           uuid         default auth.uid()                          not null
+    user_id           uuid         default auth.uid() not null
         constraint user_bundle_user_id_fkey
             references ??? (),
-    user_order_id     uuid                                                     not null
+    user_order_id     uuid                            not null
         constraint user_bundle_user_order_id_fkey
             references user_order,
-    plan_started      boolean      default false                               not null,
-    bundle_expired    boolean      default false                               not null,
-    created_at        timestamp    default now()                               not null,
+    plan_started      boolean      default false      not null,
+    bundle_expired    boolean      default false      not null,
+    created_at        timestamp    default now()      not null,
     bundle_type       varchar(100) default 'Primary Bundle'::character varying not null,
-    bundle_data       jsonb                                                    not null,
+    bundle_data       jsonb                           not null,
     iccid             varchar,
-    user_profile_id   uuid                                                     not null
+    user_profile_id   uuid                            not null
         references user_profile,
     esim_hub_order_id varchar
 );
@@ -330,29 +374,37 @@ grant select, update, usage on sequence user_profile_bundle_id_seq to authentica
 
 grant select, update, usage on sequence user_profile_bundle_id_seq to service_role;
 
-grant delete, insert, references, select, trigger, truncate, update on user_profile_bundle to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on user_profile_bundle to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on user_profile_bundle to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on user_profile_bundle to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on user_profile_bundle to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on user_profile_bundle to service_role;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion to anon;
+grant delete
+, insert, references, select, trigger, truncate, update on promotion to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on promotion to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on promotion to service_role;
 
 create table promotion_usage
 (
-    id             uuid        default gen_random_uuid()            not null
+    id             uuid default gen_random_uuid() not null
         primary key,
     user_id        uuid,
     promotion_code varchar
         references promotion (code),
     referral_code  varchar,
-    amount         real        default 0
+    amount         real default 0
         constraint promotion_usage_amount_check
-            check (amount >= (0)::double precision),
+            check (amount >= (0):: double precision
+) ,
     status         varchar(20) default 'pending'::character varying not null
         constraint promotion_usage_status_check
             check ((status)::text = ANY
@@ -367,22 +419,27 @@ create table promotion_usage
 alter table promotion_usage
     owner to postgres;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion_usage to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on promotion_usage to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion_usage to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on promotion_usage to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on promotion_usage to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on promotion_usage to service_role;
 
 create table user_wallet
 (
-    id         uuid      default gen_random_uuid() not null
+    id      uuid default gen_random_uuid() not null
         primary key,
-    user_id    uuid                                not null
+    user_id uuid                           not null
         references ??? ()
         on delete cascade,
-    amount     real      default 0
+    amount  real default 0
         constraint user_wallet_amount_check
-            check (amount >= (0)::double precision),
+            check (amount >= (0):: double precision
+) ,
     currency   varchar(10)                         not null,
     created_at timestamp default now(),
     updated_at timestamp default now()
@@ -391,24 +448,29 @@ create table user_wallet
 alter table user_wallet
     owner to postgres;
 
-grant delete, insert, references, select, trigger, truncate, update on user_wallet to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on user_wallet to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on user_wallet to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on user_wallet to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on user_wallet to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on user_wallet to service_role;
 
 create table user_wallet_transaction
 (
-    id         uuid      default gen_random_uuid() not null
+    id        uuid default gen_random_uuid() not null
         primary key,
-    wallet_id  uuid                                not null
+    wallet_id uuid                           not null
         references user_wallet
             on delete cascade,
-    amount     real                                not null,
-    status     varchar(10)                         not null
+    amount    real                           not null,
+    status    varchar(10)                    not null
         constraint user_wallet_transaction_status_check
             check ((status)::text = ANY
-                   ((ARRAY ['success'::character varying, 'failed'::character varying, 'pending'::character varying])::text[])),
+        ((ARRAY ['success':: character varying, 'failed':: character varying, 'pending':: character varying])::text[])
+) ,
     source     varchar(50)                         not null,
     created_at timestamp default now(),
     updated_at timestamp default now()
@@ -417,11 +479,15 @@ create table user_wallet_transaction
 alter table user_wallet_transaction
     owner to postgres;
 
-grant delete, insert, references, select, trigger, truncate, update on user_wallet_transaction to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on user_wallet_transaction to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on user_wallet_transaction to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on user_wallet_transaction to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on user_wallet_transaction to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on user_wallet_transaction to service_role;
 
 create table bundle
 (
@@ -438,16 +504,21 @@ create table bundle
         check (length('bundle_name'::text) <= 60)
 );
 
-comment on column bundle.bundle_name is 'this field will be used as display title in subscriber, without touching the data inside data json object as it is from sync';
+comment
+on column bundle.bundle_name is 'this field will be used as display title in subscriber, without touching the data inside data json object as it is from sync';
 
 alter table bundle
     owner to postgres;
 
-grant delete, insert, references, select, trigger, truncate, update on bundle to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on bundle to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on bundle to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on bundle to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on bundle to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on bundle to service_role;
 
 create table tag_group
 (
@@ -473,11 +544,15 @@ grant select, update, usage on sequence tag_group_id_seq to authenticated;
 
 grant select, update, usage on sequence tag_group_id_seq to service_role;
 
-grant delete, insert, references, select, trigger, truncate, update on tag_group to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on tag_group to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on tag_group to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on tag_group to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on tag_group to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on tag_group to service_role;
 
 create table tag
 (
@@ -498,11 +573,15 @@ create table tag
 alter table tag
     owner to postgres;
 
-grant delete, insert, references, select, trigger, truncate, update on tag to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on tag to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on tag to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on tag to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on tag to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on tag to service_role;
 
 create table bundle_tag
 (
@@ -528,11 +607,15 @@ grant select, update, usage on sequence bundle_tag_id_seq to authenticated;
 
 grant select, update, usage on sequence bundle_tag_id_seq to service_role;
 
-grant delete, insert, references, select, trigger, truncate, update on bundle_tag to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on bundle_tag to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on bundle_tag to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on bundle_tag to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on bundle_tag to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on bundle_tag to service_role;
 
 create table currency
 (
@@ -554,11 +637,15 @@ grant select, update, usage on sequence currency_id_seq to authenticated;
 
 grant select, update, usage on sequence currency_id_seq to service_role;
 
-grant delete, insert, references, select, trigger, truncate, update on currency to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on currency to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on currency to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on currency to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on currency to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on currency to service_role;
 
 create table voucher
 (
@@ -584,11 +671,15 @@ grant select, update, usage on sequence voucher_id_seq to authenticated;
 
 grant select, update, usage on sequence voucher_id_seq to service_role;
 
-grant delete, insert, references, select, trigger, truncate, update on voucher to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on voucher to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on voucher to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on voucher to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on voucher to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on voucher to service_role;
 
 create table tag_translation
 (
@@ -596,7 +687,7 @@ create table tag_translation
         primary key,
     tag_id     uuid,
     locale     varchar(30) default 'en'::character varying not null,
-    name       varchar(500)                                not null,
+    name       varchar(500) not null,
     data       jsonb,
     created_at timestamp   default now(),
     updated_at timestamp   default now()
@@ -611,11 +702,15 @@ grant select, update, usage on sequence tag_translation_id_seq to authenticated;
 
 grant select, update, usage on sequence tag_translation_id_seq to service_role;
 
-grant delete, insert, references, select, trigger, truncate, update on tag_translation to anon;
+grant
+delete
+, insert, references, select, trigger, truncate, update on tag_translation to anon;
 
-grant delete, insert, references, select, trigger, truncate, update on tag_translation to authenticated;
+grant delete
+, insert, references, select, trigger, truncate, update on tag_translation to authenticated;
 
-grant delete, insert, references, select, trigger, truncate, update on tag_translation to service_role;
+grant delete
+, insert, references, select, trigger, truncate, update on tag_translation to service_role;
 
 create table banner
 (
@@ -637,129 +732,157 @@ create function update_timestamp() returns trigger
 as
 $$
 BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
+    NEW.updated_at
+= NOW();
+RETURN NEW;
 END;
 $$;
 
 alter function update_timestamp() owner to postgres;
 
-grant execute on function update_timestamp() to anon;
+grant
+execute
+on
+function
+update_timestamp
+() to anon;
 
-grant execute on function update_timestamp() to authenticated;
+grant execute on function update_timestamp
+() to authenticated;
 
-grant execute on function update_timestamp() to service_role;
+grant execute on function update_timestamp
+() to service_role;
 
-create function sync_users_copy() returns trigger
-    security definer
+create function sync_users_copy() returns trigger security definer
     language plpgsql
 as
 $$
 BEGIN
     -- Handle INSERT
-    IF TG_OP = 'INSERT' THEN
+    IF
+TG_OP = 'INSERT' THEN
         INSERT INTO public.users_copy (id, email, metadata)
         VALUES (NEW.id, NEW.email, NEW.raw_user_meta_data)
         ON CONFLICT (id) DO NOTHING;
 
     -- Handle UPDATE
-    ELSIF TG_OP = 'UPDATE' THEN
-        UPDATE public.users_copy
-        SET email = NEW.email,
-            metadata = NEW.raw_user_meta_data
-        WHERE id = NEW.id;
+    ELSIF
+TG_OP = 'UPDATE' THEN
+UPDATE public.users_copy
+SET email    = NEW.email,
+    metadata = NEW.raw_user_meta_data
+WHERE id = NEW.id;
 
-    -- Handle DELETE
-    ELSIF TG_OP = 'DELETE' THEN
-        DELETE
-        FROM public.users_copy
-        WHERE id = OLD.id;
-    END IF;
+-- Handle DELETE
+ELSIF
+TG_OP = 'DELETE' THEN
+DELETE
+FROM public.users_copy
+WHERE id = OLD.id;
+END IF;
 
-    RETURN NEW;
+RETURN NEW;
 END;
 $$;
 
 alter function sync_users_copy() owner to postgres;
 
-grant execute on function sync_users_copy() to anon;
+grant
+execute
+on
+function
+sync_users_copy
+() to anon;
 
-grant execute on function sync_users_copy() to authenticated;
+grant execute on function sync_users_copy
+() to authenticated;
 
-grant execute on function sync_users_copy() to service_role;
+grant execute on function sync_users_copy
+() to service_role;
 
 create function insert_group_with_tags(_name text, _group_category text, _type integer, _tags jsonb) returns json
     language plpgsql
 as
 $$
 declare
-  inserted_group tag_group;
-  tag jsonb;
+inserted_group tag_group;
+  tag
+jsonb;
 begin
-  insert into tag_group (name, group_category, type)
-  values (_name, _group_category, _type)
-  returning * into inserted_group;
+insert into tag_group (name, group_category, type)
+values (_name, _group_category, _type) returning *
+into inserted_group;
 
-  -- Insert tags
-  for tag in select * from jsonb_array_elements(_tags)
-  loop
-    insert into tag (name, icon, tag_group_id)
-    values (
-      tag->>'name',
-      tag->>'icon',
-      inserted_group.id
+-- Insert tags
+for tag in
+select *
+from jsonb_array_elements(_tags) loop
+    insert
+into tag (name, icon, tag_group_id)
+values (
+    tag->>'name', tag->>'icon', inserted_group.id
     );
-  end loop;
+end loop;
 
-  return json_build_object('group', inserted_group);
+return json_build_object('group', inserted_group);
 
 exception
   when others then
     raise notice 'Rollback due to error: %', sqlerrm;
     -- No need for explicit ROLLBACK; PostgreSQL will auto-rollback the function on exception
-    return json_build_object('error', sqlerrm);
+return json_build_object('error', sqlerrm);
 end;
 $$;
 
 alter function insert_group_with_tags(text, text, integer, jsonb) owner to postgres;
 
-grant execute on function insert_group_with_tags(text, text, integer, jsonb) to anon;
+grant
+execute
+on
+function
+insert_group_with_tags
+(text, text, integer, jsonb) to anon;
 
-grant execute on function insert_group_with_tags(text, text, integer, jsonb) to authenticated;
+grant execute on function insert_group_with_tags
+(text, text, integer, jsonb) to authenticated;
 
-grant execute on function insert_group_with_tags(text, text, integer, jsonb) to service_role;
+grant execute on function insert_group_with_tags
+(text, text, integer, jsonb) to service_role;
 
 create function delete_group_if_no_bundles(_group_id uuid) returns json
     language plpgsql
 as
 $$
 declare
-  conflicting_bundles json;
+conflicting_bundles json;
 begin
   -- Get all bundles associated via bundle_tag → tag → group
-  select json_agg(json_build_object(
-    'bundle_id', b.id,
-    'bundle_name', b.name
-  ))
-  into conflicting_bundles
-  from bundle_tag bt
-  join tag t on t.id = bt.tag_id
-  join bundle b on b.id = bt.bundle_id
-  where t.tag_group_id = _group_id;
+select json_agg(json_build_object(
+        'bundle_id', b.id,
+        'bundle_name', b.name
+                ))
+into conflicting_bundles
+from bundle_tag bt
+         join tag t on t.id = bt.tag_id
+         join bundle b on b.id = bt.bundle_id
+where t.tag_group_id = _group_id;
 
-  -- If bundles are found, return error
-  if conflicting_bundles is not null then
+-- If bundles are found, return error
+if
+conflicting_bundles is not null then
     return json_build_object(
       'error', 'Cannot delete group: some tags are associated with bundles',
       'code', 500,
       'bundles', conflicting_bundles
     );
-  end if;
+end if;
 
   -- Safe to delete group
-  delete from tag_group where id = _group_id;
+delete
+from tag_group
+where id = _group_id;
 
-  return json_build_object('success', true);
+return json_build_object('success', true);
 exception
   when others then
     return json_build_object('error', sqlerrm, 'code', 500);
@@ -768,43 +891,53 @@ $$;
 
 alter function delete_group_if_no_bundles(uuid) owner to postgres;
 
-grant execute on function delete_group_if_no_bundles(uuid) to anon;
+grant
+execute
+on
+function
+delete_group_if_no_bundles
+(uuid) to anon;
 
-grant execute on function delete_group_if_no_bundles(uuid) to authenticated;
+grant execute on function delete_group_if_no_bundles
+(uuid) to authenticated;
 
-grant execute on function delete_group_if_no_bundles(uuid) to service_role;
+grant execute on function delete_group_if_no_bundles
+(uuid) to service_role;
 
 create function delete_group_if_no_bundles(_group_id integer) returns json
     language plpgsql
 as
 $$
 declare
-  conflicting_bundles json;
+conflicting_bundles json;
 begin
   -- Get all bundles associated via bundle_tag → tag → group
-  select json_agg(json_build_object(
-    'bundle_id', b.id,
-    'bundle_name', b.name
-  ))
-  into conflicting_bundles
-  from bundle_tag bt
-  join tag t on t.id = bt.tag_id
-  join bundle b on b.id = bt.bundle_id
-  where t.tag_group_id = _group_id;
+select json_agg(json_build_object(
+        'bundle_id', b.id,
+        'bundle_name', b.name
+                ))
+into conflicting_bundles
+from bundle_tag bt
+         join tag t on t.id = bt.tag_id
+         join bundle b on b.id = bt.bundle_id
+where t.tag_group_id = _group_id;
 
-  -- If bundles are found, return error
-  if conflicting_bundles is not null then
+-- If bundles are found, return error
+if
+conflicting_bundles is not null then
     return json_build_object(
       'error', 'Cannot delete group: some tags are associated with bundles',
       'code', 500,
       'bundles', conflicting_bundles
     );
-  end if;
+end if;
 
   -- Safe to delete group
-  delete from tag_group where id = _group_id;
+delete
+from tag_group
+where id = _group_id;
 
-  return json_build_object('success', true);
+return json_build_object('success', true);
 exception
   when others then
     return json_build_object('error', sqlerrm, 'code', 500);
@@ -813,39 +946,49 @@ $$;
 
 alter function delete_group_if_no_bundles(integer) owner to postgres;
 
-grant execute on function delete_group_if_no_bundles(integer) to anon;
+grant
+execute
+on
+function
+delete_group_if_no_bundles
+(integer) to anon;
 
-grant execute on function delete_group_if_no_bundles(integer) to authenticated;
+grant execute on function delete_group_if_no_bundles
+(integer) to authenticated;
 
-grant execute on function delete_group_if_no_bundles(integer) to service_role;
+grant execute on function delete_group_if_no_bundles
+(integer) to service_role;
 
 create function delete_group_if_no_bundle(_group_id integer) returns json
     language plpgsql
 as
 $$
 declare
-  bundle_count integer;
+bundle_count integer;
 begin
   -- Count bundles associated via bundle_tag → tag → group
-  select count(*)
-  into bundle_count
-  from bundle_tag bt
-  join tag t on t.id = bt.tag_id
-  where t.tag_group_id = _group_id;
+select count(*)
+into bundle_count
+from bundle_tag bt
+         join tag t on t.id = bt.tag_id
+where t.tag_group_id = _group_id;
 
-  -- If bundles are found, return error
-  if bundle_count > 0 then
+-- If bundles are found, return error
+if
+bundle_count > 0 then
     return json_build_object(
       'error', 'Cannot delete group: some tags are associated with bundles',
       'code', 'linked-bundles',
       'bundle_count', bundle_count
     );
-  end if;
+end if;
 
   -- Safe to delete group
-  delete from tag_group where id = _group_id;
+delete
+from tag_group
+where id = _group_id;
 
-  return json_build_object('success', true);
+return json_build_object('success', true);
 exception
   when others then
     return json_build_object('error', sqlerrm, 'code', 500);
@@ -854,155 +997,179 @@ $$;
 
 alter function delete_group_if_no_bundle(integer) owner to postgres;
 
-grant execute on function delete_group_if_no_bundle(integer) to anon;
+grant
+execute
+on
+function
+delete_group_if_no_bundle
+(integer) to anon;
 
-grant execute on function delete_group_if_no_bundle(integer) to authenticated;
+grant execute on function delete_group_if_no_bundle
+(integer) to authenticated;
 
-grant execute on function delete_group_if_no_bundle(integer) to service_role;
+grant execute on function delete_group_if_no_bundle
+(integer) to service_role;
 
-create function edit_tag_groups(p_id integer, p_name text, p_type text, p_group_category text, p_new_tags jsonb, p_updated_tags jsonb, p_deleted_tag_ids uuid[]) returns void
+create function edit_tag_groups(p_id integer, p_name text, p_type text, p_group_category text, p_new_tags jsonb,
+                                p_updated_tags jsonb, p_deleted_tag_ids uuid[]) returns void
     language plpgsql
 as
 $$
 begin
   -- Step 1: Update the tag group
-  update tag_group
-  set name = p_name,
-      type = p_type,
-      group_category = p_group_category
-  where id = p_id;
+update tag_group
+set name           = p_name,
+    type           = p_type,
+    group_category = p_group_category
+where id = p_id;
 
-  -- Step 2: Delete tags by IDs
-  if array_length(p_deleted_tag_ids, 1) is not null then
-    delete from tag
-    where id = any(p_deleted_tag_ids);
-  end if;
+-- Step 2: Delete tags by IDs
+if
+array_length(p_deleted_tag_ids, 1) is not null then
+delete
+from tag
+where id = any (p_deleted_tag_ids);
+end if;
 
   -- Step 3: Insert new tags
-  insert into tag (name, icon, tag_group_id)
-  select 
-    t->>'name',
-    t->>'icon',
-    p_id
-  from jsonb_array_elements(p_new_tags) as t;
+insert into tag (name, icon, tag_group_id)
+select t ->>'name', t->>'icon', p_id
+from jsonb_array_elements(p_new_tags) as t;
 
-  -- Step 4: Update existing tags
-  update tag
-  set
-    name = t.value->>'name',
-    icon = t.value->>'icon'
-  from jsonb_array_elements(p_updated_tags) with ordinality as t(value, idx)
-  where tag.id::text = t.value->>'id';
+-- Step 4: Update existing tags
+update tag
+set name = t.value ->>'name', icon = t.value->>'icon'
+from jsonb_array_elements(p_updated_tags)
+with ordinality as t(value, idx)
+where tag.id::text = t.value->>'id';
 
 end;
 $$;
 
 alter function edit_tag_groups(integer, text, text, text, jsonb, jsonb, uuid[]) owner to postgres;
 
-grant execute on function edit_tag_groups(integer, text, text, text, jsonb, jsonb, uuid[]) to anon;
+grant
+execute
+on
+function
+edit_tag_groups
+(integer, text, text, text, jsonb, jsonb, uuid[]) to anon;
 
-grant execute on function edit_tag_groups(integer, text, text, text, jsonb, jsonb, uuid[]) to authenticated;
+grant execute on function edit_tag_groups
+(integer, text, text, text, jsonb, jsonb, uuid[]) to authenticated;
 
-grant execute on function edit_tag_groups(integer, text, text, text, jsonb, jsonb, uuid[]) to service_role;
+grant execute on function edit_tag_groups
+(integer, text, text, text, jsonb, jsonb, uuid[]) to service_role;
 
-create function edit_tag_groups(p_id integer, p_name text, p_type integer, p_group_category text, p_new_tags jsonb, p_updated_tags jsonb, p_deleted_tag_ids uuid[]) returns void
+create function edit_tag_groups(p_id integer, p_name text, p_type integer, p_group_category text, p_new_tags jsonb,
+                                p_updated_tags jsonb, p_deleted_tag_ids uuid[]) returns void
     language plpgsql
 as
 $$
 begin
   -- Step 1: Update the tag group
-  update tag_group
-  set name = p_name,
-      type = p_type,
-      group_category = p_group_category
-  where id = p_id;
+update tag_group
+set name           = p_name,
+    type           = p_type,
+    group_category = p_group_category
+where id = p_id;
 
-  -- Step 2: Delete tags by IDs
-  if array_length(p_deleted_tag_ids, 1) is not null then
-    delete from tag
-    where id = any(p_deleted_tag_ids);
-  end if;
+-- Step 2: Delete tags by IDs
+if
+array_length(p_deleted_tag_ids, 1) is not null then
+delete
+from tag
+where id = any (p_deleted_tag_ids);
+end if;
 
   -- Step 3: Insert new tags
-  insert into tag (name, icon, tag_group_id)
-  select 
-    t->>'name',
-    t->>'icon',
-    p_id
-  from jsonb_array_elements(p_new_tags) as t;
+insert into tag (name, icon, tag_group_id)
+select t ->>'name', t->>'icon', p_id
+from jsonb_array_elements(p_new_tags) as t;
 
-  -- Step 4: Update existing tags
-  update tag
-  set
-    name = t.value->>'name',
-    icon = t.value->>'icon'
-  from jsonb_array_elements(p_updated_tags) with ordinality as t(value, idx)
-  where tag.id::text = t.value->>'id';
+-- Step 4: Update existing tags
+update tag
+set name = t.value ->>'name', icon = t.value->>'icon'
+from jsonb_array_elements(p_updated_tags)
+with ordinality as t(value, idx)
+where tag.id::text = t.value->>'id';
 
 end;
 $$;
 
 alter function edit_tag_groups(integer, text, integer, text, jsonb, jsonb, uuid[]) owner to postgres;
 
-grant execute on function edit_tag_groups(integer, text, integer, text, jsonb, jsonb, uuid[]) to anon;
+grant
+execute
+on
+function
+edit_tag_groups
+(integer, text, integer, text, jsonb, jsonb, uuid[]) to anon;
 
-grant execute on function edit_tag_groups(integer, text, integer, text, jsonb, jsonb, uuid[]) to authenticated;
+grant execute on function edit_tag_groups
+(integer, text, integer, text, jsonb, jsonb, uuid[]) to authenticated;
 
-grant execute on function edit_tag_groups(integer, text, integer, text, jsonb, jsonb, uuid[]) to service_role;
+grant execute on function edit_tag_groups
+(integer, text, integer, text, jsonb, jsonb, uuid[]) to service_role;
 
-create function edit_tag_group(p_id integer, p_name text, p_type integer, p_group_category text, p_new_tags jsonb, p_updated_tags jsonb, p_deleted_tag_ids uuid[]) returns void
+create function edit_tag_group(p_id integer, p_name text, p_type integer, p_group_category text, p_new_tags jsonb,
+                               p_updated_tags jsonb, p_deleted_tag_ids uuid[]) returns void
     language plpgsql
 as
 $$
 begin
   -- Step 1: Update the tag group
-  update tag_group
-  set name = p_name,
-      type = p_type,
-      group_category = p_group_category
-  where id = p_id;
+update tag_group
+set name           = p_name,
+    type           = p_type,
+    group_category = p_group_category
+where id = p_id;
 
-  -- Step 2: Delete tags by IDs
-  if array_length(p_deleted_tag_ids, 1) is not null then
-    delete from tag
-    where id = any(p_deleted_tag_ids);
-  end if;
+-- Step 2: Delete tags by IDs
+if
+array_length(p_deleted_tag_ids, 1) is not null then
+delete
+from tag
+where id = any (p_deleted_tag_ids);
+end if;
 
   -- Step 3: Insert new tags
-  insert into tag (name, icon, tag_group_id)
-  select 
-    t->>'name',
-    t->>'icon',
-    p_id
-  from jsonb_array_elements(p_new_tags) as t;
+insert into tag (name, icon, tag_group_id)
+select t ->>'name', t->>'icon', p_id
+from jsonb_array_elements(p_new_tags) as t;
 
-  -- Step 4: Update existing tags
-  update tag
-  set
-    name = t.value->>'name',
-    icon = t.value->>'icon'
-  from jsonb_array_elements(p_updated_tags) with ordinality as t(value, idx)
-  where tag.id::text = t.value->>'id';
+-- Step 4: Update existing tags
+update tag
+set name = t.value ->>'name', icon = t.value->>'icon'
+from jsonb_array_elements(p_updated_tags)
+with ordinality as t(value, idx)
+where tag.id::text = t.value->>'id';
 
 end;
 $$;
 
 alter function edit_tag_group(integer, text, integer, text, jsonb, jsonb, uuid[]) owner to postgres;
 
-grant execute on function edit_tag_group(integer, text, integer, text, jsonb, jsonb, uuid[]) to anon;
+grant
+execute
+on
+function
+edit_tag_group
+(integer, text, integer, text, jsonb, jsonb, uuid[]) to anon;
 
-grant execute on function edit_tag_group(integer, text, integer, text, jsonb, jsonb, uuid[]) to authenticated;
+grant execute on function edit_tag_group
+(integer, text, integer, text, jsonb, jsonb, uuid[]) to authenticated;
 
-grant execute on function edit_tag_group(integer, text, integer, text, jsonb, jsonb, uuid[]) to service_role;
+grant execute on function edit_tag_group
+(integer, text, integer, text, jsonb, jsonb, uuid[]) to service_role;
 
 create function search_bundles(search_term text) returns SETOF bundle
     language sql
 as
 $$
-  select *
-  from bundle
-  where
-    bundle_name ilike '%' || search_term || '%'
+select *
+from bundle
+where bundle_name ilike '%' || search_term || '%'
     or id::text ilike '%' || search_term || '%'
     or data->>'bundle_name' ilike '%' || search_term || '%'
     or data->>'bundle_info_code' ilike '%' || search_term || '%'
@@ -1010,20 +1177,33 @@ $$;
 
 alter function search_bundles(text) owner to postgres;
 
-grant execute on function search_bundles(text) to anon;
+grant
+execute
+on
+function
+search_bundles
+(text) to anon;
 
-grant execute on function search_bundles(text) to authenticated;
+grant execute on function search_bundles
+(text) to authenticated;
 
-grant execute on function search_bundles(text) to service_role;
+grant execute on function search_bundles
+(text) to service_role;
 
 create function search_bundles_with_pagination(search_term text, from_index integer, to_index integer)
-    returns TABLE(total_count integer, id uuid, bundle_name text, data json, created_at timestamp with time zone)
+    returns TABLE
+            (
+                total_count integer,
+                id          uuid,
+                bundle_name text,
+                data        json,
+                created_at  timestamp with time zone
+            )
     language plpgsql
 as
 $$
 begin
-  return query
-  with filtered as (
+return query with filtered as (
     select *
     from bundle
     where
@@ -1035,147 +1215,170 @@ begin
   counted as (
     select *, count(*) over() as total from filtered
   )
-  select
-    counted.total as total_count,      -- Rename counted.total to total_count
-    counted.id,                        -- Keep counted.id as is
-    counted.bundle_name,               -- Keep counted.bundle_name as is
-    counted.data,                      -- Keep counted.data as is
-    counted.created_at                 -- Keep counted.created_at as is
-  from counted
-  offset from_index limit (to_index - from_index + 1);
+select counted.total as total_count, -- Rename counted.total to total_count
+       counted.id,                   -- Keep counted.id as is
+       counted.bundle_name,          -- Keep counted.bundle_name as is
+       counted.data,                 -- Keep counted.data as is
+       counted.created_at            -- Keep counted.created_at as is
+from counted offset from_index limit (to_index - from_index + 1);
 end;
 $$;
 
 alter function search_bundles_with_pagination(text, integer, integer) owner to postgres;
 
-grant execute on function search_bundles_with_pagination(text, integer, integer) to anon;
+grant
+execute
+on
+function
+search_bundles_with_pagination
+(text, integer, integer) to anon;
 
-grant execute on function search_bundles_with_pagination(text, integer, integer) to authenticated;
+grant execute on function search_bundles_with_pagination
+(text, integer, integer) to authenticated;
 
-grant execute on function search_bundles_with_pagination(text, integer, integer) to service_role;
+grant execute on function search_bundles_with_pagination
+(text, integer, integer) to service_role;
 
-create function search_bundles(p_search_term text, p_page integer DEFAULT 0, p_page_size integer DEFAULT 10) returns json
-    security definer
+create function search_bundles(p_search_term text, p_page integer DEFAULT 0,
+                               p_page_size integer DEFAULT 10) returns json security definer
     language plpgsql
 as
 $$
 DECLARE
-  v_offset INTEGER := p_page * p_page_size;
-  v_items JSON;
-  v_total_count INTEGER;
+v_offset INTEGER := p_page * p_page_size;
+  v_items
+JSON;
+  v_total_count
+INTEGER;
 BEGIN
   -- Get the matching records with pagination
-  SELECT 
-    json_agg(t)
-  INTO 
+SELECT json_agg(t)
+INTO
     v_items
-  FROM (
-    SELECT * 
-    FROM bundle
-    WHERE 
-      -- Search in id (converted to text)
-      id::text ILIKE '%' || p_search_term || '%'
+FROM (SELECT *
+      FROM bundle
+      WHERE
+          -- Search in id (converted to text)
+          id::text ILIKE '%' || p_search_term || '%'
       -- Search in regular bundle_name column
       OR bundle_name ILIKE '%' || p_search_term || '%'
       -- Search in data->bundle_name
       OR data->>'bundle_name' ILIKE '%' || p_search_term || '%'
       -- Search in data->bundle_info_code
       OR data->>'bundle_info_code' ILIKE '%' || p_search_term || '%'
-    ORDER BY bundle_name
-    LIMIT p_page_size
-    OFFSET v_offset
-  ) t;
+      ORDER BY bundle_name
+          LIMIT p_page_size
+      OFFSET v_offset) t;
 
-  -- Get the total count of matching records
-  SELECT 
-    COUNT(*)
-  INTO 
+-- Get the total count of matching records
+SELECT COUNT(*)
+INTO
     v_total_count
-  FROM 
-    bundle
-  WHERE 
-    id::text ILIKE '%' || p_search_term || '%'
+FROM bundle
+WHERE id::text ILIKE '%' || p_search_term || '%'
     OR bundle_name ILIKE '%' || p_search_term || '%'
     OR data->>'bundle_name' ILIKE '%' || p_search_term || '%'
     OR data->>'bundle_info_code' ILIKE '%' || p_search_term || '%';
 
-  -- Handle case when no results found
-  IF v_items IS NULL THEN
+-- Handle case when no results found
+IF
+v_items IS NULL THEN
     v_items := '[]';
-  END IF;
+END IF;
 
   -- Return a JSON object with items and total count
-  RETURN json_build_object(
-    'items', v_items,
-    'total_count', v_total_count
-  );
+RETURN json_build_object(
+        'items', v_items,
+        'total_count', v_total_count
+       );
 END;
 $$;
 
 alter function search_bundles(text, integer, integer) owner to postgres;
 
-grant execute on function search_bundles(text, integer, integer) to anon;
+grant
+execute
+on
+function
+search_bundles
+(text, integer, integer) to anon;
 
-grant execute on function search_bundles(text, integer, integer) to authenticated;
+grant execute on function search_bundles
+(text, integer, integer) to authenticated;
 
-grant execute on function search_bundles(text, integer, integer) to service_role;
+grant execute on function search_bundles
+(text, integer, integer) to service_role;
 
 create function get_unique_tags()
-    returns TABLE(id uuid, title text)
-    language sql
-as
+    returns TABLE
+            (
+                id    uuid,
+                title text
+            )
+    language sql as
 $$
-  select distinct
-    t.id,
-    t.name || ' (' || tg.name || ')' as title
-  from tag t
-  join tag_group tg on tg.id = t.tag_group_id
-  join bundle_tag bt on bt.tag_id = t.id
-$$;
+select distinct t.id,
+                t.name || ' (' || tg.name || ')' as title
+from tag t
+         join tag_group tg on tg.id = t.tag_group_id
+         join bundle_tag bt on bt.tag_id = t.id
+    $$;
 
 alter function get_unique_tags() owner to postgres;
 
-grant execute on function get_unique_tags() to anon;
+grant
+execute
+on
+function
+get_unique_tags
+() to anon;
 
-grant execute on function get_unique_tags() to authenticated;
+grant execute on function get_unique_tags
+() to authenticated;
 
-grant execute on function get_unique_tags() to service_role;
+grant execute on function get_unique_tags
+() to service_role;
 
 create function get_tags_with_group(search text, page integer, page_size integer)
-    returns TABLE(id uuid, title text)
-    language sql
-as
+    returns TABLE
+            (
+                id    uuid,
+                title text
+            )
+    language sql as
 $$
-  select
-    t.id,
-    t.name || ' (' || tg.name || ')' as title
-  from tag t
-  join tag_group tg on tg.id = t.tag_group_id
-  where t.name ilike '%' || search || '%'
-  order by t.name
-  limit page_size
-  offset (page - 1) * page_size
-$$;
+select t.id,
+       t.name || ' (' || tg.name || ')' as title
+from tag t
+         join tag_group tg on tg.id = t.tag_group_id
+where t.name ilike '%' || search || '%'
+order by t.name
+    limit page_size
+offset (page - 1) * page_size $$;
 
 alter function get_tags_with_group(text, integer, integer) owner to postgres;
 
-grant execute on function get_tags_with_group(text, integer, integer) to anon;
+grant
+execute
+on
+function
+get_tags_with_group
+(text, integer, integer) to anon;
 
-grant execute on function get_tags_with_group(text, integer, integer) to authenticated;
+grant execute on function get_tags_with_group
+(text, integer, integer) to authenticated;
 
-grant execute on function get_tags_with_group(text, integer, integer) to service_role;
+grant execute on function get_tags_with_group
+(text, integer, integer) to service_role;
 
 create function get_tags_with_group_all(search text, page integer, page_size integer) returns json
-    language sql
-as
+    language sql as
 $$
-  select json_build_object(
-    'total', (
-      select count(*)
-      from tag t
-      join tag_group tg on tg.id = t.tag_group_id
-      where t.name ilike '%' || search || '%'
-    ),
+select json_build_object(
+               'total', (select count(*)
+                         from tag t
+                                  join tag_group tg on tg.id = t.tag_group_id
+                         where t.name ilike '%' || search || '%' ),
     'items', (
       select json_agg(item)
       from (
@@ -1195,249 +1398,273 @@ $$;
 
 alter function get_tags_with_group_all(text, integer, integer) owner to postgres;
 
-grant execute on function get_tags_with_group_all(text, integer, integer) to anon;
+grant
+execute
+on
+function
+get_tags_with_group_all
+(text, integer, integer) to anon;
 
-grant execute on function get_tags_with_group_all(text, integer, integer) to authenticated;
+grant execute on function get_tags_with_group_all
+(text, integer, integer) to authenticated;
 
-grant execute on function get_tags_with_group_all(text, integer, integer) to service_role;
+grant execute on function get_tags_with_group_all
+(text, integer, integer) to service_role;
 
-create function search_bundles(p_search_term text, p_page integer DEFAULT 0, p_page_size integer DEFAULT 10, p_tag_ids uuid[] DEFAULT NULL::uuid[]) returns json
-    security definer
+create function search_bundles(p_search_term text, p_page integer DEFAULT 0, p_page_size integer DEFAULT 10,
+                               p_tag_ids uuid[] DEFAULT NULL ::uuid[]) returns json security definer
     language plpgsql
 as
 $$
 DECLARE
-  v_offset INTEGER := p_page * p_page_size;
-  v_items JSON;
-  v_total_count INTEGER;
+v_offset INTEGER := p_page * p_page_size;
+  v_items
+JSON;
+  v_total_count
+INTEGER;
 BEGIN
   -- Get matching records with optional tag filtering
-  SELECT 
-    json_agg(t)
-  INTO 
+SELECT json_agg(t)
+INTO
     v_items
-  FROM (
-    SELECT DISTINCT b.*
-    FROM bundle b
-    LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
-    WHERE 
-      (
-        p_search_term IS NULL OR
-        b.id::text ILIKE '%' || p_search_term || '%' OR
+FROM (SELECT DISTINCT b.*
+      FROM bundle b
+               LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+      WHERE (
+          p_search_term IS NULL OR
+          b.id::text ILIKE '%' || p_search_term || '%' OR
         b.bundle_name ILIKE '%' || p_search_term || '%' OR
         b.data->>'bundle_name' ILIKE '%' || p_search_term || '%' OR
         b.data->>'bundle_info_code' ILIKE '%' || p_search_term || '%'
-      )
-      AND (
-        p_tag_ids IS NULL OR cardinality(p_tag_ids) = 0 OR bt.tag_id = ANY(p_tag_ids)
-      )
-    ORDER BY b.bundle_name
-    LIMIT p_page_size
-    OFFSET v_offset
-  ) t;
+          )
+        AND (
+          p_tag_ids IS NULL OR cardinality(p_tag_ids) = 0 OR bt.tag_id = ANY (p_tag_ids)
+          )
+      ORDER BY b.bundle_name LIMIT p_page_size
+      OFFSET v_offset) t;
 
-  -- Get total count with the same filtering
-  SELECT 
-    COUNT(DISTINCT b.id)
-  INTO 
+-- Get total count with the same filtering
+SELECT COUNT(DISTINCT b.id)
+INTO
     v_total_count
-  FROM bundle b
-  LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
-  WHERE 
-    (
-      p_search_term IS NULL OR
-      b.id::text ILIKE '%' || p_search_term || '%' OR
+FROM bundle b
+         LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+WHERE (
+    p_search_term IS NULL OR
+    b.id::text ILIKE '%' || p_search_term || '%' OR
       b.bundle_name ILIKE '%' || p_search_term || '%' OR
       b.data->>'bundle_name' ILIKE '%' || p_search_term || '%' OR
       b.data->>'bundle_info_code' ILIKE '%' || p_search_term || '%'
     )
-    AND (
-      p_tag_ids IS NULL OR cardinality(p_tag_ids) = 0 OR bt.tag_id = ANY(p_tag_ids)
+  AND (
+    p_tag_ids IS NULL OR cardinality(p_tag_ids) = 0 OR bt.tag_id = ANY (p_tag_ids)
     );
 
-  -- Handle no result case
-  IF v_items IS NULL THEN
+-- Handle no result case
+IF
+v_items IS NULL THEN
     v_items := '[]';
-  END IF;
+END IF;
 
   -- Return results
-  RETURN json_build_object(
-    'items', v_items,
-    'total_count', v_total_count
-  );
+RETURN json_build_object(
+        'items', v_items,
+        'total_count', v_total_count
+       );
 END;
 $$;
 
 alter function search_bundles(text, integer, integer, uuid[]) owner to postgres;
 
-grant execute on function search_bundles(text, integer, integer, uuid[]) to anon;
+grant
+execute
+on
+function
+search_bundles
+(text, integer, integer, uuid[]) to anon;
 
-grant execute on function search_bundles(text, integer, integer, uuid[]) to authenticated;
+grant execute on function search_bundles
+(text, integer, integer, uuid[]) to authenticated;
 
-grant execute on function search_bundles(text, integer, integer, uuid[]) to service_role;
+grant execute on function search_bundles
+(text, integer, integer, uuid[]) to service_role;
 
-create function search_bundle(p_search_term text, p_page integer DEFAULT 0, p_page_size integer DEFAULT 10) returns json
-    security definer
+create function search_bundle(p_search_term text, p_page integer DEFAULT 0, p_page_size integer DEFAULT 10) returns json security definer
     language plpgsql
 as
 $$
 DECLARE
-  v_offset INTEGER := p_page * p_page_size;
-  v_items JSON;
-  v_total_count INTEGER;
+v_offset INTEGER := p_page * p_page_size;
+  v_items
+JSON;
+  v_total_count
+INTEGER;
 BEGIN
   -- Get the matching records with pagination
-  SELECT 
-    json_agg(t)
-  INTO 
+SELECT json_agg(t)
+INTO
     v_items
-  FROM (
-    SELECT * 
-    FROM bundle
-    WHERE 
-      -- Search in id (converted to text)
-      id::text ILIKE '%' || p_search_term || '%'
+FROM (SELECT *
+      FROM bundle
+      WHERE
+          -- Search in id (converted to text)
+          id::text ILIKE '%' || p_search_term || '%'
       -- Search in regular bundle_name column
       OR bundle_name ILIKE '%' || p_search_term || '%'
       -- Search in data->bundle_name
       OR data->>'bundle_name' ILIKE '%' || p_search_term || '%'
       -- Search in data->bundle_info_code
       OR data->>'bundle_info_code' ILIKE '%' || p_search_term || '%'
-    ORDER BY bundle_name
-    LIMIT p_page_size
-    OFFSET v_offset
-  ) t;
+      ORDER BY bundle_name
+          LIMIT p_page_size
+      OFFSET v_offset) t;
 
-  -- Get the total count of matching records
-  SELECT 
-    COUNT(*)
-  INTO 
+-- Get the total count of matching records
+SELECT COUNT(*)
+INTO
     v_total_count
-  FROM 
-    bundle
-  WHERE 
-    id::text ILIKE '%' || p_search_term || '%'
+FROM bundle
+WHERE id::text ILIKE '%' || p_search_term || '%'
     OR bundle_name ILIKE '%' || p_search_term || '%'
     OR data->>'bundle_name' ILIKE '%' || p_search_term || '%'
     OR data->>'bundle_info_code' ILIKE '%' || p_search_term || '%';
 
-  -- Handle case when no results found
-  IF v_items IS NULL THEN
+-- Handle case when no results found
+IF
+v_items IS NULL THEN
     v_items := '[]';
-  END IF;
+END IF;
 
   -- Return a JSON object with items and total count
-  RETURN json_build_object(
-    'items', v_items,
-    'total_count', v_total_count
-  );
+RETURN json_build_object(
+        'items', v_items,
+        'total_count', v_total_count
+       );
 END;
 $$;
 
 alter function search_bundle(text, integer, integer) owner to postgres;
 
-grant execute on function search_bundle(text, integer, integer) to anon;
+grant
+execute
+on
+function
+search_bundle
+(text, integer, integer) to anon;
 
-grant execute on function search_bundle(text, integer, integer) to authenticated;
+grant execute on function search_bundle
+(text, integer, integer) to authenticated;
 
-grant execute on function search_bundle(text, integer, integer) to service_role;
+grant execute on function search_bundle
+(text, integer, integer) to service_role;
 
-create function search_bundle(p_search_term text, p_page integer DEFAULT 0, p_page_size integer DEFAULT 10, p_tag_ids uuid[] DEFAULT NULL::uuid[]) returns json
-    security definer
+create function search_bundle(p_search_term text, p_page integer DEFAULT 0, p_page_size integer DEFAULT 10,
+                              p_tag_ids uuid[] DEFAULT NULL ::uuid[]) returns json security definer
     language plpgsql
 as
 $$
 DECLARE
-  v_offset INTEGER := p_page * p_page_size;
-  v_items JSON;
-  v_total_count INTEGER;
+v_offset INTEGER := p_page * p_page_size;
+  v_items
+JSON;
+  v_total_count
+INTEGER;
 BEGIN
   -- Get matching records with optional tag filtering
-  SELECT 
-    json_agg(t)
-  INTO 
+SELECT json_agg(t)
+INTO
     v_items
-  FROM (
-    SELECT DISTINCT b.*
-    FROM bundle b
-    LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
-    WHERE 
-      (
-        p_search_term IS NULL OR
-        b.id::text ILIKE '%' || p_search_term || '%' OR
+FROM (SELECT DISTINCT b.*
+      FROM bundle b
+               LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+      WHERE (
+          p_search_term IS NULL OR
+          b.id::text ILIKE '%' || p_search_term || '%' OR
         b.bundle_name ILIKE '%' || p_search_term || '%' OR
         b.data->>'bundle_name' ILIKE '%' || p_search_term || '%' OR
         b.data->>'bundle_info_code' ILIKE '%' || p_search_term || '%'
-      )
-      AND (
-        p_tag_ids IS NULL OR bt.tag_id = ANY(p_tag_ids)
-      )
-    ORDER BY b.bundle_name
-    LIMIT p_page_size
-    OFFSET v_offset
-  ) t;
+          )
+        AND (
+          p_tag_ids IS NULL OR bt.tag_id = ANY (p_tag_ids)
+          )
+      ORDER BY b.bundle_name LIMIT p_page_size
+      OFFSET v_offset) t;
 
-  -- Get total count with the same filtering
-  SELECT 
-    COUNT(DISTINCT b.id)
-  INTO 
+-- Get total count with the same filtering
+SELECT COUNT(DISTINCT b.id)
+INTO
     v_total_count
-  FROM bundle b
-  LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
-  WHERE 
-    (
-      p_search_term IS NULL OR
-      b.id::text ILIKE '%' || p_search_term || '%' OR
+FROM bundle b
+         LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+WHERE (
+    p_search_term IS NULL OR
+    b.id::text ILIKE '%' || p_search_term || '%' OR
       b.bundle_name ILIKE '%' || p_search_term || '%' OR
       b.data->>'bundle_name' ILIKE '%' || p_search_term || '%' OR
       b.data->>'bundle_info_code' ILIKE '%' || p_search_term || '%'
     )
-    AND (
-      p_tag_ids IS NULL OR bt.tag_id = ANY(p_tag_ids)
+  AND (
+    p_tag_ids IS NULL OR bt.tag_id = ANY (p_tag_ids)
     );
 
-  -- Handle no result case
-  IF v_items IS NULL THEN
+-- Handle no result case
+IF
+v_items IS NULL THEN
     v_items := '[]';
-  END IF;
+END IF;
 
   -- Return results
-  RETURN json_build_object(
-    'items', v_items,
-    'total_count', v_total_count
-  );
+RETURN json_build_object(
+        'items', v_items,
+        'total_count', v_total_count
+       );
 END;
 $$;
 
 alter function search_bundle(text, integer, integer, uuid[]) owner to postgres;
 
-grant execute on function search_bundle(text, integer, integer, uuid[]) to anon;
+grant
+execute
+on
+function
+search_bundle
+(text, integer, integer, uuid[]) to anon;
 
-grant execute on function search_bundle(text, integer, integer, uuid[]) to authenticated;
+grant execute on function search_bundle
+(text, integer, integer, uuid[]) to authenticated;
 
-grant execute on function search_bundle(text, integer, integer, uuid[]) to service_role;
+grant execute on function search_bundle
+(text, integer, integer, uuid[]) to service_role;
 
 create function get_translated_tag_by_tag_id_list(locale_param text, tag_ids uuid[])
-    returns TABLE(id uuid, tag_group_id bigint, name character varying, icon character varying, data jsonb, created_at timestamp without time zone, updated_at timestamp without time zone)
+    returns TABLE
+            (
+                id           uuid,
+                tag_group_id bigint,
+                name         character varying,
+                icon         character varying,
+                data         jsonb,
+                created_at   timestamp without time zone,
+                updated_at   timestamp without time zone
+            )
     language plpgsql
 as
 $$
 BEGIN
-    RETURN QUERY
+RETURN QUERY
 
-SELECT
-        t.id,
-        t.tag_group_id,
-        COALESCE(tt.name, t.name) AS name,
-        t.icon,
-        COALESCE(tt.data, t.data) AS data,
-        t.created_at,
-        t.updated_at
-    FROM tag t
-    LEFT JOIN tag_translation tt
-        ON tt.tag_id = t.id
-       AND tt.locale = locale_param
-    WHERE t.id = ANY(tag_ids);
+SELECT t.id,
+       t.tag_group_id,
+       COALESCE(tt.name, t.name) AS name,
+       t.icon,
+       COALESCE(tt.data, t.data) AS data,
+       t.created_at,
+       t.updated_at
+FROM tag t
+         LEFT JOIN tag_translation tt
+                   ON tt.tag_id = t.id
+                       AND tt.locale = locale_param
+WHERE t.id = ANY (tag_ids);
 
 
 END;
@@ -1445,446 +1672,603 @@ $$;
 
 alter function get_translated_tag_by_tag_id_list(text, uuid[]) owner to postgres;
 
-grant execute on function get_translated_tag_by_tag_id_list(text, uuid[]) to anon;
+grant
+execute
+on
+function
+get_translated_tag_by_tag_id_list
+(text, uuid[]) to anon;
 
-grant execute on function get_translated_tag_by_tag_id_list(text, uuid[]) to authenticated;
+grant execute on function get_translated_tag_by_tag_id_list
+(text, uuid[]) to authenticated;
 
-grant execute on function get_translated_tag_by_tag_id_list(text, uuid[]) to service_role;
+grant execute on function get_translated_tag_by_tag_id_list
+(text, uuid[]) to service_role;
 
-create function get_translated_tag_by_tag_group_id(locale_param text, tag_group_id_param bigint)
-    returns TABLE(id uuid, tag_group_id bigint, name character varying, icon character varying, data jsonb, created_at timestamp without time zone, updated_at timestamp without time zone)
+create
+or replace function get_translated_tag_by_tag_group_id(locale_param text, tag_group_id_param bigint)
+    returns TABLE(id uuid, tag_group_id bigint, name character varying, icon character varying, data jsonb)
     language plpgsql
 as
 $$
 BEGIN
-    RETURN QUERY
-    SELECT
-        t.id,
-        t.tag_group_id,
-        COALESCE(tt.name, t.name) AS name,
-        t.icon,
-        COALESCE(tt.data, t.data) AS data,
-        t.created_at,
-        t.updated_at
-    FROM tag t
-    LEFT JOIN tag_translation tt
-        ON tt.tag_id = t.id
-       AND tt.locale = locale_param
-    WHERE t.tag_group_id = tag_group_id_param;
+RETURN QUERY
+SELECT t.id,
+       t.tag_group_id,
+       COALESCE(tt.name, t.name) AS name,
+       t.icon,
+       COALESCE(tt.data, t.data) AS data
+FROM tag t
+         INNER JOIN public.bundle_tag bt on t.id = bt.tag_id
+         INNER JOIN public.bundle b on b.id = bt.bundle_id
+         LEFT JOIN tag_translation tt
+                   ON tt.tag_id = t.id
+                       AND tt.locale = locale_param
+WHERE t.tag_group_id = tag_group_id_param
+  AND b.is_active
+GROUP BY 1, 2, 3, 4, 5;
 END;
 $$;
 
 alter function get_translated_tag_by_tag_group_id(text, bigint) owner to postgres;
 
-grant execute on function get_translated_tag_by_tag_group_id(text, bigint) to anon;
+grant
+execute
+on
+function
+get_translated_tag_by_tag_group_id
+(text, bigint) to anon;
 
-grant execute on function get_translated_tag_by_tag_group_id(text, bigint) to authenticated;
+grant execute on function get_translated_tag_by_tag_group_id
+(text, bigint) to authenticated;
 
-grant execute on function get_translated_tag_by_tag_group_id(text, bigint) to service_role;
+grant execute on function get_translated_tag_by_tag_group_id
+(text, bigint) to service_role;
 
 create function get_referral_transactions(p_user_id uuid)
-    returns TABLE(id uuid, created_at timestamp with time zone, user_id uuid, referral_code text, payment_time timestamp with time zone, currency text, from_user_email text, to_user_email text, amount numeric)
+    returns TABLE
+            (
+                id              uuid,
+                created_at      timestamp with time zone,
+                user_id         uuid,
+                referral_code   text,
+                payment_time    timestamp with time zone,
+                currency        text,
+                from_user_email text,
+                to_user_email   text,
+                amount          numeric
+            )
     language plpgsql
 as
 $$
 BEGIN
-  RETURN QUERY
-  SELECT
-    o.id,
-    o.created_at,
-    o.user_id,
-    o.referral_code,
-    o.payment_time,
-    o.currency,
-    u_from.email AS from_user_email,
-    u_to.email AS to_user_email,
-    pu.amount AS amount
-  FROM
-    user_order o
-    INNER JOIN users_copy u_from ON u_from.metadata ->> 'referral_code' = o.referral_code
-    INNER JOIN users_copy u_to ON u_to.id = o.user_id
+RETURN QUERY
+SELECT o.id,
+       o.created_at,
+       o.user_id,
+       o.referral_code,
+       o.payment_time,
+       o.currency,
+       u_from.email AS from_user_email,
+       u_to.email   AS to_user_email,
+       pu.amount    AS amount
+FROM user_order o
+         INNER JOIN users_copy u_from ON u_from.metadata ->> 'referral_code' = o.referral_code
+    INNER JOIN users_copy u_to
+ON u_to.id = o.user_id
     INNER JOIN promotion_usage pu ON o.referral_code = pu.referral_code
-  WHERE
-    o.user_id = p_user_id AND o.referral_code IS NOT NULL;
+WHERE
+    o.user_id = p_user_id
+  AND o.referral_code IS NOT NULL;
 END;
 $$;
 
 alter function get_referral_transactions(uuid) owner to postgres;
 
-grant execute on function get_referral_transactions(uuid) to anon;
+grant
+execute
+on
+function
+get_referral_transactions
+(uuid) to anon;
 
-grant execute on function get_referral_transactions(uuid) to authenticated;
+grant execute on function get_referral_transactions
+(uuid) to authenticated;
 
-grant execute on function get_referral_transactions(uuid) to service_role;
+grant execute on function get_referral_transactions
+(uuid) to service_role;
 
 create function get_referral_transactions(p_user_id uuid, p_limit integer, p_offset integer)
-    returns TABLE(id uuid, created_at timestamp with time zone, user_id uuid, referral_code text, payment_time timestamp with time zone, currency text, from_user_email text, to_user_email text, amount numeric)
+    returns TABLE
+            (
+                id              uuid,
+                created_at      timestamp with time zone,
+                user_id         uuid,
+                referral_code   text,
+                payment_time    timestamp with time zone,
+                currency        text,
+                from_user_email text,
+                to_user_email   text,
+                amount          numeric
+            )
     language plpgsql
 as
 $$
 BEGIN
-  RETURN QUERY
-  SELECT
-    o.id,
-    o.created_at,
-    o.user_id,
-    o.referral_code,
-    o.payment_time,
-    o.currency,
-    u_from.email AS from_user_email,
-    u_to.email AS to_user_email,
-    pu.amount AS amount
-  FROM
-    user_order o
-    INNER JOIN users_copy u_from ON u_from.metadata ->> 'referral_code' = o.referral_code
-    INNER JOIN users_copy u_to ON u_to.id = o.user_id
+RETURN QUERY
+SELECT o.id,
+       o.created_at,
+       o.user_id,
+       o.referral_code,
+       o.payment_time,
+       o.currency,
+       u_from.email AS from_user_email,
+       u_to.email   AS to_user_email,
+       pu.amount    AS amount
+FROM user_order o
+         INNER JOIN users_copy u_from ON u_from.metadata ->> 'referral_code' = o.referral_code
+    INNER JOIN users_copy u_to
+ON u_to.id = o.user_id
     INNER JOIN promotion_usage pu ON o.referral_code = pu.referral_code
-  WHERE
+WHERE
     o.user_id = p_user_id
-    AND o.referral_code IS NOT NULL
-  ORDER BY o.created_at DESC
-  LIMIT p_limit OFFSET p_offset;
+  AND o.referral_code IS NOT NULL
+ORDER BY o.created_at DESC
+    LIMIT p_limit
+OFFSET p_offset;
 END;
 $$;
 
 alter function get_referral_transactions(uuid, integer, integer) owner to postgres;
 
-grant execute on function get_referral_transactions(uuid, integer, integer) to anon;
+grant
+execute
+on
+function
+get_referral_transactions
+(uuid, integer, integer) to anon;
 
-grant execute on function get_referral_transactions(uuid, integer, integer) to authenticated;
+grant execute on function get_referral_transactions
+(uuid, integer, integer) to authenticated;
 
-grant execute on function get_referral_transactions(uuid, integer, integer) to service_role;
+grant execute on function get_referral_transactions
+(uuid, integer, integer) to service_role;
 
 create function get_referral_transactions_with_count(p_user_id uuid, p_limit integer, p_offset integer) returns json
     language plpgsql
 as
 $$
 DECLARE
-  v_total INT;
-  v_data JSON;
+v_total INT;
+  v_data
+JSON;
 BEGIN
   -- Count total records
-  SELECT COUNT(*) INTO v_total
-  FROM user_order
-  WHERE user_id = p_user_id AND referral_code IS NOT NULL;
+SELECT COUNT(*)
+INTO v_total
+FROM user_order
+WHERE user_id = p_user_id
+  AND referral_code IS NOT NULL;
 
-  -- Get paginated data
-  SELECT json_agg(t) INTO v_data
-  FROM (
-    SELECT
-      o.id,
-      o.created_at,
-      o.user_id,
-      o.referral_code,
-      o.payment_time,
-      o.currency,
-      u_from.email AS from_user_email,
-      u_to.email AS to_user_email,
-      pu.amount AS amount
-    FROM
-      user_order o
-      INNER JOIN users_copy u_from ON u_from.metadata ->> 'referral_code' = o.referral_code
-      INNER JOIN users_copy u_to ON u_to.id = o.user_id
-      INNER JOIN promotion_usage pu ON o.referral_code = pu.referral_code
-    WHERE
-      o.user_id = p_user_id AND o.referral_code IS NOT NULL
-    ORDER BY o.created_at DESC
-    LIMIT p_limit OFFSET p_offset
-  ) t;
+-- Get paginated data
+SELECT json_agg(t)
+INTO v_data
+FROM (SELECT o.id,
+             o.created_at,
+             o.user_id,
+             o.referral_code,
+             o.payment_time,
+             o.currency,
+             u_from.email AS from_user_email,
+             u_to.email   AS to_user_email,
+             pu.amount    AS amount
+      FROM user_order o
+               INNER JOIN users_copy u_from ON u_from.metadata ->> 'referral_code' = o.referral_code
+          INNER JOIN users_copy u_to
+      ON u_to.id = o.user_id
+          INNER JOIN promotion_usage pu ON o.referral_code = pu.referral_code
+      WHERE
+          o.user_id = p_user_id
+        AND o.referral_code IS NOT NULL
+      ORDER BY o.created_at DESC
+          LIMIT p_limit
+      OFFSET p_offset) t;
 
-  -- Return final JSON
-  RETURN json_build_object(
-    'total', v_total,
-    'count', COALESCE(json_array_length(v_data), 0),
-    'data', COALESCE(v_data, '[]'::json)
-  );
+-- Return final JSON
+RETURN json_build_object(
+        'total', v_total,
+        'count', COALESCE(json_array_length(v_data), 0),
+        'data', COALESCE(v_data, '[]'::json)
+       );
 END;
 $$;
 
 alter function get_referral_transactions_with_count(uuid, integer, integer) owner to postgres;
 
-grant execute on function get_referral_transactions_with_count(uuid, integer, integer) to anon;
+grant
+execute
+on
+function
+get_referral_transactions_with_count
+(uuid, integer, integer) to anon;
 
-grant execute on function get_referral_transactions_with_count(uuid, integer, integer) to authenticated;
+grant execute on function get_referral_transactions_with_count
+(uuid, integer, integer) to authenticated;
 
-grant execute on function get_referral_transactions_with_count(uuid, integer, integer) to service_role;
+grant execute on function get_referral_transactions_with_count
+(uuid, integer, integer) to service_role;
 
-create function get_wallet_transactions_with_count(p_user_id uuid DEFAULT NULL::uuid, p_limit integer DEFAULT 10, p_offset integer DEFAULT 0) returns json
+create function get_wallet_transactions_with_count(p_user_id uuid DEFAULT NULL::uuid, p_limit integer DEFAULT 10,
+                                                   p_offset integer DEFAULT 0) returns json
     language plpgsql
 as
 $$
 declare
-  v_total int;
-  v_data json;
+v_total int;
+  v_data
+json;
 begin
   -- Count total
-  select count(*) into v_total
-  from user_wallet_transaction as uwt
-  inner join user_wallet as uw on uw.id = uwt.wallet_id
-  where p_user_id is null or uw.user_id = p_user_id;
+select count(*)
+into v_total
+from user_wallet_transaction as uwt
+         inner join user_wallet as uw on uw.id = uwt.wallet_id
+where p_user_id is null
+   or uw.user_id = p_user_id;
 
-  -- Fetch paginated data
-  select json_agg(t) into v_data
-  from (
-    select 
-      uwt.id,
-      uwt.wallet_id,
-      uwt.amount,
-      uwt.status,
-      uwt.source,
-      uwt.created_at
-    from user_wallet_transaction as uwt
-    inner join user_wallet as uw on uw.id = uwt.wallet_id
-    where p_user_id is null or uw.user_id = p_user_id
-    order by uwt.created_at desc
-    limit p_limit offset p_offset
-  ) t;
+-- Fetch paginated data
+select json_agg(t)
+into v_data
+from (select uwt.id,
+             uwt.wallet_id,
+             uwt.amount,
+             uwt.status,
+             uwt.source,
+             uwt.created_at
+      from user_wallet_transaction as uwt
+               inner join user_wallet as uw on uw.id = uwt.wallet_id
+      where p_user_id is null
+         or uw.user_id = p_user_id
+      order by uwt.created_at desc limit p_limit
+      offset p_offset) t;
 
-  return json_build_object(
-    'total', v_total,
-    'count', coalesce(json_array_length(v_data), 0),
-    'data', coalesce(v_data, '[]'::json)
-  );
+return json_build_object(
+        'total', v_total,
+        'count', coalesce(json_array_length(v_data), 0),
+        'data', coalesce(v_data, '[]'::json)
+       );
 end;
 $$;
 
 alter function get_wallet_transactions_with_count(uuid, integer, integer) owner to postgres;
 
-grant execute on function get_wallet_transactions_with_count(uuid, integer, integer) to anon;
+grant
+execute
+on
+function
+get_wallet_transactions_with_count
+(uuid, integer, integer) to anon;
 
-grant execute on function get_wallet_transactions_with_count(uuid, integer, integer) to authenticated;
+grant execute on function get_wallet_transactions_with_count
+(uuid, integer, integer) to authenticated;
 
-grant execute on function get_wallet_transactions_with_count(uuid, integer, integer) to service_role;
+grant execute on function get_wallet_transactions_with_count
+(uuid, integer, integer) to service_role;
 
 create function export_user_data(p_user_id uuid) returns json
     language plpgsql
 as
 $$
 declare
-  v_devices json;
-  v_referrals json;
-  v_wallet json;
+v_devices json;
+  v_referrals
+json;
+  v_wallet
+json;
 begin
   -- Devices
-  select json_agg(d) into v_devices
-  from (
-    select * from device where user_id = p_user_id order by created_at desc
-  ) d;
+select json_agg(d)
+into v_devices
+from (select *
+      from device
+      where user_id = p_user_id
+      order by created_at desc) d;
 
-  -- Referrals
-  select get_referral_transactions_with_count(p_user_id, 1000000, 0)->'data'
-  into v_referrals;
+-- Referrals
+select get_referral_transactions_with_count(p_user_id, 1000000, 0) - > 'data'
+into v_referrals;
 
-  -- Wallet Transactions
-  select get_wallet_transactions_with_count(p_user_id, 1000000, 0)->'data'
-  into v_wallet;
+-- Wallet Transactions
+select get_wallet_transactions_with_count(p_user_id, 1000000, 0) - > 'data'
+into v_wallet;
 
-  -- Final JSON output
-  return json_build_object(
-    'devices', coalesce(v_devices, '[]'::json),
-    'referrals', coalesce(v_referrals, '[]'::json),
-    'wallet_transactions', coalesce(v_wallet, '[]'::json)
-  );
+-- Final JSON output
+return json_build_object(
+        'devices', coalesce(v_devices, '[]'::json),
+        'referrals', coalesce(v_referrals, '[]'::json),
+        'wallet_transactions', coalesce(v_wallet, '[]'::json)
+       );
 end;
 $$;
 
 alter function export_user_data(uuid) owner to postgres;
 
-grant execute on function export_user_data(uuid) to anon;
+grant
+execute
+on
+function
+export_user_data
+(uuid) to anon;
 
-grant execute on function export_user_data(uuid) to authenticated;
+grant execute on function export_user_data
+(uuid) to authenticated;
 
-grant execute on function export_user_data(uuid) to service_role;
+grant execute on function export_user_data
+(uuid) to service_role;
 
 create function update_promotion_rule_name() returns trigger
     language plpgsql
 as
 $$
 DECLARE
-  action_name TEXT;
-  event_name TEXT;
+action_name TEXT;
+  event_name
+TEXT;
 BEGIN
-  SELECT name INTO action_name FROM promotion_rule_action WHERE id = NEW.promotion_rule_action_id;
-  SELECT name INTO event_name FROM promotion_rule_event WHERE id = NEW.promotion_rule_event_id;
+SELECT name
+INTO action_name
+FROM promotion_rule_action
+WHERE id = NEW.promotion_rule_action_id;
+SELECT name
+INTO event_name
+FROM promotion_rule_event
+WHERE id = NEW.promotion_rule_event_id;
 
-  NEW.name := action_name || '-' || event_name || '-' || NEW.max_usage::text;
-  RETURN NEW;
+NEW
+.
+name
+:= action_name || '-' || event_name || '-' || NEW.max_usage::text;
+RETURN NEW;
 END;
 $$;
 
 alter function update_promotion_rule_name() owner to postgres;
 
-grant execute on function update_promotion_rule_name() to anon;
+grant
+execute
+on
+function
+update_promotion_rule_name
+() to anon;
 
-grant execute on function update_promotion_rule_name() to authenticated;
+grant execute on function update_promotion_rule_name
+() to authenticated;
 
-grant execute on function update_promotion_rule_name() to service_role;
+grant execute on function update_promotion_rule_name
+() to service_role;
 
 create function validate_bundle_codes() returns trigger
     language plpgsql
 as
 $$
 DECLARE
-    code TEXT;
-    exists_count INT;
+code TEXT;
+    exists_count
+INT;
 BEGIN
     -- Only validate if bundle_code is NOT NULL and NOT empty
-    IF NEW.bundle_code IS NULL OR trim(NEW.bundle_code) = '' THEN
+    IF
+NEW.bundle_code IS NULL OR trim(NEW.bundle_code) = '' THEN
         RETURN NEW;
-    END IF;
+END IF;
 
     -- Split bundle_code string into array
-    FOREACH code IN ARRAY string_to_array(NEW.bundle_code, ',')
+    FOREACH
+code IN ARRAY string_to_array(NEW.bundle_code, ',')
     LOOP
-        SELECT COUNT(*) INTO exists_count
-        FROM bundle
-        WHERE data->>'bundle_code' = trim(code);
+SELECT COUNT(*)
+INTO exists_count
+FROM bundle
+WHERE data ->>'bundle_code' = trim (code);
 
-        IF exists_count = 0 THEN
+IF
+exists_count = 0 THEN
             RAISE EXCEPTION 'Invalid bundle code: %', code;
-        END IF;
-    END LOOP;
+END IF;
+END LOOP;
 
-    RETURN NEW;
+RETURN NEW;
 END;
 $$;
 
 alter function validate_bundle_codes() owner to postgres;
 
-grant execute on function validate_bundle_codes() to anon;
+grant
+execute
+on
+function
+validate_bundle_codes
+() to anon;
 
-grant execute on function validate_bundle_codes() to authenticated;
+grant execute on function validate_bundle_codes
+() to authenticated;
 
-grant execute on function validate_bundle_codes() to service_role;
+grant execute on function validate_bundle_codes
+() to service_role;
 
-create function get_referral_transactions_with_count(p_user_id uuid DEFAULT NULL::uuid, p_limit integer DEFAULT 10, p_offset integer DEFAULT 0, p_search text DEFAULT NULL::text) returns json
+create function get_referral_transactions_with_count(p_user_id uuid DEFAULT NULL::uuid, p_limit integer DEFAULT 10,
+                                                     p_offset integer DEFAULT 0,
+                                                     p_search text DEFAULT NULL::text) returns json
     language plpgsql
 as
 $$
 DECLARE
-  v_total INT;
-  v_data JSON;
+v_total INT;
+  v_data
+JSON;
 BEGIN
   -- Count total records
-  SELECT COUNT(*) INTO v_total
-  FROM user_order o
-  WHERE (p_user_id IS NULL OR o.user_id = p_user_id)
-    AND o.referral_code IS NOT NULL
-    AND (p_search IS NULL OR o.referral_code ILIKE '%' || p_search || '%');
+SELECT COUNT(*)
+INTO v_total
+FROM user_order o
+WHERE (p_user_id IS NULL OR o.user_id = p_user_id)
+  AND o.referral_code IS NOT NULL
+  AND (p_search IS NULL OR o.referral_code ILIKE '%' || p_search || '%');
 
-  -- Get paginated data
-  SELECT json_agg(t) INTO v_data
-  FROM (
-    SELECT
-      o.id,
-      o.created_at,
-      o.user_id,
-      o.referral_code,
-      o.payment_time,
-      o.currency,
-      o.modified_amount,
-      o.order_status,
-      u_from.email AS from_user_email,
-      u_to.email AS to_user_email,
-      pu.status,
-      pu.amount AS amount
-    FROM
-      user_order o
-      INNER JOIN users_copy u_from ON u_from.metadata ->> 'referral_code' = o.referral_code
-      INNER JOIN users_copy u_to ON u_to.id = o.user_id
-      INNER JOIN promotion_usage pu ON o.referral_code = pu.referral_code
-    WHERE
-      (p_user_id IS NULL OR o.user_id = p_user_id)
-      AND o.referral_code IS NOT NULL
-      AND (p_search IS NULL OR o.referral_code ILIKE '%' || p_search || '%')
-    ORDER BY o.created_at DESC
-    LIMIT p_limit OFFSET p_offset
-  ) t;
+-- Get paginated data
+SELECT json_agg(t)
+INTO v_data
+FROM (SELECT o.id,
+             o.created_at,
+             o.user_id,
+             o.referral_code,
+             o.payment_time,
+             o.currency,
+             o.modified_amount,
+             o.order_status,
+             u_from.email AS from_user_email,
+             u_to.email   AS to_user_email,
+             pu.status,
+             pu.amount    AS amount
+      FROM user_order o
+               INNER JOIN users_copy u_from ON u_from.metadata ->> 'referral_code' = o.referral_code
+          INNER JOIN users_copy u_to
+      ON u_to.id = o.user_id
+          INNER JOIN promotion_usage pu ON o.referral_code = pu.referral_code
+      WHERE
+          (p_user_id IS NULL
+         OR o.user_id = p_user_id)
+        AND o.referral_code IS NOT NULL
+        AND (p_search IS NULL
+         OR o.referral_code ILIKE '%' || p_search || '%')
+      ORDER BY o.created_at DESC
+          LIMIT p_limit
+      OFFSET p_offset) t;
 
-  -- Return final JSON
-  RETURN json_build_object(
-    'total', v_total,
-    'count', COALESCE(json_array_length(v_data), 0),
-    'data', COALESCE(v_data, '[]'::json)
-  );
+-- Return final JSON
+RETURN json_build_object(
+        'total', v_total,
+        'count', COALESCE(json_array_length(v_data), 0),
+        'data', COALESCE(v_data, '[]'::json)
+       );
 END;
 $$;
 
 alter function get_referral_transactions_with_count(uuid, integer, integer, text) owner to postgres;
 
-grant execute on function get_referral_transactions_with_count(uuid, integer, integer, text) to anon;
+grant
+execute
+on
+function
+get_referral_transactions_with_count
+(uuid, integer, integer, text) to anon;
 
-grant execute on function get_referral_transactions_with_count(uuid, integer, integer, text) to authenticated;
+grant execute on function get_referral_transactions_with_count
+(uuid, integer, integer, text) to authenticated;
 
-grant execute on function get_referral_transactions_with_count(uuid, integer, integer, text) to service_role;
+grant execute on function get_referral_transactions_with_count
+(uuid, integer, integer, text) to service_role;
 
 create function export_referrals_data(p_user_id uuid DEFAULT NULL::uuid, p_search text DEFAULT NULL::text) returns json
     language plpgsql
 as
 $$
 DECLARE
-  v_user_id UUID := NULLIF(p_user_id::text, '')::uuid;
-  v_total INT;
-  v_data JSON;
+v_user_id UUID := NULLIF(p_user_id::text, '')::uuid;
+  v_total
+INT;
+  v_data
+JSON;
 BEGIN
   -- Count total records
-  SELECT COUNT(*) INTO v_total
-  FROM user_order o
-  WHERE (v_user_id IS NULL OR o.user_id = v_user_id)
-    AND o.referral_code IS NOT NULL
-    AND (p_search IS NULL OR o.referral_code ILIKE '%' || p_search || '%');
+SELECT COUNT(*)
+INTO v_total
+FROM user_order o
+WHERE (v_user_id IS NULL OR o.user_id = v_user_id)
+  AND o.referral_code IS NOT NULL
+  AND (p_search IS NULL OR o.referral_code ILIKE '%' || p_search || '%');
 
-  -- Get ALL data
-  SELECT json_agg(t) INTO v_data
-  FROM (
-    SELECT
-      o.id,
-      o.created_at,
-      o.user_id,
-      o.referral_code,
-      o.payment_time,
-      o.currency,
-      u_from.email AS from_user_email,
-      u_to.email AS to_user_email,
-      pu.amount AS amount
-    FROM
-      user_order o
-      INNER JOIN users_copy u_from ON u_from.metadata ->> 'referral_code' = o.referral_code
-      INNER JOIN users_copy u_to ON u_to.id = o.user_id
-      INNER JOIN promotion_usage pu ON o.referral_code = pu.referral_code
-    WHERE
-      (v_user_id IS NULL OR o.user_id = v_user_id)
-      AND o.referral_code IS NOT NULL
-      AND (p_search IS NULL OR o.referral_code ILIKE '%' || p_search || '%')
-    ORDER BY o.created_at DESC
-  ) t;
+-- Get ALL data
+SELECT json_agg(t)
+INTO v_data
+FROM (SELECT o.id,
+             o.created_at,
+             o.user_id,
+             o.referral_code,
+             o.payment_time,
+             o.currency,
+             u_from.email AS from_user_email,
+             u_to.email   AS to_user_email,
+             pu.amount    AS amount
+      FROM user_order o
+               INNER JOIN users_copy u_from ON u_from.metadata ->> 'referral_code' = o.referral_code
+          INNER JOIN users_copy u_to
+      ON u_to.id = o.user_id
+          INNER JOIN promotion_usage pu ON o.referral_code = pu.referral_code
+      WHERE
+          (v_user_id IS NULL
+         OR o.user_id = v_user_id)
+        AND o.referral_code IS NOT NULL
+        AND (p_search IS NULL
+         OR o.referral_code ILIKE '%' || p_search || '%')
+      ORDER BY o.created_at DESC) t;
 
-  RETURN json_build_object(
-    'total', v_total,
-    'count', COALESCE(json_array_length(v_data), 0),
-    'referrals', COALESCE(v_data, '[]'::json)
-  );
+RETURN json_build_object(
+        'total', v_total,
+        'count', COALESCE(json_array_length(v_data), 0),
+        'referrals', COALESCE(v_data, '[]'::json)
+       );
 END;
 $$;
 
 alter function export_referrals_data(uuid, text) owner to postgres;
 
-grant execute on function export_referrals_data(uuid, text) to anon;
+grant
+execute
+on
+function
+export_referrals_data
+(uuid, text) to anon;
 
-grant execute on function export_referrals_data(uuid, text) to authenticated;
+grant execute on function export_referrals_data
+(uuid, text) to authenticated;
 
-grant execute on function export_referrals_data(uuid, text) to service_role;
+grant execute on function export_referrals_data
+(uuid, text) to service_role;
 
-CREATE OR REPLACE FUNCTION get_active_tag_names_and_data_by_group(_tag_group_id integer)
+CREATE
+OR REPLACE FUNCTION get_active_tag_names_and_data_by_group(_tag_group_id integer)
 RETURNS TABLE(id uuid,tag_group_id int,name text,icon text, data jsonb)
 LANGUAGE sql
 AS $$
-    SELECT t.id,t.tag_group_id,t.name,t.icon,t.data
-    FROM tag t
-    INNER JOIN bundle_tag bt ON t.id = bt.tag_id
-    INNER JOIN bundle b ON bt.bundle_id = b.id
-    WHERE t.tag_group_id = _tag_group_id
-      AND b.is_active
-    GROUP BY t.id,t.tag_group_id,t.name,t.icon,t.data
-    ORDER BY t.name;
+SELECT t.id, t.tag_group_id, t.name, t.icon, t.data
+FROM tag t
+         INNER JOIN bundle_tag bt ON t.id = bt.tag_id
+         INNER JOIN bundle b ON bt.bundle_id = b.id
+WHERE t.tag_group_id = _tag_group_id
+  AND b.is_active
+GROUP BY t.id, t.tag_group_id, t.name, t.icon, t.data
+ORDER BY t.name;
 $$;
+
+
+create table user_otp
+(
+    id         serial
+        primary key,
+    email      varchar(100) default NULL::character varying,
+    mobile     varchar(100) default NULL::character varying,
+    otp        varchar(6) not null,
+    expire_at  timestamp,
+    is_used    boolean      default false,
+    created_at timestamp    default CURRENT_TIMESTAMP
+);
+
+alter table user_otp
+    owner to postgres;
+
+create index idx_user_otp_mobile
+    on user_otp (mobile);
+
+create index idx_user_otp_otp
+    on user_otp (otp);

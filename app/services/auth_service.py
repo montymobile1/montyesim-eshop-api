@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from fastapi import Request
 from loguru import logger
 
-from app.config.config import authenticate, supabase_client, generate_otp, dcb_service_instance
+from app.config.config import authenticate, supabase_client, dcb_service_instance
 from app.config.constants import ErrorMessages
 from app.exceptions import CustomException, BadRequestException
 from app.models.user import UserModel
@@ -16,6 +16,7 @@ from app.schemas.auth import LoginRequest, VerifyOtpRequest, UpdateUserInfoReque
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import ResponseHelper, Response
 from app.schemas.user_wallet import UserWalletRequestDto, UserWalletResponse
+from app.services.user_otp_service import UserOtpService
 from app.services.user_wallet_service import UserWalletService
 
 
@@ -26,13 +27,15 @@ class AuthService:
         self.__user_repo = UserRepo()
         self.__user_wallet_service = UserWalletService()
         self.__dcb_service = dcb_service_instance()
+        self.__user_otp_service = UserOtpService()
 
     async def login(self, login_request: LoginRequest) -> Response[None]:
         try:
-            if login_request.email:
-                return self.__handle_email_login(login_request=login_request)
-            elif login_request.phone:
+
+            if login_request.phone:
                 return self.__handle_phone_login(login_request=login_request)
+            elif login_request.email:
+                return self.__handle_email_login(login_request=login_request)
             else:
                 raise BadRequestException("Email or Phone are required.")
 
@@ -91,17 +94,12 @@ class AuthService:
 
     async def verify_otp(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
-        try:
-            if verify_otp_request.user_email:
-                return await self.__handle_email_otp_verify(verify_otp_request=verify_otp_request, device_id=device_id)
-            elif verify_otp_request.phone:
-                return await self.__handle_phone_otp_verify(verify_otp_request=verify_otp_request, device_id=device_id)
-            else:
-                raise BadRequestException("Phone or Email are required.")
-
-        except Exception as e:
-            logger.error(f"exception on verify otp: {e}")
-            raise CustomException(code=400, name=ErrorMessages.VERIFY_FAILED, details=str(e))
+        if verify_otp_request.phone:
+            return await self.__handle_phone_otp_verify(verify_otp_request=verify_otp_request, device_id=device_id)
+        elif verify_otp_request.user_email:
+            return await self.__handle_email_otp_verify(verify_otp_request=verify_otp_request, device_id=device_id)
+        else:
+            raise BadRequestException("Phone or Email are required.")
 
     def logout(self, user: UserModel, device_id: str) -> Response[None]:
         logger.info(f"logging out user {user} device {device_id}")
@@ -202,7 +200,7 @@ class AuthService:
         # user_email = f"{login_request.phone}_esim@gmail.com"
         user_email = login_request.email if login_request.email else f"{login_request.phone}_user@esim.com"
         user_exists: UserModel = self.__user_repo.get_first_by(where={"email": user_email})
-        otp = generate_otp()
+        otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=user_email)
         if user_exists:
             logger.info(f"generating new otp for user: {user_email}")
             supabase_client().auth.admin.update_user_by_id(uid=user_exists.id, attributes={
@@ -236,18 +234,22 @@ class AuthService:
                 "password": "esim_oss@2025"
             })
             return ResponseHelper.success_data_response(DtoMapper.to_auth_response(response), 0)
-        response = supabase_client().auth.verify_otp(
-            {
-                "email": verify_otp_request.user_email,
-                "token": str(verify_otp_request.verification_pin),
-                "type": "email"
-            }
-        )
-        self.__upsert_device(user_id=response.user.id, device_id=device_id, is_logged_in=True)
-        user_wallet = await self.create_wallet_if_not_exists(user_id=response.user.id,
-                                                             currency_code=os.getenv("DEFAULT_CURRENCY"))
-        return ResponseHelper.success_data_response(
-            DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet), 0)
+        try:
+            response = supabase_client().auth.verify_otp(
+                {
+                    "email": verify_otp_request.user_email,
+                    "token": str(verify_otp_request.verification_pin),
+                    "type": "email"
+                }
+            )
+            self.__upsert_device(user_id=response.user.id, device_id=device_id, is_logged_in=True)
+            user_wallet = await self.create_wallet_if_not_exists(user_id=response.user.id,
+                                                                 currency_code=os.getenv("DEFAULT_CURRENCY"))
+            return ResponseHelper.success_data_response(
+                DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet), 0)
+        except Exception as e:
+            logger.error(f"error while verifying email otp: {str(e)}")
+            raise CustomException(code=400, name=ErrorMessages.VERIFY_FAILED, details=str(e))
 
     async def __handle_phone_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
@@ -257,9 +259,9 @@ class AuthService:
             raise CustomException(code=400, name=ErrorMessages.USER_NOT_FOUND,
                                   details=f"User {verify_otp_request.phone} not found")
         user_email = user.email
-        otp = user.metadata.get("otp", None)
-        if otp != verify_otp_request.verification_pin:
-            raise BadRequestException(ErrorMessages.INVALID_OTP)
+        self.__user_otp_service.verify_otp(otp=verify_otp_request.verification_pin,
+                                                         mobile=verify_otp_request.phone, email=user_email)
+
         response = supabase_client().auth.sign_in_with_password({
             "email": user_email,
             "password": f"static_password_{verify_otp_request.phone}",

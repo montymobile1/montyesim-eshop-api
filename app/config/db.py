@@ -84,6 +84,7 @@ class DatabaseTables(StrEnum):
     TABLE_PROMOTION = "promotion"
     TABLE_PROMOTION_USAGE = "promotion_usage"
 
+    TABLE_USER_OTP = "user_otp"
     TABLE_USER_WALLET = "user_wallet"
     TABLE_USER_WALLET_TRANSACTION = "user_wallet_transaction"
     TABLE_USER_ORDER = "user_order"
