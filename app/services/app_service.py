@@ -150,9 +150,6 @@ class AppService:
         response.append(
             GlobalConfiguration(key="supabase_base_anon_key".upper(), value=os.getenv("SUPABASE_ANON_KEY", "")))
         response.append(GlobalConfiguration(key="default_currency", value=os.getenv("DEFAULT_CURRENCY", "EUR")))
-        response.append(GlobalConfiguration(key="allowed_payment_types", value=os.getenv("PAYMENT_METHODS",
-                                                                                         f"{PaymentTypeEnum.CARD.value},{PaymentTypeEnum.WALLET.value},{PaymentTypeEnum.DCB.value}")))
-        response.append(GlobalConfiguration(key="login_type", value=os.getenv("LOGIN_TYPE", "email")))
         return ResponseHelper.success_data_response(response, len(response))
 
     async def __get_location(self, ip: str):
