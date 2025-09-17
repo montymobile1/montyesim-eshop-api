@@ -73,6 +73,7 @@ class UserBundleService:
             "searched_countries": assign_request.related_search.model_dump_json(),
             "anonymous_user_id": user.anonymous_user_id,
             "promo_code": assign_request.promo_code or None,
+            "payment_type": assign_request.payment_type,
         }
         if assign_request.promo_code and self.__promotion_service.is_referral_code(assign_request.promo_code):
             data.setdefault("referral_code", assign_request.promo_code)
@@ -108,7 +109,7 @@ class UserBundleService:
 
         if modified_amount == 0:
             await self.__bundle_service.buy_bundle(user_order=order, bundle=bundle, user_id=user.id,
-                                                   payment_status=OrderStatusEnum.SUCCESS, user=user,
+                                                   payment_status=OrderStatusEnum.SUCCESS,
                                                    promo_code=assign_request.promo_code, rule_id=rule_id)
             response = PaymentIntentResponse(order_id=order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
@@ -327,7 +328,7 @@ class UserBundleService:
         response = self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=user_order.amount)
         payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
         return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                      payment_status=payment_status, user=user)
+                                                      payment_status=payment_status)
 
     async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,
                                       iccid: str = None) -> Response[
@@ -340,10 +341,11 @@ class UserBundleService:
                                                                     source=UserWalletTransactionSource.PURCHASE_BUNDLE)
             if user_order.order_type == UserOrderType.ASSIGN:
                 await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                       payment_status=OrderStatusEnum.SUCCESS, user=user)
+                                                       payment_status=OrderStatusEnum.SUCCESS,
+                                                       payment_type=PaymentTypeEnum.WALLET)
             elif user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
                 await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                          payment_status=OrderStatusEnum.SUCCESS, user=user,
+                                                          payment_status=OrderStatusEnum.SUCCESS,
                                                           iccid=iccid)
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)

@@ -8,12 +8,12 @@ from coverage.html import os
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance, send_email, generate_qr_code, get_email_template
-from app.config.db import UserBundleType, OrderStatusEnum
+from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
 from app.exceptions import BadRequestException
 from app.models.app import BundleModel
-from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel, UserModel
+from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel
 from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
 from app.repo.bundle_repo import BundleRepo
 from app.repo.bundle_tage_repo import BundleTagRepo
@@ -183,20 +183,15 @@ class BundleService:
         return ResponseHelper.success_data_response(countries, len(countries))
 
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
-                         payment_status: str, user: UserModel | UsersCopyModel = None, promo_code: str = None,
-                         rule_id: str = None):
-        if isinstance(user, UsersCopyModel):
-            msisdn = user.metadata.get("msisdn", "")
-            email = user.email
-        elif isinstance(user, UserModel):
-            msisdn = user.msisdn
-            email = user.email
-        else:
-            msisdn = ""
-            email = ""
+                         payment_status: str, promo_code: str = None,
+                         rule_id: str = None, payment_type: str = PaymentTypeEnum.CARD):
+        user = self.__user_repo.get_by_id(record_id=user_id)
+        msisdn = user.metadata.get("msisdn", "")
+        email = user.email
         order_id = f"{msisdn if msisdn else email}|{user_order.id}"
         esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
-                                                                             order_id=order_id)
+                                                                             order_id=order_id, user=user,
+                                                                             payment_type=payment_type)
         user_order.payment_status = payment_status
         user_order.payment_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         user_order.order_status = OrderStatusEnum.SUCCESS
@@ -251,16 +246,10 @@ class BundleService:
         return ResponseHelper.success_response()
 
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,
-                            payment_status: str, user: UserModel = None):
-        if isinstance(user, UsersCopyModel):
-            msisdn = user.metadata.get("msisdn", "")
-            email = user.email
-        elif isinstance(user, UserModel):
-            msisdn = user.msisdn
-            email = user.email
-        else:
-            msisdn = ""
-            email = ""
+                            payment_status: str):
+        user = self.__user_repo.get_by_id(record_id=user_id)
+        msisdn = user.metadata.get("msisdn", "")
+        email = user.email
         order_id = f"{msisdn if msisdn else email}|{user_order.id}"
         user_profile = self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
         try:

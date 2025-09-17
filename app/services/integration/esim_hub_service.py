@@ -6,6 +6,7 @@ from loguru import logger
 
 from app.config.api import EsimHubEndpoint
 from app.exceptions import EsimHubException
+from app.models.user import UsersCopyModel
 from app.schemas.app import ExchangeRate
 from app.schemas.bundle import ConsumptionResponse
 from app.schemas.dto_mapper import DtoMapper
@@ -162,12 +163,17 @@ class EsimHubService:
             logger.error(f"error while getting activation code : {str(e)}")
             return None
 
-    async def create_reseller_order(self, bundle_code: str, order_id: str) -> EsimHubOrderResponse | None:
+    async def create_reseller_order(self, bundle_code: str, order_id: str, user: UsersCopyModel,
+                                    payment_type: str = "") -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "Quantity": 1,
             "UniqueIdentifier": order_id,
-            "ServiceTag": "ESIM"
+            "ServiceTag": "ESIM",
+            "PhoneNumber": user.metadata.get("msisdn", ""),
+            "ClientName": user.metadata.get("first_name", "") + " " + user.metadata.get("last_name", ""),
+            "Email": user.metadata.get("display_email", ""),
+            "PaymentMethod": payment_type,
 
         }
         try:
@@ -251,7 +257,8 @@ class EsimHubService:
             bundles.append(DtoMapper.to_bundle_dto(bundle=bundle, currency=currency_code))
         return bundles
 
-    async def get_bundle_by_id(self, bundle_id: str, currency_code: str = os.getenv("DEFAULT_CURRENCY")) -> BundleDTO | None:
+    async def get_bundle_by_id(self, bundle_id: str,
+                               currency_code: str = os.getenv("DEFAULT_CURRENCY")) -> BundleDTO | None:
         params = {
             "RecordGuid": bundle_id,
             "CurrencyCode": currency_code
