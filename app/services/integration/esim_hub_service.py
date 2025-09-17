@@ -195,12 +195,17 @@ class EsimHubService:
             return None
 
     async def create_reseller_topup(self, bundle_code: str, esim_hub_order_id,
-                                    order_id: str) -> EsimHubOrderResponse | None:
+                                    order_id: str, user: UsersCopyModel,
+                                    payment_type: str = "") -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "OrderId": esim_hub_order_id,
             "UniqueIdentifier": order_id,
-            "ServiceTag": "ESIM"
+            "ServiceTag": "ESIM",
+            "PhoneNumber": user.metadata.get("msisdn", ""),
+            "ClientName": user.metadata.get("first_name", "") + " " + user.metadata.get("last_name", ""),
+            "Email": user.metadata.get("display_email", ""),
+            "PaymentMethod": payment_type,
 
         }
         response = await self.__do_request(method="POST", path=EsimHubEndpoint.API_CREATE_RESELLER_TOPUP,

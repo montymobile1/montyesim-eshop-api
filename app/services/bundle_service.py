@@ -256,7 +256,9 @@ class BundleService:
             esim_hub_topup = await self.__esim_hub_service.create_reseller_topup(
                 esim_hub_order_id=user_profile.esim_hub_order_id,
                 bundle_code=bundle.bundle_code,
-                order_id=order_id)
+                order_id=order_id,
+                user=user,
+                payment_type=PaymentTypeEnum.CARD)
         except Exception as e:
             esim_hub_topup = None
             logger.error(f"error while topping up bundle {str(e)}")
