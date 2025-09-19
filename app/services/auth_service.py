@@ -282,9 +282,10 @@ class AuthService:
     def __upsert_device(self, user_id: str, device_id: str, is_logged_in: bool = False):
         data = {
             "is_logged_in": is_logged_in,
-            "user_id": user_id,
             "device_id": device_id,
         }
+        if user_id:
+            data["user_id"] = user_id
         if is_logged_in:
             data["timestamp_login"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
         else:
