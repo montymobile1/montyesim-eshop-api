@@ -61,6 +61,7 @@ class PaymentIntentEvents(StrEnum):
 class PaymentStatusEnum(StrEnum):
     COMPLETED = "COMPLETED"
     PENDING = "PENDING"
+    PENDING_VERIFICATION = "PENDING_VERIFICATION"
 
 
 class UserWalletTransactionSource(StrEnum):
