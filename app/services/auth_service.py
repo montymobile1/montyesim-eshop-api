@@ -32,19 +32,13 @@ class AuthService:
         self.__user_otp_service = UserOtpService()
 
     async def login(self, login_request: LoginRequest) -> Response:
-        try:
-
-            if login_request.phone:
-                return self.__handle_phone_login(login_request=login_request)
-                return self.__handle_phone_login(login_request=login_request)
-            elif login_request.email:
-                return self.__handle_email_login(login_request=login_request)
-            else:
-                raise BadRequestException("Email or Phone are required.")
-
-        except Exception as e:
-            logger.error(f"exception on login: {e}")
-            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
+        if login_request.phone:
+            return self.__handle_phone_login(login_request=login_request)
+            return self.__handle_phone_login(login_request=login_request)
+        elif login_request.email:
+            return self.__handle_email_login(login_request=login_request)
+        else:
+            raise BadRequestException("Email or Phone are required.")
 
     async def temporary_login(self, login_request, x_device_id) -> Response[AuthResponseDTO]:
         try:
@@ -202,7 +196,8 @@ class AuthService:
     def __handle_phone_login(self, login_request: LoginRequest) -> Response:
         # user_email = f"{login_request.phone}_esim@gmail.com"
         old_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
-                                                                 filters={"metadata ->> 'msisdn' ": login_request.phone})
+                                                                 filters={
+                                                                     "metadata ->> 'msisdn' ": login_request.phone})
         if old_user:
             login_request.email = old_user.email
         otp_expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
