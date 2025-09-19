@@ -11,8 +11,8 @@ from loguru import logger
 
 from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance
 from app.config.constants import ErrorMessages, PaymentStatusEnum, UserWalletTransactionSource
-from app.config.db import DatabaseTables, PaymentTypeEnum
-from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details
+from app.config.db import DatabaseTables, PaymentTypeEnum, ConfigKeysEnum
+from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, get_config
 from app.exceptions import BadRequestException, CustomException
 from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel, UsersCopyModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
@@ -363,6 +363,7 @@ class UserBundleService:
             logger.info(f"requesting new otp for msisdn: {msisdn}")
             self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
+            response.otp_expiration = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
