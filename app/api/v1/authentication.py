@@ -15,7 +15,7 @@ service = AuthService()
 
 
 @router.post("/login", response_model=Response, dependencies=[Depends(device_token)])
-async def login(login_request: LoginRequest, x_device_id: str = Header(None)) -> Response[None]:
+async def login(login_request: LoginRequest, x_device_id: str = Header(None)) -> Response:
     return await service.login(login_request)
 
 

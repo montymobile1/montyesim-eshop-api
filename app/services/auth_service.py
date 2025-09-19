@@ -8,8 +8,10 @@ from loguru import logger
 
 from app.config.config import authenticate, supabase_client, dcb_service_instance
 from app.config.constants import ErrorMessages
+from app.config.db import ConfigKeysEnum
+from app.config.utils import get_config
 from app.exceptions import CustomException, BadRequestException
-from app.models.user import UserModel
+from app.models.user import UserModel, UsersCopyModel
 from app.repo.device_repo import DeviceRepo
 from app.repo.user_order_repo import UserRepo
 from app.schemas.auth import LoginRequest, VerifyOtpRequest, UpdateUserInfoRequest, AuthResponseDTO
@@ -29,10 +31,11 @@ class AuthService:
         self.__dcb_service = dcb_service_instance()
         self.__user_otp_service = UserOtpService()
 
-    async def login(self, login_request: LoginRequest) -> Response[None]:
+    async def login(self, login_request: LoginRequest) -> Response:
         try:
 
             if login_request.phone:
+                return self.__handle_phone_login(login_request=login_request)
                 return self.__handle_phone_login(login_request=login_request)
             elif login_request.email:
                 return self.__handle_email_login(login_request=login_request)
@@ -196,8 +199,13 @@ class AuthService:
             authenticate(email=str(login_request.email), referral_code=referral_code)
             return ResponseHelper.success_response()
 
-    def __handle_phone_login(self, login_request: LoginRequest) -> Response[None]:
+    def __handle_phone_login(self, login_request: LoginRequest) -> Response:
         # user_email = f"{login_request.phone}_esim@gmail.com"
+        old_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
+                                                                 filters={"metadata->>msisdn": login_request.phone})
+        if old_user:
+            login_request.email = old_user.email
+        otp_expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
         user_email = login_request.email if login_request.email else f"{login_request.phone}_user@esim.com"
         user_exists: UserModel = self.__user_repo.get_first_by(where={"email": user_email})
         otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=user_email)
@@ -209,21 +217,20 @@ class AuthService:
                     "msisdn": login_request.phone
                 }
             })
-            self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone)
-            return ResponseHelper.success_response()
-        user = supabase_client().auth.sign_up({
-            "email": user_email,
-            "password": f"static_password_{login_request.phone}",
-            "options": {
-                "data": {
-                    "otp": otp,
-                    "msisdn": login_request.phone
+        else:
+            user = supabase_client().auth.sign_up({
+                "email": user_email,
+                "password": f"static_password_{login_request.phone}",
+                "options": {
+                    "data": {
+                        "otp": otp,
+                        "msisdn": login_request.phone
+                    }
                 }
-            }
-        })
-        logging.info(f"created new user: {user}")
+            })
+            logging.info(f"created new user: {user}")
         self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone)
-        return ResponseHelper.success_response()
+        return ResponseHelper.success_data_response(data={"otp_expiration": otp_expiration_time}, total_count=0)
 
     async def __handle_email_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
@@ -260,7 +267,7 @@ class AuthService:
                                   details=f"User {verify_otp_request.phone} not found")
         user_email = user.email
         self.__user_otp_service.verify_otp(otp=verify_otp_request.verification_pin,
-                                                         mobile=verify_otp_request.phone, email=user_email)
+                                           mobile=verify_otp_request.phone, email=user_email)
 
         response = supabase_client().auth.sign_in_with_password({
             "email": user_email,
