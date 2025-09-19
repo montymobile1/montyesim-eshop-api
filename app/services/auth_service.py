@@ -202,7 +202,7 @@ class AuthService:
     def __handle_phone_login(self, login_request: LoginRequest) -> Response:
         # user_email = f"{login_request.phone}_esim@gmail.com"
         old_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
-                                                                 filters={"metadata->>msisdn": login_request.phone})
+                                                                 filters={"metadata ->> 'msisdn' ": login_request.phone})
         if old_user:
             login_request.email = old_user.email
         otp_expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60

@@ -9,7 +9,6 @@ from app.repo.user_otp_repo import UserOtpRepo
 class UserOtpService:
     def __init__(self):
         self.__user_otp_repo = UserOtpRepo()
-        self.__supabase_client = supabase_client()
 
     def generate_otp(self, mobile: str, email: str = None):
         """
@@ -63,7 +62,7 @@ class UserOtpService:
         """
         from datetime import datetime, timezone
         now = datetime.now(tz=timezone.utc).isoformat()
-        results = (self.__supabase_client.table(DatabaseTables.TABLE_USER_OTP)
+        results = (supabase_client().table(DatabaseTables.TABLE_USER_OTP)
                    .select("*")
                    .eq("mobile", mobile)
                    .eq("otp", otp)
@@ -78,7 +77,7 @@ class UserOtpService:
         """
         from datetime import datetime, timezone
         now = datetime.now(tz=timezone.utc).isoformat()
-        results = (self.__supabase_client.table(DatabaseTables.TABLE_USER_OTP)
+        results = (supabase_client().table(DatabaseTables.TABLE_USER_OTP)
                    .select("*")
                    .eq("mobile", mobile)
                    .eq("is_used", False)
@@ -94,7 +93,7 @@ class UserOtpService:
         from datetime import datetime, timezone, timedelta
         time_range = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
         max_allowed = 3
-        results = (self.__supabase_client.table(DatabaseTables.TABLE_USER_OTP)
+        results = (supabase_client().table(DatabaseTables.TABLE_USER_OTP)
                    .select("*")
                    .eq("mobile", mobile)
                    .gt("expire_at", time_range)
@@ -106,7 +105,7 @@ class UserOtpService:
         """
         Retrieve the OTP record for the given mobile number and OTP.
         """
-        results = (self.__supabase_client.table(DatabaseTables.TABLE_USER_OTP)
+        results = (supabase_client().table(DatabaseTables.TABLE_USER_OTP)
                    .select("*")
                    .eq("mobile", mobile)
                    .eq("email", email)
