@@ -362,7 +362,8 @@ class UserBundleService:
             msisdn = user.msisdn
             logger.info(f"requesting new otp for msisdn: {msisdn}")
             self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
-            response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.PENDING_VERIFICATION)
+            response = PaymentIntentResponse(order_id=user_order.id,
+                                             payment_status=PaymentStatusEnum.PENDING_VERIFICATION)
             response.otp_expiration = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
@@ -372,7 +373,8 @@ class UserBundleService:
     async def __handle_card_payment(self, user: UserModel, order: UserOrderModel, device_id: str,
                                     assign_request: AssignRequest | None, rule_id: str, modified_amount: float,
                                     request: Request, iccid: str = None) -> Response:
-        amount = Decimal(str(modified_amount))
+        rate = self.__currency_service.get_currency_rate("USD", to_currency=order.currency)
+        amount = Decimal(str(modified_amount * rate))
         minor_units = (amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
         minor_units = int(minor_units)
         metadata = {
