@@ -396,6 +396,7 @@ class UserBundleService:
                                                     ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id
         self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
+        tax_excl = round(float(getattr(tax, "tax_amount_exclusive", 0) / 100), 2)
         ephemeral = create_payment_ephemeral(payment_intent.customer)
         response = PaymentIntentResponse(publishable_key=os.getenv("STRIPE_PUBLIC_KEY"),
                                          merchant_identifier=os.getenv("MERCHANT_ID"),
@@ -408,8 +409,8 @@ class UserBundleService:
                                          order_id=order.id,
                                          subtotal_price_display=f"{minor_units / 100} {order.currency}",
                                          total_price_display=f"{payment_intent.amount / 100} {order.currency}",
-                                         tax_price_display=f"{round(tax.amount_total if tax else 0, 2)} {order.currency}",
-                                         has_tax=tax is not None and tax.amount_total > 0
+                                         tax_price_display=f"{tax_excl} {order.currency}",
+                                         has_tax=tax_excl > 0
                                          )
         return ResponseHelper.success_data_response(response, 0)
 
