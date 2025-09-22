@@ -34,7 +34,7 @@ logger.add("esim_opensource.log", rotation="10 MB", level="INFO", compression="z
 logger.info("Application started")
 
 
-def load_messages(lang):
+def load_messages(lang) -> dict:
     ROOT_PATH = os.path.abspath(os.curdir)
     path = f"{ROOT_PATH}/locales/{lang}.json"
     if not os.path.exists(path):
@@ -114,11 +114,16 @@ async def handle_validations(request: Request, exc):
     logger.error(f"RequestValidationError: {exc} {request.url.path}")
     errors = exc.errors()
     formatted_errors = []
+    title = ""
     for error in errors:
         field_location = " → ".join(map(str, error["loc"]))
         formatted_errors.append(f"{field_location}: {error['msg']}")
+        title = error["msg"].split(",")[1].strip() if len(error["msg"].split(",")) > 1 else error["msg"]
+    lang = request.headers.get('accept-language', 'en').split('-')[0].lower()
+    messages = load_messages(lang)
+    title = messages.get(title, title)
     error = f"Validation error: {', '.join(formatted_errors)}"
-    response_data = ResponseHelper.error_response(status_code=422, error=error, title="Validation Error",
+    response_data = ResponseHelper.error_response(status_code=422, error=error, title=title,
                                                   developer_message=error)
     return JSONResponse(
         status_code=400,

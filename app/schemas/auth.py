@@ -1,7 +1,9 @@
 import os
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, ConfigDict, field_validator, ValidationError
+from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
+
+from app.config.constants import ErrorMessages
 
 
 class LoginRequest(BaseModel):
@@ -15,6 +17,17 @@ class LoginRequest(BaseModel):
         local_part = value.split('@')[0]
         if "+" in local_part:
             raise ValueError(f"Invalid email: {value}")
+        return value
+
+    @field_validator("phone", mode="before")
+    def extract_phone(cls, value):
+        if value is None:
+            return value
+        import re
+        regex = os.getenv("PHONE_REGEX", "^\+\d{1,3}\d{4,14}(?:x.+)?$")
+        pattern = re.compile(regex)
+        if not pattern.match(value):
+            raise ValueError(ErrorMessages.INVALID_PHONE_NUMBER)
         return value
 
 
