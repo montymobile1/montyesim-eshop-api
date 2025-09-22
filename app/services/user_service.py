@@ -150,7 +150,7 @@ class UserBundleService:
             return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.CARD:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
-                                                    assign_request=None, rule_id="0",request=request,
+                                                    assign_request=None, rule_id="0", request=request,
                                                     iccid=assign_top_up_request.iccid)
         else:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
@@ -301,18 +301,19 @@ class UserBundleService:
         return ResponseHelper.success_data_response(user_order_history, 1)
 
     async def cancel_order(self, order_id: str, user: UserModel) -> Response[None]:
+
+        order: UserOrderModel = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
+        if not order:
+            raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND,
+                                  details=ErrorMessages.ORDER_NOT_FOUND)
         try:
-            order: UserOrderModel = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
-            if not order:
-                raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND,
-                                      details=ErrorMessages.ORDER_NOT_FOUND)
             self.__user_order_repo.update(order_id, {"order_status": OrderStatusEnum.CANCELED,
                                                      "payment_status": OrderStatusEnum.CANCELED})
             self.__promotion_service.cancel_promotion_usage(order_id=order_id)
             stripe.PaymentIntent.cancel(order.payment_intent_code)
-            return ResponseHelper.success_response()
         except Exception as e:
-            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
+            logger.error(f"Error while cancelling order {order_id}: {e}")
+        return ResponseHelper.success_response()
 
     async def verify_order_otp(self, user: UserModel, request: VerifyOtpRequestDto) -> Response[bool]:
         logger.info(f"receiving verification otp request {request}")

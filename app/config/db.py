@@ -70,6 +70,7 @@ class ConfigKeysEnum(StrEnum):
     STRIPE_TAX_CODE = "STRIPE_TAX_CODE"
     STRIPE_TAX_BEHAVIOR = "STRIPE_TAX_BEHAVIOR"
     OTP_EXPIRATION_TIME = "OTP_EXPIRATION_TIME"
+    LOGIN_TYPE = "login_type"
 
 
 class DatabaseTables(StrEnum):
