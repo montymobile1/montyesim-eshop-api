@@ -38,7 +38,7 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
         else:
             customer = customers.get("data")[0]
         order_amount = user_bundle_order.modified_amount if user_bundle_order.modified_amount else user_bundle_order.amount
-        order_amount = float(order_amount * rate)
+        order_amount = round(float(order_amount * rate), 2)
         if os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() in ("true", "1", "yes"):
             logger.info(f"Automatic tax calculation enabled, calculating tax for amount {order_amount}")
             tax = calculate_tax(currency=user_bundle_order.currency, amount=order_amount,
