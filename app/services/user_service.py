@@ -374,9 +374,8 @@ class UserBundleService:
                                     assign_request: AssignRequest | None, rule_id: str, modified_amount: float,
                                     request: Request, iccid: str = None) -> Response:
         rate = self.__currency_service.get_currency_rate("USD", to_currency=order.currency)
-        amount = Decimal(str(modified_amount * rate))
-        minor_units = (amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-        minor_units = int(minor_units)
+        original_amount = Decimal(str(modified_amount * rate))
+        stripe_amount = (original_amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
         metadata = {
             "order_id": order.id,
             "user_id": order.user_id,
@@ -386,7 +385,7 @@ class UserBundleService:
             "env": os.environ.get("ENVIRONMENT", "DEV"),
             "promo_code": assign_request.promo_code if assign_request else None,
             "rule_id": rule_id,
-            "amount": minor_units
+            "amount": stripe_amount
         }
         if order.order_type == UserOrderType.BUNDLE_TOP_UP and iccid:
             metadata["iccid"] = iccid
@@ -407,8 +406,8 @@ class UserBundleService:
                                          merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
                                          billing_country_code="GB",
                                          order_id=order.id,
-                                         subtotal_price_display=f"{minor_units / 100} {order.currency}",
-                                         total_price_display=f"{payment_intent.amount / 100} {order.currency}",
+                                         subtotal_price_display=f"{original_amount} {order.currency}",
+                                         total_price_display=f"{round(payment_intent.amount / 100, 2)} {order.currency}",
                                          tax_price_display=f"{tax_excl} {order.currency}",
                                          has_tax=tax_excl > 0
                                          )
