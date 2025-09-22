@@ -8,7 +8,7 @@ from coverage.html import os
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance, send_email, generate_qr_code, get_email_template
-from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum
+from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum, PromotionRuleAction
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
 from app.exceptions import BadRequestException
@@ -189,9 +189,16 @@ class BundleService:
         msisdn = user.metadata.get("msisdn", "")
         email = user.email
         order_id = f"{msisdn if msisdn else email}|{user_order.id}"
+        new_price = user_order.modified_amount if promo_code else 0
+        discount_amount = self.__get_discount_amount(promo_code) if promo_code else 0
+        discount_rate = self.__get_discount_rate(promo_code) if promo_code else 0
         esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
                                                                              order_id=order_id, user=user,
-                                                                             payment_type=payment_type)
+                                                                             payment_type=payment_type,
+                                                                             new_price=new_price,
+                                                                             discount_amount=discount_amount,
+                                                                             discount_rate=discount_rate)
+
         user_order.payment_status = payment_status
         user_order.payment_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         user_order.order_status = OrderStatusEnum.SUCCESS
@@ -364,3 +371,15 @@ class BundleService:
             if searched_countries.region:
                 coverage = searched_countries.region.region_name
         return coverage
+
+    def __get_discount_amount(self, promo_code: str):
+        promotion = self.__promotion_service.get_promotion_by_code(promo_code)
+        if promotion and promotion.promotion_rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT:
+            return promotion.amount
+        return 0
+
+    def __get_discount_rate(self, promo_code: str):
+        promotion = self.__promotion_service.get_promotion_by_code(promo_code)
+        if promotion and promotion.promotion_rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE:
+            return promotion.amount
+        return 0

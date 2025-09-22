@@ -34,7 +34,6 @@ class AuthService:
     async def login(self, login_request: LoginRequest) -> Response:
         if login_request.phone:
             return self.__handle_phone_login(login_request=login_request)
-            return self.__handle_phone_login(login_request=login_request)
         elif login_request.email:
             return self.__handle_email_login(login_request=login_request)
         else:
@@ -219,7 +218,8 @@ class AuthService:
                 "options": {
                     "data": {
                         "otp": otp,
-                        "msisdn": login_request.phone
+                        "msisdn": login_request.phone,
+                        "referral_code": self.__generate_referral_code(),
                     }
                 }
             })

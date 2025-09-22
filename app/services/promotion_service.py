@@ -514,3 +514,6 @@ class PromotionService:
         dto = ReferralInfoDto(amount=round(amount, 2), type=str(rule.promotion_rule_action_id), currency=x_currency,
                               message=message)
         return ResponseHelper.success_data_response(dto, 1)
+
+    def get_promotion_by_code(self, promo_code:str)->PromotionModel | None:
+        return self.__promotion_repo.get_first_by(where={"code": promo_code})

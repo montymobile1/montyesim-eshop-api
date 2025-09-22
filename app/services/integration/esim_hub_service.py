@@ -164,7 +164,8 @@ class EsimHubService:
             return None
 
     async def create_reseller_order(self, bundle_code: str, order_id: str, user: UsersCopyModel,
-                                    payment_type: str = "") -> EsimHubOrderResponse | None:
+                                    payment_type: str = "", discount_amount: float = 0, discount_rate: float = 0,
+                                    new_price: float = 0) -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "Quantity": 1,
@@ -174,6 +175,9 @@ class EsimHubService:
             "ClientName": user.metadata.get("first_name", "") + " " + user.metadata.get("last_name", ""),
             "Email": user.metadata.get("display_email", ""),
             "PaymentMethod": payment_type,
+            "DiscountAmount": discount_amount,
+            "DiscountRate": discount_rate,
+            "NewPrice": new_price,
 
         }
         try:
@@ -206,6 +210,9 @@ class EsimHubService:
             "ClientName": user.metadata.get("first_name", "") + " " + user.metadata.get("last_name", ""),
             "Email": user.metadata.get("display_email", ""),
             "PaymentMethod": payment_type,
+            "DiscountAmount": 0,
+            "DiscountRate": 0,
+            "NewPrice": 0,
 
         }
         response = await self.__do_request(method="POST", path=EsimHubEndpoint.API_CREATE_RESELLER_TOPUP,
