@@ -392,6 +392,7 @@ class UserBundleService:
             metadata["iccid"] = iccid
         payment_intent, tax = create_payment_intent(user_bundle_order=order, user_email=user.email,
                                                     metadata=metadata,
+                                                    rate=rate,
                                                     ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id
         self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
