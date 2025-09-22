@@ -406,7 +406,7 @@ class UserBundleService:
                                          merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
                                          billing_country_code="GB",
                                          order_id=order.id,
-                                         subtotal_price_display=f"{original_amount} {order.currency}",
+                                         subtotal_price_display=f"{round(original_amount, 2)} {order.currency}",
                                          total_price_display=f"{round(payment_intent.amount / 100, 2)} {order.currency}",
                                          tax_price_display=f"{tax_excl} {order.currency}",
                                          has_tax=tax_excl > 0
