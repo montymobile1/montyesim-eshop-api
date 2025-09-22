@@ -120,8 +120,7 @@ class UserBundleService:
             return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.CARD:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
-                                                    assign_request=assign_request, rule_id=rule_id,
-                                                    modified_amount=modified_amount, request=request)
+                                                    assign_request=assign_request, rule_id=rule_id, request=request)
         else:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
@@ -151,8 +150,7 @@ class UserBundleService:
             return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.CARD:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
-                                                    assign_request=None, rule_id="0",
-                                                    modified_amount=bundle.price, request=request,
+                                                    assign_request=None, rule_id="0",request=request,
                                                     iccid=assign_top_up_request.iccid)
         else:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
@@ -371,11 +369,12 @@ class UserBundleService:
                                   details=f"Error while creating order: {e}")
 
     async def __handle_card_payment(self, user: UserModel, order: UserOrderModel, device_id: str,
-                                    assign_request: AssignRequest | None, rule_id: str, modified_amount: float,
+                                    assign_request: AssignRequest | None, rule_id: str,
                                     request: Request, iccid: str = None) -> Response:
         rate = self.__currency_service.get_currency_rate("USD", to_currency=order.currency)
-        original_amount = Decimal(str(modified_amount * rate))
-        stripe_amount = (original_amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        order_amount = order.modified_amount if order.modified_amount else order.amount
+        original_amount = (order_amount / 100) * rate
+        stripe_amount = int(Decimal(order_amount * rate).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
         metadata = {
             "order_id": order.id,
             "user_id": order.user_id,
