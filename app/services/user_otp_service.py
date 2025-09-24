@@ -20,7 +20,7 @@ class UserOtpService:
 
         # Limit: max 3 OTPs/hour per mobile
         if self.__recent_otp_limit(mobile=mobile):
-            raise CustomException(code=429, name=ErrorMessages.OTP_LIMIT_REACHED,
+            raise CustomException(code=400, name=ErrorMessages.OTP_LIMIT_REACHED,
                                   details="Maximum OTP requests per hour reached. Please try again later.")
         if self.__has_active_otp(mobile=mobile):
             raise CustomException(code=400, name=ErrorMessages.OTP_STILL_ACTIVE,
