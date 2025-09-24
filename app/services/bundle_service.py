@@ -262,13 +262,15 @@ class BundleService:
         email = user.email
         order_id = f"{msisdn if msisdn else email}|{user_order.id}"
         user_profile = self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
+        bundle_type = self.__bundle_type(code=bundle.bundle_code)
         try:
             esim_hub_topup = await self.__esim_hub_service.create_reseller_topup(
                 esim_hub_order_id=user_profile.esim_hub_order_id,
                 bundle_code=bundle.bundle_code,
                 order_id=order_id,
                 user=user,
-                payment_type=PaymentTypeEnum.CARD)
+                payment_type=PaymentTypeEnum.CARD,
+                bundle_type=bundle_type)
         except Exception as e:
             esim_hub_topup = None
             logger.error(f"error while topping up bundle {str(e)}")

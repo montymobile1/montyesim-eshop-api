@@ -166,7 +166,7 @@ class EsimHubService:
     async def create_reseller_order(self, bundle_code: str, order_id: str, user: UsersCopyModel,
                                     payment_type: str = "", discount_amount: float = 0, discount_rate: float = 0,
                                     new_price: float = 0,
-                                    bundle_type: Literal["LAND","CRUISE"]="LAND") -> EsimHubOrderResponse | None:
+                                    bundle_type: Literal["LAND", "CRUISE"] = "LAND") -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "Quantity": 1,
@@ -202,7 +202,8 @@ class EsimHubService:
 
     async def create_reseller_topup(self, bundle_code: str, esim_hub_order_id,
                                     order_id: str, user: UsersCopyModel,
-                                    payment_type: str = "") -> EsimHubOrderResponse | None:
+                                    payment_type: str = "",
+                                    bundle_type: Literal["LAND", "CRUISE"] = "LAND") -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "OrderId": esim_hub_order_id,
@@ -215,6 +216,7 @@ class EsimHubService:
             "DiscountAmount": 0,
             "DiscountRate": 0,
             "NewPrice": 0,
+            "BundleType": bundle_type
 
         }
         response = await self.__do_request(method="POST", path=EsimHubEndpoint.API_CREATE_RESELLER_TOPUP,
