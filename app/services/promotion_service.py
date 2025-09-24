@@ -43,7 +43,7 @@ class PromotionService:
                 continue
             promotion_history = PromotionHistoryDto(
                 is_referral=transaction.source != UserWalletTransactionSource.CASHBACK,
-                amount=f"{transaction.amount} {x_currency}",
+                amount=f"{round(transaction.amount * rate, 2)} {x_currency}",
                 name=transaction.source,
                 promotion_name="",
                 date=transaction.created_at)
