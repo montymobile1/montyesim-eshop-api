@@ -52,5 +52,6 @@
   "CASHBACK_AMOUNT": "Cashback Amount",
   "DISCOUNT_AMOUNT": "Discount Amount",
   "DISCOUNT_PERCENTAGE": "Discount Percentage",
-  "USER_NOT_FOUND": "User not found."
+  "USER_NOT_FOUND": "User not found.",
+  "USER_WITH_EMAIL_ALREADY_EXISTS": "A user with this email already exists."
 }
