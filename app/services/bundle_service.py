@@ -8,9 +8,10 @@ from coverage.html import os
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance, send_email, generate_qr_code, get_email_template
-from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum, PromotionRuleAction
+from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum, PromotionRuleAction, ConfigKeysEnum
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
+from app.config.utils import get_config
 from app.exceptions import BadRequestException
 from app.models.app import BundleModel
 from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel
@@ -373,12 +374,20 @@ class BundleService:
         return coverage
 
     def __get_discount_amount(self, promo_code: str):
+        if self.__promotion_service.is_referral_code(promo_code):
+            rule = self.__promotion_service.get_referral_rule()
+            if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT:
+                return float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
         promotion = self.__promotion_service.get_promotion_by_code(promo_code)
         if promotion and promotion.promotion_rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT:
             return promotion.amount
         return 0
 
     def __get_discount_rate(self, promo_code: str):
+        if self.__promotion_service.is_referral_code(promo_code):
+            rule = self.__promotion_service.get_referral_rule()
+            if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE:
+                return float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
         promotion = self.__promotion_service.get_promotion_by_code(promo_code)
         if promotion and promotion.promotion_rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE:
             return promotion.amount

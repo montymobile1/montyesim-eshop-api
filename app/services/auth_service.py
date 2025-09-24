@@ -32,7 +32,7 @@ class AuthService:
         self.__user_otp_service = UserOtpService()
 
     async def login(self, login_request: LoginRequest) -> Response:
-        if login_request.phone:
+        if (login_request.phone and login_request.email) or login_request.phone:
             return self.__handle_phone_login(login_request=login_request)
         elif login_request.email:
             return self.__handle_email_login(login_request=login_request)
@@ -131,14 +131,24 @@ class AuthService:
 
     async def update_user_info(self, user: UserModel, update_request: UpdateUserInfoRequest, currency_code: str):
         try:
+            login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
+
+            user_metadata = {
+                'display_email': update_request.email,
+                'first_name': update_request.first_name,
+                'last_name': update_request.last_name,
+                'msisdn': update_request.msisdn,
+                'should_notify': update_request.should_notify,
+            }
+            if login_type == "email_phone":
+                user_metadata.pop("msisdn")
+                user_metadata.pop("display_email")
+            elif login_type == "email":
+                user_metadata.pop("display_email")
+            elif login_type == "phone":
+                user_metadata.pop("msisdn")
             response = supabase_client().auth.admin.update_user_by_id(user.id, {
-                'user_metadata': {
-                    'display_email': update_request.email,
-                    'first_name': update_request.first_name,
-                    'last_name': update_request.last_name,
-                    'msisdn': update_request.msisdn,
-                    'should_notify': update_request.should_notify,
-                }
+                'user_metadata': user_metadata
             })
             user_wallet = await self.create_wallet_if_not_exists(user_id=user.id, currency_code=currency_code)
             return ResponseHelper.success_data_response(

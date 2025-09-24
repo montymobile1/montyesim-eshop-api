@@ -1,6 +1,7 @@
 from app.config.config import supabase_client
 from app.config.constants import ErrorMessages
-from app.config.db import DatabaseTables
+from app.config.db import DatabaseTables, ConfigKeysEnum
+from app.config.utils import get_config
 from app.exceptions import CustomException
 from app.models.app import UserOtpModel
 from app.repo.user_otp_repo import UserOtpRepo
@@ -30,8 +31,8 @@ class UserOtpService:
         existing_otps = self.__user_otp_repo.list(where={"mobile": mobile, "is_used": False, "otp": otp})
         if existing_otps or len(existing_otps) > 0:
             return self.generate_otp(mobile)
-
-        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=5)).isoformat()
+        expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
+        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
         self.__user_otp_repo.create({
             "mobile": mobile,
             "email": email,

@@ -515,5 +515,9 @@ class PromotionService:
                               message=message)
         return ResponseHelper.success_data_response(dto, 1)
 
-    def get_promotion_by_code(self, promo_code:str)->PromotionModel | None:
+    def get_promotion_by_code(self, promo_code: str) -> PromotionModel | None:
         return self.__promotion_repo.get_first_by(where={"code": promo_code})
+
+    def get_referral_rule(self) -> PromotionRuleModel | None:
+        referral_rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
+        return self.__promotion_rule_repo.get_by_id(referral_rule_id)
