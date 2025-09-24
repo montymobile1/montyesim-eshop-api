@@ -92,7 +92,7 @@ class UserWalletService:
             "user_id": user.id,
             "bundle_id": None,
             "order_type": UserOrderType.WALLET_TOP_UP,
-            "amount": round(amount * 100, 2),
+            "amount": int(round(amount * 100)),
             "currency": currency,
             "bundle_data": "-",
             "searched_countries": "-",
