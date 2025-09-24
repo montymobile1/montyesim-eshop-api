@@ -411,4 +411,6 @@ class BundleService:
             if tag.tag_group_id == 3:
                 bundle_type = "CRUISE"
                 break
-        return Literal["LAND", "CRUISE"](bundle_type)
+        if bundle_type not in ("LAND", "CRUISE"):
+            raise ValueError(f"Invalid bundle_type: {bundle_type}")
+        return bundle_type
