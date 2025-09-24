@@ -2,7 +2,7 @@ import os
 import threading
 from collections import defaultdict
 from datetime import datetime
-from typing import List
+from typing import List, Literal
 
 from coverage.html import os
 from loguru import logger
@@ -193,12 +193,14 @@ class BundleService:
         new_price = user_order.modified_amount if promo_code else 0
         discount_amount = self.__get_discount_amount(promo_code) if promo_code else 0
         discount_rate = self.__get_discount_rate(promo_code) if promo_code else 0
+        bundle_type = self.__bundle_type(code=bundle.bundle_code)
         esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
                                                                              order_id=order_id, user=user,
                                                                              payment_type=payment_type,
                                                                              new_price=new_price,
                                                                              discount_amount=discount_amount,
-                                                                             discount_rate=discount_rate)
+                                                                             discount_rate=discount_rate,
+                                                                             bundle_type=bundle_type)
 
         user_order.payment_status = payment_status
         user_order.payment_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -400,3 +402,13 @@ class BundleService:
         except Exception as e:
             logger.error(f"error while getting discount rate {str(e)}")
             return 0
+
+    def __bundle_type(self, code) -> Literal["LAND", "CRUISE"]:
+        bundle_type = "LAND"
+        bundle_tags = self.__bundle_tag_repo.list(where={"bundle_id": code})
+        for bundle_tag in bundle_tags:
+            tag = self.__tag_repo.get_first_by(where={"id": bundle_tag.tag_id})
+            if tag.tag_group_id == 3:
+                bundle_type = "CRUISE"
+                break
+        return Literal["LAND", "CRUISE"](bundle_type)

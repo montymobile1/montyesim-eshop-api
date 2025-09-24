@@ -78,9 +78,13 @@ class UserWalletService:
             logger.error(str(e))
             raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
-    async def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UserModel, request: Request) -> Response[
+    async def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UserModel, request: Request,
+                            x_currency: str) -> Response[
         PaymentIntentResponse]:
         currency = os.getenv("DEFAULT_CURRENCY")
+        amount = top_up_request.amount
+        rate = self.__currency_service.get_currency_rate(from_currency=x_currency, to_currency=currency)
+        amount = round(amount * rate, 2)
         user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user.id})
         if not user_wallet:
             user_wallet = self.__create_wallet(user_id=user.user_id, amount=0, currency=currency)
@@ -88,7 +92,7 @@ class UserWalletService:
             "user_id": user.id,
             "bundle_id": None,
             "order_type": UserOrderType.WALLET_TOP_UP,
-            "amount": round(top_up_request.amount * 100),
+            "amount": round(amount * 100, 2),
             "currency": currency,
             "bundle_data": "-",
             "searched_countries": "-",
