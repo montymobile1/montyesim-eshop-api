@@ -215,13 +215,16 @@ class DtoMapper:
             display_title = bundle_data.label
 
         countries_sorted = DtoMapper.move_matching_countries_to_top(bundle_data.countries, searched_countries_array)
+        order_status = "Inactive" if not profile_current_bundle.plan_started else (
+            "Active" if not profile_current_bundle.bundle_expired else "Expired")
+
         data = {
             "is_topup_allowed": user_profile.allow_topup,
             "plan_started": profile_current_bundle.plan_started,
             "bundle_expired": profile_current_bundle.bundle_expired,
             "label_name": user_profile.label or None,
             "order_number": user_profile.user_order_id,
-            "order_status": "Active" if not profile_current_bundle.bundle_expired else "Expired",
+            "order_status": order_status,
             "searched_countries": [],
             "qr_code_value": f"LPA:1${user_profile.smdp_address}${user_profile.activation_code}",
             'activation_code': user_profile.activation_code,
