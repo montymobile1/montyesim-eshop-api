@@ -454,7 +454,7 @@ class PromotionService:
                                                                             source=UserWalletTransactionSource.CASHBACK_PROMO)
             old_usage = self.__promotion_usage_repo.list(where={"promotion_code": code, "status": "completed"})
             if status == "completed":
-                self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(old_usage)})
+                self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(old_usage) + 1})
             self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
             return None
 
