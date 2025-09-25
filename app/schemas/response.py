@@ -13,6 +13,7 @@ class Response(BaseModel, Generic[T]):
     message: Optional[str]
     developerMessage: Optional[str]
     responseCode: int
+    error_key: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True, extra="ignore")
 
@@ -37,7 +38,8 @@ class ResponseHelper:
 
     @staticmethod
     def error_response(status_code: int, error: str, title: str = None,
-                       developer_message: str = None) -> Response[None]:
+                       developer_message: str = None, error_key: str = None) -> Response[None]:
         return Response(status='failed', totalCount=0, data=None, title=title, message=error,
                         developerMessage=developer_message,
-                        responseCode=status_code)
+                        responseCode=status_code,
+                        error_key=error_key)

@@ -80,7 +80,8 @@ async def global_exception_handler(request: Request, exc: CustomException):
         messages = load_messages(lang)
         title = messages.get(exc.name, exc.name)
         response_data = ResponseHelper.error_response(status_code=exc.code, title=title,
-                                                      error=title, developer_message=exc.details)
+                                                      error=title, developer_message=exc.details,
+                                                      error_key=exc.error_key)
         return JSONResponse(
             status_code=exc.code,
             content=jsonable_encoder(response_data),

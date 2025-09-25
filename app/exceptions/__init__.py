@@ -8,6 +8,7 @@ class CustomException(Exception):
         self.name = name
         self.details = details
         self.code = code
+        self.error_key = name
         super().__init__(f"{name}: {details}")
 
 
