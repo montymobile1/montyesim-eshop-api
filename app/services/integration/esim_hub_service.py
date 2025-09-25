@@ -166,7 +166,7 @@ class EsimHubService:
     async def create_reseller_order(self, bundle_code: str, order_id: str, user: UsersCopyModel,
                                     payment_type: str = "", discount_amount: float = 0, discount_rate: float = 0,
                                     new_price: float = 0,
-                                    bundle_type: Literal["LAND", "CRUISE"] = "LAND") -> EsimHubOrderResponse | None:
+                                    bundle_type: Literal["COUNTRY", "CRUISE"] = "COUNTRY") -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "Quantity": 1,
@@ -203,7 +203,7 @@ class EsimHubService:
     async def create_reseller_topup(self, bundle_code: str, esim_hub_order_id,
                                     order_id: str, user: UsersCopyModel,
                                     payment_type: str = "",
-                                    bundle_type: Literal["LAND", "CRUISE"] = "LAND") -> EsimHubOrderResponse | None:
+                                    bundle_type: Literal["COUNTRY", "CRUISE"] = "COUNTRY") -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "OrderId": esim_hub_order_id,

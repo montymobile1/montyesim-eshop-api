@@ -186,11 +186,12 @@ class BundleService:
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
                          payment_status: str, promo_code: str = None,
                          rule_id: str = None, payment_type: str = PaymentTypeEnum.CARD):
+        rate = self.__currency_service.get_currency_rate(from_currency=user_order.currency_code, to_currency="USD")
         user = self.__user_repo.get_by_id(record_id=user_id)
         msisdn = user.metadata.get("msisdn", "")
         email = user.email
         order_id = f"{msisdn if msisdn else email}|{user_order.id}"
-        new_price = user_order.modified_amount if promo_code else 0
+        new_price = (round((user_order.modified_amount / 100) * rate, 2)) if promo_code else 0
         discount_amount = self.__get_discount_amount(promo_code) if promo_code else 0
         discount_rate = self.__get_discount_rate(promo_code) if promo_code else 0
         bundle_type = self.__bundle_type(code=bundle.bundle_code)
@@ -405,14 +406,14 @@ class BundleService:
             logger.error(f"error while getting discount rate {str(e)}")
             return 0
 
-    def __bundle_type(self, code) -> Literal["LAND", "CRUISE"]:
-        bundle_type = "LAND"
+    def __bundle_type(self, code) -> Literal["COUNTRY", "CRUISE"]:
+        bundle_type = "COUNTRY"
         bundle_tags = self.__bundle_tag_repo.list(where={"bundle_id": code})
         for bundle_tag in bundle_tags:
             tag = self.__tag_repo.get_first_by(where={"id": bundle_tag.tag_id})
             if tag.tag_group_id == 3:
                 bundle_type = "CRUISE"
                 break
-        if bundle_type not in ("LAND", "CRUISE"):
+        if bundle_type not in ("COUNTRY", "CRUISE"):
             raise ValueError(f"Invalid bundle_type: {bundle_type}")
         return bundle_type

@@ -114,9 +114,9 @@ class AuthService:
     def delete_account(self, user: UserModel) -> Response[None]:
         try:
             supabase_client().auth.admin.delete_user(id=user.id)
-            return ResponseHelper.success_response()
         except Exception as e:
-            raise CustomException(code=400, name=ErrorMessages.DELETE_ACCOUNT_FAILED, details=str(e))
+            logger.error(f"exception on delete account: {e}")
+        return ResponseHelper.success_response()
 
     async def get_user_info(self, user: UserModel, currency_code: str):
         try:
