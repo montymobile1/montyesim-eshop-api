@@ -23,7 +23,7 @@ class UserOtpService:
             raise CustomException(code=400, name=ErrorMessages.OTP_LIMIT_REACHED,
                                   details="Maximum OTP requests per hour reached. Please try again later.")
         if self.__has_active_otp(mobile=mobile):
-            raise CustomException(code=400, name=ErrorMessages.OTP_STILL_ACTIVE,
+            raise CustomException(code=429, name=ErrorMessages.OTP_STILL_ACTIVE,
                                   details="An active OTP already exists. Please use the existing OTP or wait for it to expire.")
 
         otp = f"{random.randint(100000, 999999)}"
