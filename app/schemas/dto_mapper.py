@@ -342,7 +342,7 @@ class DtoMapper:
             "company_phone": os.getenv("MERCHANT_PHONE", "Company Phone"),
             "company_email": os.getenv("MERCHANT_EMAIL", "Company Email"),
             "company_website": os.getenv("MERCHANT_WEBSITE", "https://example.com"),
-            "payment_type": os.getenv("PAYMENT_METHODS", PaymentTypeEnum.CARD)
+            "payment_type": user_order.payment_type
         }
         return UserOrderHistoryResponse.model_validate(data)
 
