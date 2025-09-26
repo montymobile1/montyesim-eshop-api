@@ -93,7 +93,6 @@ class UserBundleService:
             logger.info(f"applying promo code {assign_request.promo_code} with {validation_response.message}")
             bundle = validation_response.bundle
             modified_amount = bundle.original_price * rate
-            amount = bundle.original_price * rate
             rule_id = validation_response.rule_id
             logger.info(f"scheduling background update for order {order.id}")
             # Create background task for order update
@@ -374,7 +373,7 @@ class UserBundleService:
     async def __handle_card_payment(self, user: UserModel, order: UserOrderModel, device_id: str,
                                     assign_request: AssignRequest | None, rule_id: str,
                                     request: Request, iccid: str = None) -> Response:
-        rate = self.__currency_service.get_currency_rate("USD", to_currency=order.currency)
+        rate = self.__currency_service.get_currency_rate("USD", to_currency=os.getenv("DEFAULT_CURRENCY"))
         order_amount = order.modified_amount if order.modified_amount else order.amount
         original_amount = (order_amount / 100) * rate
         stripe_amount = int(Decimal(order_amount * rate).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
