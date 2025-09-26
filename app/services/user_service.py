@@ -68,7 +68,7 @@ class UserBundleService:
             "order_type": UserOrderType.ASSIGN,
             "amount": int(round(amount * 100)),
             "modified_amount": int(round(modified_amount * 100)),
-            "currency": os.getenv("DEFAULT_CURRENCY"),
+            "currency": "USD",
             "bundle_data": bundle.model_dump_json(),
             "searched_countries": assign_request.related_search.model_dump_json(),
             "anonymous_user_id": user.anonymous_user_id,
@@ -294,7 +294,7 @@ class UserBundleService:
     async def get_order_history_by_id(self, user_id: str, order_id: str, x_currency: str) -> Response[
         UserOrderHistoryResponse]:
         order = self.__user_order_repo.get_first_by({"user_id": user_id, "id": order_id})
-        rate = self.__currency_service.get_currency_rate(from_currency=order.currency, to_currency=x_currency)
+        rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=x_currency)
         payment_details = stripe_get_payment_details(order.payment_intent_code)
         user_order_history = DtoMapper.to_user_order_history(user_order=order, rate=rate, currency=x_currency)
         user_order_history.payment_details = payment_details
