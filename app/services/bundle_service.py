@@ -4,7 +4,6 @@ from collections import defaultdict
 from datetime import datetime
 from typing import List, Literal
 
-from coverage.html import os
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance, send_email, generate_qr_code, get_email_template
