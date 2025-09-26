@@ -4,7 +4,7 @@ from app.config.constants import ErrorMessages
 
 
 class CustomException(Exception):
-    def __init__(self, name: ErrorMessages, details: str, code: int):
+    def __init__(self, name: ErrorMessages | str, details: str, code: int):
         self.name = name
         self.details = details
         self.code = code

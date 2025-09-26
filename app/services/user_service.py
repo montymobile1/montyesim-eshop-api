@@ -264,10 +264,10 @@ class UserBundleService:
         if not user_order:
             raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND, details=ErrorMessages.ORDER_NOT_FOUND)
         if user_order.payment_status != OrderStatusEnum.SUCCESS:
-            raise CustomException(code=400, name=ErrorMessages.PAYMENT_FAILED,
+            raise CustomException(code=400, name=f"{ErrorMessages.PAYMENT_}{user_order.payment_status.upper()}",
                                   details=ErrorMessages.PAYMENT_FAILED)
         if user_order.order_status != OrderStatusEnum.SUCCESS:
-            raise CustomException(code=400, name=ErrorMessages.ORDER_FAILED,
+            raise CustomException(code=400, name=f"{ErrorMessages.ORDER_}{user_order.order_status.upper()}",
                                   details=ErrorMessages.ORDER_FAILED)
         profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                    where={"user_id": user.id, "user_order_id": order_id})
