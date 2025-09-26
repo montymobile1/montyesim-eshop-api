@@ -332,11 +332,12 @@ class UserBundleService:
                                       iccid: str = None) -> Response[
         PaymentIntentResponse]:
         wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user.id)
-        if wallet.balance < bundle.price:
+        rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=wallet.currency)
+        bundle_price = bundle.price * rate
+        if wallet.balance < bundle_price:
             raise BadRequestException("You don't have enough funds to pay")
         try:
-            rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=wallet.currency)
-            await self.__user_wallet_service.add_wallet_transaction(amount=((bundle.price * rate) * -1),
+            await self.__user_wallet_service.add_wallet_transaction(amount=(bundle_price * -1),
                                                                     user_id=user.id,
                                                                     source=UserWalletTransactionSource.PURCHASE_BUNDLE)
             if user_order.order_type == UserOrderType.ASSIGN:
