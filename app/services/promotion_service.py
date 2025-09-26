@@ -363,6 +363,7 @@ class PromotionService:
         if referred_user:
             previously_used = self.__promotion_usage_repo.list(
                 where={"device_id": device_id, "status": PromotionStatusEnum.COMPLETED.value})
+            previously_used = list(filter(lambda x: x.referral_code != "", previously_used))
             if len(previously_used) > 0:
                 raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE,
                                       details=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE)
@@ -522,3 +523,6 @@ class PromotionService:
     def get_referral_rule(self) -> PromotionRuleModel | None:
         referral_rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
         return self.__promotion_rule_repo.get_by_id(referral_rule_id)
+
+    def get_rule_by_id(self, rule_id: str) -> PromotionRuleModel | None:
+        return self.__promotion_rule_repo.get_by_id(rule_id)

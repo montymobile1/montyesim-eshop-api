@@ -384,8 +384,10 @@ class BundleService:
                 if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT:
                     return float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
             promotion = self.__promotion_service.get_promotion_by_code(promo_code)
-            if promotion and promotion.promotion_rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT:
-                return promotion.amount
+            if promotion:
+                rule = self.__promotion_service.get_rule_by_id(promotion.rule_id)
+                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT:
+                    return promotion.amount
             return 0
         except Exception as e:
             logger.error(f"error while getting discount amount {str(e)}")
@@ -398,8 +400,10 @@ class BundleService:
                 if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE:
                     return float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
             promotion = self.__promotion_service.get_promotion_by_code(promo_code)
-            if promotion and promotion.promotion_rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE:
-                return promotion.amount
+            if promotion:
+                rule = self.__promotion_service.get_rule_by_id(promotion.rule_id)
+                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE:
+                    return promotion.amount
             return 0
         except Exception as e:
             logger.error(f"error while getting discount rate {str(e)}")
