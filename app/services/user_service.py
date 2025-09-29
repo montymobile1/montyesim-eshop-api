@@ -92,7 +92,7 @@ class UserBundleService:
                                                                                      order_id=order.id)
             logger.info(f"applying promo code {assign_request.promo_code} with {validation_response.message}")
             bundle = validation_response.bundle
-            modified_amount = bundle.original_price * rate
+            modified_amount = bundle.original_price
             rule_id = validation_response.rule_id
             logger.info(f"scheduling background update for order {order.id}")
             # Create background task for order update
