@@ -108,15 +108,14 @@ class UserBundleService:
 
         if modified_amount == 0:
             await self.__bundle_service.buy_bundle(user_order=order, bundle=bundle, user_id=user.id,
-                                                   payment_status=OrderStatusEnum.SUCCESS,
-                                                   promo_code=assign_request.promo_code, rule_id=rule_id)
+                                                   payment_status=OrderStatusEnum.SUCCESS, rule_id=rule_id)
             response = PaymentIntentResponse(order_id=order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
 
         if payment_type == PaymentTypeEnum.WALLET:
-            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order,rule_id=rule_id)
+            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order, rule_id=rule_id)
         elif payment_type == PaymentTypeEnum.DCB:
-            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order,rule_id=rule_id)
+            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order, rule_id=rule_id)
         elif payment_type == PaymentTypeEnum.CARD:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
                                                     assign_request=assign_request, rule_id=rule_id, request=request)
@@ -144,7 +143,7 @@ class UserBundleService:
 
         if payment_type == PaymentTypeEnum.WALLET:
             return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order,
-                                                      iccid=assign_top_up_request.iccid,rule_id="")
+                                                      iccid=assign_top_up_request.iccid, rule_id="")
         elif payment_type == PaymentTypeEnum.DCB:
             return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.CARD:
@@ -328,7 +327,8 @@ class UserBundleService:
         return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
                                                       payment_status=payment_status)
 
-    async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,rule_id:str,
+    async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,
+                                      rule_id: str,
                                       iccid: str = None) -> Response[
         PaymentIntentResponse]:
         wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user.id)
@@ -355,7 +355,8 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
                                   details=f"Error while creating order: {e}")
 
-    async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO,rule_id:str) -> Response[
+    async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO,
+                                   rule_id: str) -> Response[
         PaymentIntentResponse]:
         logger.info(f"handle_dcb_payment request {user=} {bundle=} {user_order=}")
         try:

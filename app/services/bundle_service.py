@@ -183,16 +183,16 @@ class BundleService:
         return ResponseHelper.success_data_response(countries, len(countries))
 
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
-                         payment_status: str, promo_code: str = None,
-                         rule_id: str = None, payment_type: str = PaymentTypeEnum.CARD):
+                         payment_status: str, rule_id: str = None, payment_type: str = PaymentTypeEnum.CARD):
         rate = self.__currency_service.get_currency_rate(from_currency=user_order.currency, to_currency="USD")
         user = self.__user_repo.get_by_id(record_id=user_id)
         msisdn = user.metadata.get("msisdn", "")
         email = user.email
         order_id = f"{msisdn if msisdn else email}|{user_order.id}"
-        new_price = (round((user_order.modified_amount / 100) * rate, 2)) if promo_code else 0
-        discount_amount = self.__get_discount_amount(promo_code) if promo_code else 0
-        discount_rate = self.__get_discount_rate(promo_code) if promo_code else 0
+        promo_code = user_order.promo_code
+        new_price = (round((user_order.modified_amount / 100) * rate, 2)) if promo_code else None
+        discount_amount = self.__get_discount_amount(promo_code) if promo_code else None
+        discount_rate = self.__get_discount_rate(promo_code) if promo_code else None
         bundle_type = self.__bundle_type(code=bundle.bundle_code)
         esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
                                                                              order_id=order_id, user=user,

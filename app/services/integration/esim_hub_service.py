@@ -213,9 +213,9 @@ class EsimHubService:
             "ClientName": user.metadata.get("first_name", "") + " " + user.metadata.get("last_name", ""),
             "Email": user.metadata.get("display_email", ""),
             "PaymentMethod": payment_type,
-            "DiscountAmount": 0,
-            "DiscountRate": 0,
-            "NewPrice": 0,
+            "DiscountAmount": None,
+            "DiscountRate": None,
+            "NewPrice": None,
             "BundleType": bundle_type
 
         }

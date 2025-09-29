@@ -249,7 +249,7 @@ class CallbackService:
         if payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.ASSIGN:
             return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
                                                           payment_status=payment_status,
-                                                          user_id=user_id, promo_code=promo_code,
+                                                          user_id=user_id,
                                                           rule_id=rule_id)
         elif payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.BUNDLE_TOP_UP:
             if not iccid:
