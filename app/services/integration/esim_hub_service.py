@@ -166,7 +166,8 @@ class EsimHubService:
     async def create_reseller_order(self, bundle_code: str, order_id: str, user: UsersCopyModel,
                                     payment_type: str = "", discount_amount: float = 0, discount_rate: float = 0,
                                     new_price: float = 0,
-                                    bundle_type: Literal["COUNTRY", "CRUISE"] = "COUNTRY") -> EsimHubOrderResponse | None:
+                                    bundle_type: Literal[
+                                        "COUNTRY", "CRUISE"] = "COUNTRY") -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "Quantity": 1,
@@ -203,7 +204,8 @@ class EsimHubService:
     async def create_reseller_topup(self, bundle_code: str, esim_hub_order_id,
                                     order_id: str, user: UsersCopyModel,
                                     payment_type: str = "",
-                                    bundle_type: Literal["COUNTRY", "CRUISE"] = "COUNTRY") -> EsimHubOrderResponse | None:
+                                    bundle_type: Literal[
+                                        "COUNTRY", "CRUISE"] = "COUNTRY") -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "OrderId": esim_hub_order_id,
@@ -222,6 +224,8 @@ class EsimHubService:
         response = await self.__do_request(method="POST", path=EsimHubEndpoint.API_CREATE_RESELLER_TOPUP,
                                            body=request_body,
                                            base_url=os.getenv("ESIM_HUB_BASE_URL2"))
+        logger.debug(f"request body: {request_body}")
+        logger.debug(f"response: {response}")
         logger.info(response)
         if "success" not in response:
             logger.error("Failed to create reseller Hub: {}".format(response))
