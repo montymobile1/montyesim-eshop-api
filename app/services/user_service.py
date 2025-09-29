@@ -429,8 +429,8 @@ class UserBundleService:
         """Background task to update order with delay"""
         await asyncio.sleep(5)
         try:
-            modified_amount = bundle.original_price * rate
-            amount = bundle.original_price * rate
+            modified_amount = bundle.original_price
+            amount = bundle.original_price
             logger.info(f"Updating order {order_id} with delayed background task at {datetime.now()}")
             self.__user_order_repo.update_by(where={"id": order_id}, data={
                 "amount": int(round(amount * 100)),
