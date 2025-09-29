@@ -33,7 +33,7 @@ class AuthService:
 
     async def login(self, login_request: LoginRequest) -> Response:
         if (login_request.phone and login_request.email) or login_request.phone:
-            return self.__handle_phone_login(login_request=login_request)
+            return await self.__handle_phone_login(login_request=login_request)
         elif login_request.email:
             return self.__handle_email_login(login_request=login_request)
         else:
@@ -202,7 +202,7 @@ class AuthService:
             authenticate(email=str(login_request.email), referral_code=referral_code)
             return ResponseHelper.success_response()
 
-    def __handle_phone_login(self, login_request: LoginRequest) -> Response:
+    async def __handle_phone_login(self, login_request: LoginRequest) -> Response:
         # user_email = f"{login_request.phone}_esim@gmail.com"
         old_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
                                                                  filters={
@@ -237,7 +237,7 @@ class AuthService:
                 }
             })
             logging.info(f"created new user: {user}")
-        self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone)
+        await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone)
         return ResponseHelper.success_data_response(data={"otp_expiration": otp_expiration_time}, total_count=0)
 
     async def __handle_email_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[

@@ -68,8 +68,12 @@ def esim_hub_service_instance():
         tenant_key=os.getenv("ESIM_HUB_TENANT_KEY"))
 
 
-def dcb_service_instance():
-    return DCBService(send_otp_url="", verify_otp_url="", api_key="", charge_url="")
+def dcb_service_instance() -> DCBService:
+    provider = os.getenv("DEFAULT_DCB_PROVIDER", "NONE").upper()
+    if provider == "MONTY":
+        from app.services.integration.monty_dcb import MontyDCBService
+        return MontyDCBService(base_url=os.getenv("DCB_SEND_OTP_URL", ""))
+    return DCBService(send_otp_url=os.getenv("DCB_SEND_OTP_URL", ""), verify_otp_url="", api_key="", charge_url="")
 
 
 def authenticate(email: str, referral_code: str):

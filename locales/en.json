@@ -8,6 +8,7 @@
   "OTP_STILL_ACTIVE": "An active OTP already exists. Please use the existing OTP or wait for it to expire",
   "OTP_LIMIT_REACHED": "Maximum OTP requests per hour reached. Please try again later.",
   "OTP_EXPIRED": "OTP has expired. Please request a new one.",
+  "OTP_SEND_SMS_FAILED": "Failed to send OTP via SMS. Please try again.",
   "ORDER_NOT_FOUND": "Order not found.",
   "PAYMENT_FAILED": "Payment failed. Please try again.",
   "PAYMENT_FAILURE": "Payment failed. Please try again.",

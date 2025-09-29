@@ -34,7 +34,7 @@ class DatabaseException(CustomException):
 
 
 class DCBException(CustomException):
-    def __init__(self, details: str | dict | Any):
+    def __init__(self, details: str | dict | Any, error: ErrorMessages = ErrorMessages.REQUEST_FAILED):
         self.name = "DCB Exception"
         self.details = details
         self.code = 400
@@ -42,4 +42,4 @@ class DCBException(CustomException):
             self.details = details["message"] or details["code"]
         else:
             self.details = str(details)
-        super().__init__(name=ErrorMessages.REQUEST_FAILED, details=self.details, code=self.code)
+        super().__init__(name=error, details=self.details, code=self.code)
