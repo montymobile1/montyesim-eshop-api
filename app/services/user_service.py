@@ -57,7 +57,6 @@ class UserBundleService:
             if not check_bundle_available:
                 raise CustomException(code=400, name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
                                       details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
-        rate = self.__currency_service.get_rate_by_currency(x_currency)
         modified_amount = bundle.price
         amount = bundle.price
         rule_id = "0"
@@ -349,6 +348,7 @@ class UserBundleService:
             elif user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
                 await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
                                                           payment_status=OrderStatusEnum.SUCCESS,
+                                                          payment_type=PaymentTypeEnum.WALLET,
                                                           iccid=iccid)
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
@@ -429,7 +429,7 @@ class UserBundleService:
 
     async def __update_order_with_delay(self, order_id: str, bundle: BundleDTO):
         """Background task to update order with delay"""
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
         try:
             modified_amount = bundle.original_price
             amount = bundle.original_price

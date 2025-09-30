@@ -256,7 +256,7 @@ class BundleService:
         return ResponseHelper.success_response()
 
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,
-                            payment_status: str):
+                            payment_status: str, payment_type: str = PaymentTypeEnum.CARD):
         user = self.__user_repo.get_by_id(record_id=user_id)
         msisdn = user.metadata.get("msisdn", "")
         email = user.email
@@ -269,7 +269,7 @@ class BundleService:
                 bundle_code=bundle.bundle_code,
                 order_id=order_id,
                 user=user,
-                payment_type=PaymentTypeEnum.CARD,
+                payment_type=payment_type,
                 bundle_type=bundle_type)
         except Exception as e:
             esim_hub_topup = None
