@@ -99,8 +99,7 @@ class UserBundleService:
             asyncio.create_task(
                 self.__update_order_with_delay(
                     order_id=order.id,
-                    bundle=bundle,
-                    rate=rate
+                    bundle=bundle
                 )
             )
 
@@ -331,6 +330,7 @@ class UserBundleService:
                                       rule_id: str,
                                       iccid: str = None) -> Response[
         PaymentIntentResponse]:
+        await asyncio.sleep(5)
         wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user.id)
         rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=wallet.currency)
         bundle_price = round((user_order.modified_amount / 100) * rate, 2)
@@ -427,7 +427,7 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.OWN_REFERRAL_CODE_CANNOT_BE_USED,
                                   details="Own Referral Code Can not be used")
 
-    async def __update_order_with_delay(self, order_id: str, bundle: BundleDTO, rate: float):
+    async def __update_order_with_delay(self, order_id: str, bundle: BundleDTO):
         """Background task to update order with delay"""
         await asyncio.sleep(5)
         try:
