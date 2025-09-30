@@ -3,10 +3,19 @@
   "BEARER_TOKEN_REQUIRED": "Bearer token is required for this operation.",
   "DEVICE_ID_MISSING": "X-Device-ID header is missing.",
   "INVALID_JSON_DATA": "Invalid JSON data provided.",
-  "INVALID_OTP": "The OTP provided is invalid.",
+  "INVALID_PHONE_NUMBER": "Invalid phone number provided.",
+  "OTP_INVALID": "The OTP provided is invalid.",
+  "OTP_STILL_ACTIVE": "An active OTP already exists. Please use the existing OTP or wait for it to expire",
+  "OTP_LIMIT_REACHED": "Maximum OTP requests per hour reached. Please try again later.",
+  "OTP_EXPIRED": "OTP has expired. Please request a new one.",
+  "OTP_SEND_SMS_FAILED": "Failed to send OTP via SMS. Please try again.",
   "ORDER_NOT_FOUND": "Order not found.",
   "PAYMENT_FAILED": "Payment failed. Please try again.",
+  "PAYMENT_FAILURE": "Payment failed. Please try again.",
   "ORDER_FAILED": "Order failed. Please try again.",
+  "PAYMENT_PENDING": "Payment is still pending.",
+  "ORDER_FAILURE": "Order Failed. Please try again.",
+  "ORDER_PENDING": "Order is still pending.",
   "BUNDLE_NOT_AVAILABLE": "Bundle is not available at the moment.",
   "X_REFRESH_TOKEN_REQUIRED": "X-Refresh-Token is required.",
   "TOKEN_IS_REQUIRED": "Token is required for this operation.",
@@ -48,5 +57,6 @@
   "CASHBACK_AMOUNT": "Cashback Amount",
   "DISCOUNT_AMOUNT": "Discount Amount",
   "DISCOUNT_PERCENTAGE": "Discount Percentage",
-  "USER_NOT_FOUND": "User not found."
+  "USER_NOT_FOUND": "User not found.",
+  "USER_WITH_EMAIL_ALREADY_EXISTS": "A user with this email already exists."
 }

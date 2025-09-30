@@ -133,3 +133,11 @@ class BannerModel(BaseModel):
     action: str
     platform: str
     created_at: str
+
+class UserOtpModel(BaseModel):
+    id: Optional[int] = Field(None, alias="id")
+    email: Optional[str] = Field(None, alias="email")
+    mobile: Optional[str] = Field(None, alias="mobile")
+    otp: Optional[str] = Field(None, alias="otp")
+    expire_at: Optional[str] = Field(None, alias="expire_at")
+    is_used: Optional[bool] = Field(False, alias="is_used")

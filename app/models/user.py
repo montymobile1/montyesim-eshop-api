@@ -3,7 +3,7 @@ from typing import Optional, List, Dict, Any
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-from app.config.db import UserOrderType, OrderStatusEnum, UserBundleType
+from app.config.db import UserOrderType, OrderStatusEnum, UserBundleType, PaymentTypeEnum
 
 
 class UserModel(BaseModel):
@@ -44,6 +44,7 @@ class UserOrderModel(BaseModel):
     referral_code: Optional[str] = None
     modified_amount: Optional[float] = 0
     otp: Optional[str] = None
+    payment_type: Optional[PaymentTypeEnum] = PaymentTypeEnum.CARD
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 

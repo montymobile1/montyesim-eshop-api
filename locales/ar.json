@@ -3,10 +3,19 @@
   "BEARER_TOKEN_REQUIRED": "مطلوب رمز Bearer لهذه العملية.",
   "DEVICE_ID_MISSING": "رأس X-Device-ID مفقود.",
   "INVALID_JSON_DATA": "تم تقديم بيانات JSON غير صالحة.",
-  "INVALID_OTP": "رمز OTP المقدم غير صالح.",
+  "INVALID_PHONE_NUMBER": "تم تقديم رقم هاتف غير صالح.",
+  "OTP_INVALID": "تم تقديم رمز تحقق غير صالح.",
+  "OTP_STILL_ACTIVE": "يوجد رمز تحقق نشط بالفعل. يرجى استخدام الرمز الحالي أو الانتظار حتى انتهاء صلاحيته.",
+  "OTP_LIMIT_REACHED": "تم الوصول إلى الحد الأقصى لطلبات رمز التحقق في الساعة. يرجى المحاولة لاحقاً.",
+  "OTP_EXPIRED": "انتهت صلاحية رمز التحقق. يرجى طلب رمز جديد.",
+  "OTP_SEND_SMS_FAILED": "فشل في إرسال رمز التحقق عبر الرسائل القصيرة. يرجى المحاولة مرة أخرى.",
   "ORDER_NOT_FOUND": "لم يتم العثور على الطلب.",
   "PAYMENT_FAILED": "فشلت عملية الدفع. يرجى المحاولة مرة أخرى.",
+  "PAYMENT_FAILURE": "فشلت عملية الدفع. يرجى المحاولة مرة أخرى.",
   "ORDER_FAILED": "فشلت العملية. يرجى المحاولة مرة أخرى.",
+  "PAYMENT_PENDING": "الدفع لا يزال معلقاً.",
+  "ORDER_FAILURE": "فشل الطلب. يرجى المحاولة مرة أخرى.",
+  "ORDER_PENDING": "الطلب لا يزال معلقاً.",
   "BUNDLE_NOT_AVAILABLE": "الحزمة غير متوفرة حالياً.",
   "X_REFRESH_TOKEN_REQUIRED": "مطلوب X-Refresh-Token.",
   "TOKEN_IS_REQUIRED": "مطلوب رمز لهذه العملية.",
@@ -48,5 +57,6 @@
   "CASHBACK_AMOUNT": "مبلغ الاسترداد",
   "DISCOUNT_AMOUNT": "مبلغ الخصم",
   "DISCOUNT_PERCENTAGE": "نسبة الخصم",
-  "USER_NOT_FOUND": "المستخدم غير موجود."
+  "USER_NOT_FOUND": "المستخدم غير موجود.",
+  "USER_WITH_EMAIL_ALREADY_EXISTS": "يوجد مستخدم بهذا البريد الإلكتروني بالفعل."
 }

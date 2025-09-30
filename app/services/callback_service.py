@@ -249,7 +249,7 @@ class CallbackService:
         if payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.ASSIGN:
             return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
                                                           payment_status=payment_status,
-                                                          user_id=user_id, user=user, promo_code=promo_code,
+                                                          user_id=user_id,
                                                           rule_id=rule_id)
         elif payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.BUNDLE_TOP_UP:
             if not iccid:
@@ -257,7 +257,7 @@ class CallbackService:
                 return HTTPException(status_code=400, detail="Invalid iccid")
             return await self.__bundle_service.top_up_bundle(bundle=bundle, user_order=user_order, iccid=iccid,
                                                              user_id=user_id,
-                                                             payment_status=payment_status, user=user)
+                                                             payment_status=payment_status)
         return ResponseHelper.success_response()
 
     async def __check_metadata_fields(self, metadata: dict):

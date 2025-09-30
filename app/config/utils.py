@@ -28,7 +28,8 @@ def get_config(key: ConfigKeysEnum | str, default_value: str | int | float | Non
 
 
 def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
-                          metadata: dict, ip_address: str = None) -> tuple[
+                          metadata: dict, rate: float, currency: str = os.getenv("DEFAULT_CURRENCY"),
+                          ip_address: str = None) -> tuple[
     PaymentIntent, stripe.tax.Calculation | None]:
     tax = None
     try:
@@ -38,9 +39,10 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
         else:
             customer = customers.get("data")[0]
         order_amount = user_bundle_order.modified_amount if user_bundle_order.modified_amount else user_bundle_order.amount
+        order_amount = round(float(order_amount / 100 * rate), 2) * 100
         if os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() in ("true", "1", "yes"):
             logger.info(f"Automatic tax calculation enabled, calculating tax for amount {order_amount}")
-            tax = calculate_tax(currency=user_bundle_order.currency, amount=order_amount,
+            tax = calculate_tax(currency=currency, amount=order_amount,
                                 tax_code=get_config(ConfigKeysEnum.STRIPE_TAX_CODE, "txcd_10103101"),
                                 tax_behavior=get_config(ConfigKeysEnum.STRIPE_TAX_BEHAVIOR, "exclusive"),
                                 request_ip=ip_address,
@@ -57,7 +59,7 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
                     f"applying tax calculation: {tax.id} for order {user_bundle_order.id} with amount {order_amount}")
         payment_intent = stripe.PaymentIntent.create(
             amount=int(order_amount),
-            currency=user_bundle_order.currency,
+            currency=currency,
             payment_method_types=["card"],
             description=f"Bundle order ({user_bundle_order.order_type}) for bundle {user_bundle_order.bundle_id}",
             metadata=metadata,

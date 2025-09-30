@@ -6,16 +6,19 @@ from datetime import datetime, timezone
 from fastapi import Request
 from loguru import logger
 
-from app.config.config import authenticate, supabase_client, generate_otp, dcb_service_instance
+from app.config.config import authenticate, supabase_client, dcb_service_instance
 from app.config.constants import ErrorMessages
+from app.config.db import ConfigKeysEnum
+from app.config.utils import get_config
 from app.exceptions import CustomException, BadRequestException
-from app.models.user import UserModel
+from app.models.user import UserModel, UsersCopyModel
 from app.repo.device_repo import DeviceRepo
 from app.repo.user_order_repo import UserRepo
 from app.schemas.auth import LoginRequest, VerifyOtpRequest, UpdateUserInfoRequest, AuthResponseDTO
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import ResponseHelper, Response
 from app.schemas.user_wallet import UserWalletRequestDto, UserWalletResponse
+from app.services.user_otp_service import UserOtpService
 from app.services.user_wallet_service import UserWalletService
 
 
@@ -26,19 +29,15 @@ class AuthService:
         self.__user_repo = UserRepo()
         self.__user_wallet_service = UserWalletService()
         self.__dcb_service = dcb_service_instance()
+        self.__user_otp_service = UserOtpService()
 
-    async def login(self, login_request: LoginRequest) -> Response[None]:
-        try:
-            if login_request.email:
-                return self.__handle_email_login(login_request=login_request)
-            elif login_request.phone:
-                return self.__handle_phone_login(login_request=login_request)
-            else:
-                raise BadRequestException("Email or Phone are required.")
-
-        except Exception as e:
-            logger.error(f"exception on login: {e}")
-            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
+    async def login(self, login_request: LoginRequest) -> Response:
+        if (login_request.phone and login_request.email) or login_request.phone:
+            return await self.__handle_phone_login(login_request=login_request)
+        elif login_request.email:
+            return self.__handle_email_login(login_request=login_request)
+        else:
+            raise BadRequestException("Email or Phone are required.")
 
     async def temporary_login(self, login_request, x_device_id) -> Response[AuthResponseDTO]:
         try:
@@ -91,17 +90,12 @@ class AuthService:
 
     async def verify_otp(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
-        try:
-            if verify_otp_request.user_email:
-                return await self.__handle_email_otp_verify(verify_otp_request=verify_otp_request, device_id=device_id)
-            elif verify_otp_request.phone:
-                return await self.__handle_phone_otp_verify(verify_otp_request=verify_otp_request, device_id=device_id)
-            else:
-                raise BadRequestException("Phone or Email are required.")
-
-        except Exception as e:
-            logger.error(f"exception on verify otp: {e}")
-            raise CustomException(code=400, name=ErrorMessages.VERIFY_FAILED, details=str(e))
+        if verify_otp_request.phone:
+            return await self.__handle_phone_otp_verify(verify_otp_request=verify_otp_request, device_id=device_id)
+        elif verify_otp_request.user_email:
+            return await self.__handle_email_otp_verify(verify_otp_request=verify_otp_request, device_id=device_id)
+        else:
+            raise BadRequestException("Phone or Email are required.")
 
     def logout(self, user: UserModel, device_id: str) -> Response[None]:
         logger.info(f"logging out user {user} device {device_id}")
@@ -120,9 +114,9 @@ class AuthService:
     def delete_account(self, user: UserModel) -> Response[None]:
         try:
             supabase_client().auth.admin.delete_user(id=user.id)
-            return ResponseHelper.success_response()
         except Exception as e:
-            raise CustomException(code=400, name=ErrorMessages.DELETE_ACCOUNT_FAILED, details=str(e))
+            logger.error(f"exception on delete account: {e}")
+        return ResponseHelper.success_response()
 
     async def get_user_info(self, user: UserModel, currency_code: str):
         try:
@@ -137,14 +131,24 @@ class AuthService:
 
     async def update_user_info(self, user: UserModel, update_request: UpdateUserInfoRequest, currency_code: str):
         try:
+            login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
+
+            user_metadata = {
+                'display_email': update_request.email,
+                'first_name': update_request.first_name,
+                'last_name': update_request.last_name,
+                'msisdn': update_request.msisdn,
+                'should_notify': update_request.should_notify,
+            }
+            if login_type == "email_phone":
+                user_metadata.pop("msisdn")
+                user_metadata.pop("display_email")
+            elif login_type == "email":
+                user_metadata.pop("display_email")
+            elif login_type == "phone":
+                user_metadata.pop("msisdn")
             response = supabase_client().auth.admin.update_user_by_id(user.id, {
-                'user_metadata': {
-                    'display_email': update_request.email,
-                    'first_name': update_request.first_name,
-                    'last_name': update_request.last_name,
-                    'msisdn': update_request.msisdn,
-                    'should_notify': update_request.should_notify,
-                }
+                'user_metadata': user_metadata
             })
             user_wallet = await self.create_wallet_if_not_exists(user_id=user.id, currency_code=currency_code)
             return ResponseHelper.success_data_response(
@@ -198,11 +202,20 @@ class AuthService:
             authenticate(email=str(login_request.email), referral_code=referral_code)
             return ResponseHelper.success_response()
 
-    def __handle_phone_login(self, login_request: LoginRequest) -> Response[None]:
+    async def __handle_phone_login(self, login_request: LoginRequest) -> Response:
         # user_email = f"{login_request.phone}_esim@gmail.com"
+        old_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
+                                                                 filters={
+                                                                     "metadata->>msisdn": login_request.phone})
+        if old_user:
+            login_request.email = old_user.email
+        otp_expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
         user_email = login_request.email if login_request.email else f"{login_request.phone}_user@esim.com"
-        user_exists: UserModel = self.__user_repo.get_first_by(where={"email": user_email})
-        otp = generate_otp()
+        user_exists: UsersCopyModel = self.__user_repo.get_first_by(where={"email": user_email})
+        if user_exists and user_exists.metadata.get("msisdn", "") != login_request.phone:
+            raise CustomException(code=400, name=ErrorMessages.USER_WITH_EMAIL_ALREADY_EXISTS,
+                                  details=f"User with email {login_request.email} already exists for another phone number")
+        otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=user_email)
         if user_exists:
             logger.info(f"generating new otp for user: {user_email}")
             supabase_client().auth.admin.update_user_by_id(uid=user_exists.id, attributes={
@@ -211,21 +224,21 @@ class AuthService:
                     "msisdn": login_request.phone
                 }
             })
-            self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone)
-            return ResponseHelper.success_response()
-        user = supabase_client().auth.sign_up({
-            "email": user_email,
-            "password": f"static_password_{login_request.phone}",
-            "options": {
-                "data": {
-                    "otp": otp,
-                    "msisdn": login_request.phone
+        else:
+            user = supabase_client().auth.sign_up({
+                "email": user_email,
+                "password": f"static_password_{login_request.phone}",
+                "options": {
+                    "data": {
+                        "otp": otp,
+                        "msisdn": login_request.phone,
+                        "referral_code": self.__generate_referral_code(),
+                    }
                 }
-            }
-        })
-        logging.info(f"created new user: {user}")
-        self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone)
-        return ResponseHelper.success_response()
+            })
+            logging.info(f"created new user: {user}")
+        await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone)
+        return ResponseHelper.success_data_response(data={"otp_expiration": otp_expiration_time}, total_count=0)
 
     async def __handle_email_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
@@ -236,18 +249,22 @@ class AuthService:
                 "password": "esim_oss@2025"
             })
             return ResponseHelper.success_data_response(DtoMapper.to_auth_response(response), 0)
-        response = supabase_client().auth.verify_otp(
-            {
-                "email": verify_otp_request.user_email,
-                "token": str(verify_otp_request.verification_pin),
-                "type": "email"
-            }
-        )
-        self.__upsert_device(user_id=response.user.id, device_id=device_id, is_logged_in=True)
-        user_wallet = await self.create_wallet_if_not_exists(user_id=response.user.id,
-                                                             currency_code=os.getenv("DEFAULT_CURRENCY"))
-        return ResponseHelper.success_data_response(
-            DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet), 0)
+        try:
+            response = supabase_client().auth.verify_otp(
+                {
+                    "email": verify_otp_request.user_email,
+                    "token": str(verify_otp_request.verification_pin),
+                    "type": "email"
+                }
+            )
+            self.__upsert_device(user_id=response.user.id, device_id=device_id, is_logged_in=True)
+            user_wallet = await self.create_wallet_if_not_exists(user_id=response.user.id,
+                                                                 currency_code=os.getenv("DEFAULT_CURRENCY"))
+            return ResponseHelper.success_data_response(
+                DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet), 0)
+        except Exception as e:
+            logger.error(f"error while verifying email otp: {str(e)}")
+            raise CustomException(code=400, name=ErrorMessages.VERIFY_FAILED, details=str(e))
 
     async def __handle_phone_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
@@ -257,9 +274,9 @@ class AuthService:
             raise CustomException(code=400, name=ErrorMessages.USER_NOT_FOUND,
                                   details=f"User {verify_otp_request.phone} not found")
         user_email = user.email
-        otp = user.metadata.get("otp", None)
-        if otp != verify_otp_request.verification_pin:
-            raise BadRequestException(ErrorMessages.INVALID_OTP)
+        self.__user_otp_service.verify_otp(otp=verify_otp_request.verification_pin,
+                                           mobile=verify_otp_request.phone, email=user_email)
+
         response = supabase_client().auth.sign_in_with_password({
             "email": user_email,
             "password": f"static_password_{verify_otp_request.phone}",
@@ -273,9 +290,10 @@ class AuthService:
     def __upsert_device(self, user_id: str, device_id: str, is_logged_in: bool = False):
         data = {
             "is_logged_in": is_logged_in,
-            "user_id": user_id,
             "device_id": device_id,
         }
+        if user_id:
+            data["user_id"] = user_id
         if is_logged_in:
             data["timestamp_login"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
         else:

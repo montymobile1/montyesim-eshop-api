@@ -78,9 +78,13 @@ class UserWalletService:
             logger.error(str(e))
             raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
-    async def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UserModel, request: Request) -> Response[
+    async def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UserModel, request: Request,
+                            x_currency: str) -> Response[
         PaymentIntentResponse]:
         currency = os.getenv("DEFAULT_CURRENCY")
+        amount = top_up_request.amount
+        rate = self.__currency_service.get_currency_rate(from_currency=x_currency, to_currency=currency)
+        amount = round(amount * rate, 2)
         user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user.id})
         if not user_wallet:
             user_wallet = self.__create_wallet(user_id=user.user_id, amount=0, currency=currency)
@@ -88,7 +92,7 @@ class UserWalletService:
             "user_id": user.id,
             "bundle_id": None,
             "order_type": UserOrderType.WALLET_TOP_UP,
-            "amount": round(top_up_request.amount * 100),
+            "amount": int(round(amount * 100)),
             "currency": currency,
             "bundle_data": "-",
             "searched_countries": "-",
@@ -103,6 +107,7 @@ class UserWalletService:
                                                       "order_id": order.id,
                                                       "env": os.environ.get("ENVIRONMENT", "DEV"),
                                                   }, ip_address=request.client.host)
+        tax_excl = round(float(getattr(tax, "tax_amount_exclusive", 0) / 100), 2)
 
         order.payment_intent_code = intent.id
         self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
@@ -118,8 +123,8 @@ class UserWalletService:
                                          order_id=order.id,
                                          total_price_display=f"{top_up_request.amount:.2f} {currency}",
                                          subtotal_price_display=f"{intent.amount:.2f} {currency}",
-                                         tax_price_display=f"{round(tax.amount_total if tax else 0, 2)} {currency}",
-                                         has_tax=tax is not None and tax.amount_total > 0
+                                         tax_price_display=f"{tax_excl} {currency}",
+                                         has_tax=tax_excl > 0
                                          )
         return ResponseHelper.success_data_response(response, 0)
 

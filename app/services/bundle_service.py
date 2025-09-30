@@ -2,18 +2,18 @@ import os
 import threading
 from collections import defaultdict
 from datetime import datetime
-from typing import List
+from typing import List, Literal
 
-from coverage.html import os
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance, send_email, generate_qr_code, get_email_template
-from app.config.db import UserBundleType, OrderStatusEnum
+from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum, PromotionRuleAction, ConfigKeysEnum
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
+from app.config.utils import get_config
 from app.exceptions import BadRequestException
 from app.models.app import BundleModel
-from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel, UserModel
+from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel
 from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
 from app.repo.bundle_repo import BundleRepo
 from app.repo.bundle_tage_repo import BundleTagRepo
@@ -183,20 +183,25 @@ class BundleService:
         return ResponseHelper.success_data_response(countries, len(countries))
 
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
-                         payment_status: str, user: UserModel | UsersCopyModel = None, promo_code: str = None,
-                         rule_id: str = None):
-        if isinstance(user, UsersCopyModel):
-            msisdn = user.metadata.get("msisdn", "")
-            email = user.email
-        elif isinstance(user, UserModel):
-            msisdn = user.msisdn
-            email = user.email
-        else:
-            msisdn = ""
-            email = ""
+                         payment_status: str, rule_id: str = None, payment_type: str = PaymentTypeEnum.CARD):
+        rate = self.__currency_service.get_currency_rate(from_currency=user_order.currency, to_currency="USD")
+        user = self.__user_repo.get_by_id(record_id=user_id)
+        msisdn = user.metadata.get("msisdn", "")
+        email = user.email
         order_id = f"{msisdn if msisdn else email}|{user_order.id}"
+        promo_code = user_order.promo_code
+        new_price = (round((user_order.modified_amount / 100) * rate, 2)) if promo_code else None
+        discount_amount = self.__get_discount_amount(promo_code) if promo_code else None
+        discount_rate = self.__get_discount_rate(promo_code) if promo_code else None
+        bundle_type = self.__bundle_type(code=bundle.bundle_code)
         esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
-                                                                             order_id=order_id)
+                                                                             order_id=order_id, user=user,
+                                                                             payment_type=payment_type,
+                                                                             new_price=new_price,
+                                                                             discount_amount=discount_amount,
+                                                                             discount_rate=discount_rate,
+                                                                             bundle_type=bundle_type)
+
         user_order.payment_status = payment_status
         user_order.payment_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         user_order.order_status = OrderStatusEnum.SUCCESS
@@ -251,23 +256,21 @@ class BundleService:
         return ResponseHelper.success_response()
 
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,
-                            payment_status: str, user: UserModel = None):
-        if isinstance(user, UsersCopyModel):
-            msisdn = user.metadata.get("msisdn", "")
-            email = user.email
-        elif isinstance(user, UserModel):
-            msisdn = user.msisdn
-            email = user.email
-        else:
-            msisdn = ""
-            email = ""
+                            payment_status: str):
+        user = self.__user_repo.get_by_id(record_id=user_id)
+        msisdn = user.metadata.get("msisdn", "")
+        email = user.email
         order_id = f"{msisdn if msisdn else email}|{user_order.id}"
         user_profile = self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
+        bundle_type = self.__bundle_type(code=bundle.bundle_code)
         try:
             esim_hub_topup = await self.__esim_hub_service.create_reseller_topup(
                 esim_hub_order_id=user_profile.esim_hub_order_id,
                 bundle_code=bundle.bundle_code,
-                order_id=order_id)
+                order_id=order_id,
+                user=user,
+                payment_type=PaymentTypeEnum.CARD,
+                bundle_type=bundle_type)
         except Exception as e:
             esim_hub_topup = None
             logger.error(f"error while topping up bundle {str(e)}")
@@ -373,3 +376,47 @@ class BundleService:
             if searched_countries.region:
                 coverage = searched_countries.region.region_name
         return coverage
+
+    def __get_discount_amount(self, promo_code: str):
+        try:
+            if self.__promotion_service.is_referral_code(promo_code):
+                rule = self.__promotion_service.get_referral_rule()
+                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT:
+                    return float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
+            promotion = self.__promotion_service.get_promotion_by_code(promo_code)
+            if promotion:
+                rule = self.__promotion_service.get_rule_by_id(promotion.rule_id)
+                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT:
+                    return promotion.amount
+            return 0
+        except Exception as e:
+            logger.error(f"error while getting discount amount {str(e)}")
+            return 0
+
+    def __get_discount_rate(self, promo_code: str):
+        try:
+            if self.__promotion_service.is_referral_code(promo_code):
+                rule = self.__promotion_service.get_referral_rule()
+                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE:
+                    return float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
+            promotion = self.__promotion_service.get_promotion_by_code(promo_code)
+            if promotion:
+                rule = self.__promotion_service.get_rule_by_id(promotion.rule_id)
+                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE:
+                    return promotion.amount
+            return 0
+        except Exception as e:
+            logger.error(f"error while getting discount rate {str(e)}")
+            return 0
+
+    def __bundle_type(self, code) -> Literal["COUNTRY", "CRUISE"]:
+        bundle_type = "COUNTRY"
+        bundle_tags = self.__bundle_tag_repo.list(where={"bundle_id": code})
+        for bundle_tag in bundle_tags:
+            tag = self.__tag_repo.get_first_by(where={"id": bundle_tag.tag_id})
+            if tag.tag_group_id == 3:
+                bundle_type = "CRUISE"
+                break
+        if bundle_type not in ("COUNTRY", "CRUISE"):
+            raise ValueError(f"Invalid bundle_type: {bundle_type}")
+        return bundle_type

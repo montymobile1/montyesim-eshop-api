@@ -69,6 +69,8 @@ class ConfigKeysEnum(StrEnum):
     DEFAULT_PAYMENT_METHODS = "DEFAULT_PAYMENT_METHODS"
     STRIPE_TAX_CODE = "STRIPE_TAX_CODE"
     STRIPE_TAX_BEHAVIOR = "STRIPE_TAX_BEHAVIOR"
+    OTP_EXPIRATION_TIME = "OTP_EXPIRATION_TIME"
+    LOGIN_TYPE = "login_type"
 
 
 class DatabaseTables(StrEnum):
@@ -84,6 +86,7 @@ class DatabaseTables(StrEnum):
     TABLE_PROMOTION = "promotion"
     TABLE_PROMOTION_USAGE = "promotion_usage"
 
+    TABLE_USER_OTP = "user_otp"
     TABLE_USER_WALLET = "user_wallet"
     TABLE_USER_WALLET_TRANSACTION = "user_wallet_transaction"
     TABLE_USER_ORDER = "user_order"

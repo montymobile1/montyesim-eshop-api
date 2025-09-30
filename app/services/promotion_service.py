@@ -35,7 +35,8 @@ class PromotionService:
         self.__user_profile_repo = UserProfileRepo()
 
     async def history(self, user_id: str, x_currency: str) -> Response[List[PromotionHistoryDto]]:
-        rate = self.__currency_service.get_rate_by_currency(x_currency)
+        rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("DEFAULT_CURRENCY"),
+                                                         to_currency=x_currency)
         transactions = self.__user_wallet_service.get_wallet_transactions(user_id=user_id)
         history = []
         for transaction in transactions:
@@ -43,7 +44,7 @@ class PromotionService:
                 continue
             promotion_history = PromotionHistoryDto(
                 is_referral=transaction.source != UserWalletTransactionSource.CASHBACK,
-                amount=f"{transaction.amount} {x_currency}",
+                amount=f"{round(transaction.amount * rate, 2)} {x_currency}",
                 name=transaction.source,
                 promotion_name="",
                 date=transaction.created_at)
@@ -362,6 +363,7 @@ class PromotionService:
         if referred_user:
             previously_used = self.__promotion_usage_repo.list(
                 where={"device_id": device_id, "status": PromotionStatusEnum.COMPLETED.value})
+            previously_used = list(filter(lambda x: x.referral_code != "" and x.referral_code is not None, previously_used))
             if len(previously_used) > 0:
                 raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE,
                                       details=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE)
@@ -426,7 +428,7 @@ class PromotionService:
 
         if status != "completed":
             self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
-            return
+            return None
         promotion_rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
 
         if is_referral:
@@ -437,7 +439,7 @@ class PromotionService:
             if referred_promotion_usage is None and referrer_promotion_usage is None:
                 logger.error(f"No pending promotion found for user {user_id} with code {code}")
                 self.__promotion_usage_repo.update_by(where=condition, data={"status": "failed"})
-                return
+                return None
             self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
             return await self.__apply_referral_rewards(user_id=user_id, referral_code=code, paid_amount=paid_amount,
                                                        promotion_rule=promotion_rule)
@@ -451,9 +453,9 @@ class PromotionService:
                     amount = round(float(usage.amount) * float(rate), 2)
                     await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
                                                                             source=UserWalletTransactionSource.CASHBACK_PROMO)
-            old_usage = self.__promotion_usage_repo.list(where={"promotion_code": code})
+            old_usage = self.__promotion_usage_repo.list(where={"promotion_code": code, "status": "completed"})
             if status == "completed":
-                self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(old_usage)})
+                self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(old_usage) + 1})
             self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
             return None
 
@@ -514,3 +516,13 @@ class PromotionService:
         dto = ReferralInfoDto(amount=round(amount, 2), type=str(rule.promotion_rule_action_id), currency=x_currency,
                               message=message)
         return ResponseHelper.success_data_response(dto, 1)
+
+    def get_promotion_by_code(self, promo_code: str) -> PromotionModel | None:
+        return self.__promotion_repo.get_first_by(where={"code": promo_code})
+
+    def get_referral_rule(self) -> PromotionRuleModel | None:
+        referral_rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
+        return self.__promotion_rule_repo.get_by_id(referral_rule_id)
+
+    def get_rule_by_id(self, rule_id: str) -> PromotionRuleModel | None:
+        return self.__promotion_rule_repo.get_by_id(rule_id)
