@@ -111,9 +111,10 @@ class UserBundleService:
             return ResponseHelper.success_data_response(response, 0)
 
         if payment_type == PaymentTypeEnum.WALLET:
-            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order, rule_id=rule_id)
+            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order, rule_id=rule_id,
+                                                      modified_amount=modified_amount)
         elif payment_type == PaymentTypeEnum.DCB:
-            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order, rule_id=rule_id)
+            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.CARD:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
                                                     assign_request=assign_request, rule_id=rule_id, request=request)
@@ -141,7 +142,8 @@ class UserBundleService:
 
         if payment_type == PaymentTypeEnum.WALLET:
             return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order,
-                                                      iccid=assign_top_up_request.iccid, rule_id="")
+                                                      iccid=assign_top_up_request.iccid, modified_amount=bundle.price,
+                                                      rule_id="")
         elif payment_type == PaymentTypeEnum.DCB:
             return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.CARD:
@@ -327,12 +329,13 @@ class UserBundleService:
 
     async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,
                                       rule_id: str,
+                                      modified_amount: float,
                                       iccid: str = None) -> Response[
         PaymentIntentResponse]:
         await asyncio.sleep(5)
         wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user.id)
         rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=wallet.currency)
-        bundle_price = round((user_order.modified_amount / 100) * rate, 2)
+        bundle_price = round(modified_amount * rate, 2)
         if wallet.balance < bundle_price:
             raise CustomException(code=400, name=ErrorMessages.INSUFFICIENT_WALLET_BALANCE,
                                   details="Insufficient wallet balance, please top up your wallet")
