@@ -93,6 +93,8 @@ class UserBundleService:
             bundle = validation_response.bundle
             modified_amount = bundle.original_price
             rule_id = validation_response.rule_id
+            order.modified_amount = round(modified_amount * 100, 2)
+            order.bundle_data = bundle.model_dump_json()
             logger.info(f"scheduling background update for order {order.id}")
             # Create background task for order update
             asyncio.create_task(
@@ -332,7 +334,6 @@ class UserBundleService:
                                       modified_amount: float,
                                       iccid: str = None) -> Response[
         PaymentIntentResponse]:
-        await asyncio.sleep(5)
         wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user.id)
         rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=wallet.currency)
         bundle_price = round(modified_amount * rate, 2)
