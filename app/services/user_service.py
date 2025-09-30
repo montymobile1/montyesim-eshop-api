@@ -333,9 +333,10 @@ class UserBundleService:
         PaymentIntentResponse]:
         wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user.id)
         rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=wallet.currency)
-        bundle_price = round(user_order.modified_amount * rate, 2)
+        bundle_price = round((user_order.modified_amount / 100) * rate, 2)
         if wallet.balance < bundle_price:
-            raise BadRequestException("You don't have enough funds to pay")
+            raise CustomException(code=400, name=ErrorMessages.INSUFFICIENT_WALLET_BALANCE,
+                                  details="Insufficient wallet balance, please top up your wallet")
         try:
             await self.__user_wallet_service.add_wallet_transaction(amount=(bundle_price * -1),
                                                                     user_id=user.id,
@@ -355,8 +356,7 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
                                   details=f"Error while creating order: {e}")
 
-    async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO,
-                                   rule_id: str) -> Response[
+    async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO) -> Response[
         PaymentIntentResponse]:
         logger.info(f"handle_dcb_payment request {user=} {bundle=} {user_order=}")
         try:
