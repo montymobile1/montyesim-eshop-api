@@ -16,7 +16,7 @@ class MontyDCBService(DCBService):
         self.__sender_id = os.getenv("DCB_SENDER_ID", "")
         self.__data_coding = os.getenv("DCB_DATA_CODING", "0")
 
-    def send_otp(self, msisdn: str, otp: str) -> bool:
+    async def send_otp(self, msisdn: str, otp: str) -> bool:
         url = self.get_send_otp_url()
         logger.info(f"[MONTY] Sending OTP to {msisdn=} via {url=}")
         try:
