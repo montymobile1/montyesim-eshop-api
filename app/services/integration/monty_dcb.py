@@ -39,7 +39,7 @@ class MontyDCBService(DCBService):
                                           json=body,
                                           timeout=120)
                 json_response = response.json()
-                if json_response["ErrorCode"] == "0":
+                if json_response["ErrorCode"] == 0 and json_response['ErrorDescription'] == 'Ok':
                     return True
                 else:
                     logger.error(f"[MONTY] Failed to send OTP: {json_response}")
