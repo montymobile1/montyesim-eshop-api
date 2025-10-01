@@ -29,9 +29,10 @@ class MontyDCBService(DCBService):
                 }
                 headers = {
                     "Content-Type": "application/json",
-                    "Accept": "application/json"
+                    "Accept": "application/json",
+                    "Username": self.__username,
+                    "Password": self.__password
                 }
-                url = f"{url}?username{self.__username}&password={self.__password}"
                 response = client.request(method="POST",
                                           url=url,
                                           headers=headers,
