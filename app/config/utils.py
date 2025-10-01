@@ -99,6 +99,7 @@ def calculate_tax(currency: str, amount: float, reference: str, tax_code: str,
 def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, metadata: dict,
                                 ip_address: str = None) -> tuple[PaymentIntent, stripe.tax.Calculation | None]:
     try:
+        tax = None
         logger.info("Creating payment intent for wallet top-up")
         customers = stripe.Customer.list(email=user_email)
         if not customers:
