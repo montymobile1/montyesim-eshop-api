@@ -21,10 +21,6 @@ class MontyDCBService(DCBService):
         logger.info(f"[MONTY] Sending OTP to {msisdn=} via {url=}")
         try:
             with httpx.Client() as client:
-                params = {
-                    "username": self.__username,
-                    "password": self.__password,
-                }
                 body = {
                     "destination": msisdn,
                     "text": f"Your OTP code is {otp}",
@@ -35,10 +31,10 @@ class MontyDCBService(DCBService):
                     "Content-Type": "application/json",
                     "Accept": "application/json"
                 }
+                url = f"{url}?username{self.__username}&password={self.__password}"
                 response = client.request(method="POST",
-                                          url=f"{url}?username{self.__username}&password={self.__password}",
+                                          url=url,
                                           headers=headers,
-                                          params=params,
                                           json=body,
                                           timeout=120)
                 json_response = response.json()
