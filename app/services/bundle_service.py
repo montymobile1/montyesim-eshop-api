@@ -189,7 +189,7 @@ class BundleService:
         msisdn = user.metadata.get("msisdn", "")
         email = user.email
         order_id = f"{msisdn if msisdn else email}|{user_order.id}"
-        promo_code = user_order.promo_code
+        promo_code = user_order.promo_code if user_order.promo_code else user_order.referral_code
         new_price = (round((user_order.modified_amount / 100) * rate, 2)) if promo_code else None
         discount_amount = self.__get_discount_amount(promo_code) if promo_code else None
         discount_rate = self.__get_discount_rate(promo_code) if promo_code else None
