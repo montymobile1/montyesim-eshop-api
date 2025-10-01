@@ -57,7 +57,6 @@ class UserBundleService:
             if not check_bundle_available:
                 raise CustomException(code=400, name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
                                       details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
-        rate = self.__currency_service.get_rate_by_currency(x_currency)
         modified_amount = bundle.price
         amount = bundle.price
         rule_id = "0"
@@ -94,13 +93,14 @@ class UserBundleService:
             bundle = validation_response.bundle
             modified_amount = bundle.original_price
             rule_id = validation_response.rule_id
+            order.modified_amount = round(modified_amount * 100, 2)
+            order.bundle_data = bundle.model_dump_json()
             logger.info(f"scheduling background update for order {order.id}")
             # Create background task for order update
             asyncio.create_task(
                 self.__update_order_with_delay(
                     order_id=order.id,
-                    bundle=bundle,
-                    rate=rate
+                    bundle=bundle
                 )
             )
 
@@ -113,9 +113,10 @@ class UserBundleService:
             return ResponseHelper.success_data_response(response, 0)
 
         if payment_type == PaymentTypeEnum.WALLET:
-            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order, rule_id=rule_id)
+            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order, rule_id=rule_id,
+                                                      modified_amount=modified_amount)
         elif payment_type == PaymentTypeEnum.DCB:
-            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order, rule_id=rule_id)
+            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.CARD:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
                                                     assign_request=assign_request, rule_id=rule_id, request=request)
@@ -143,7 +144,8 @@ class UserBundleService:
 
         if payment_type == PaymentTypeEnum.WALLET:
             return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order,
-                                                      iccid=assign_top_up_request.iccid, rule_id="")
+                                                      iccid=assign_top_up_request.iccid, modified_amount=bundle.price,
+                                                      rule_id="")
         elif payment_type == PaymentTypeEnum.DCB:
             return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.CARD:
@@ -329,13 +331,15 @@ class UserBundleService:
 
     async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,
                                       rule_id: str,
+                                      modified_amount: float,
                                       iccid: str = None) -> Response[
         PaymentIntentResponse]:
         wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user.id)
         rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=wallet.currency)
-        bundle_price = bundle.price * rate
+        bundle_price = round(modified_amount * rate, 2)
         if wallet.balance < bundle_price:
-            raise BadRequestException("You don't have enough funds to pay")
+            raise CustomException(code=400, name=ErrorMessages.INSUFFICIENT_WALLET_BALANCE,
+                                  details="Insufficient wallet balance, please top up your wallet")
         try:
             await self.__user_wallet_service.add_wallet_transaction(amount=(bundle_price * -1),
                                                                     user_id=user.id,
@@ -348,6 +352,7 @@ class UserBundleService:
             elif user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
                 await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
                                                           payment_status=OrderStatusEnum.SUCCESS,
+                                                          payment_type=PaymentTypeEnum.WALLET,
                                                           iccid=iccid)
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
@@ -355,8 +360,7 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
                                   details=f"Error while creating order: {e}")
 
-    async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO,
-                                   rule_id: str) -> Response[
+    async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO) -> Response[
         PaymentIntentResponse]:
         logger.info(f"handle_dcb_payment request {user=} {bundle=} {user_order=}")
         try:
@@ -427,9 +431,9 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.OWN_REFERRAL_CODE_CANNOT_BE_USED,
                                   details="Own Referral Code Can not be used")
 
-    async def __update_order_with_delay(self, order_id: str, bundle: BundleDTO, rate: float):
+    async def __update_order_with_delay(self, order_id: str, bundle: BundleDTO):
         """Background task to update order with delay"""
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
         try:
             modified_amount = bundle.original_price
             amount = bundle.original_price
