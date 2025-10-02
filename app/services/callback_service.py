@@ -107,7 +107,9 @@ class CallbackService:
         except stripe.error.SignatureVerificationError:
             logger.error("Stripe webhook signature verification failed.")
             raise HTTPException(status_code=400, detail="Invalid signature")
-        return await self.__handle_payment_webhook_data(event)
+        thread = threading.Thread(target=self.__handle_payment_webhook_data, args=(event,))
+        thread.start()
+        return ResponseHelper.success_response()
 
     async def handle_payment_webhook_fake(self, request: Request):
         try:
