@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import threading
@@ -201,7 +202,7 @@ class CallbackService:
         asyncio.run(self.__sync_service.sync_bundles(page_index=page_index))
         asyncio.run(self.__sync_service.update_sync_version())
 
-    async def __handle_payment_webhook_data(self, event: dict):
+    def __handle_payment_webhook_data(self, event: dict):
         logger.debug(f"Received payment webhook.{event.get('type')}")
         if event.get("type") not in [PaymentIntentEvents.SUCCEEDED, PaymentIntentEvents.FAILED]:
             logger.info(f"Ignoring payment intent {event.get('type')}")
@@ -217,26 +218,25 @@ class CallbackService:
                 f"Ignoring payment webhook for ({environment}) running environment({os.getenv('ENVIRONMENT', 'DEV')})")
             return ResponseHelper.success_response()
         if metadata.get("user_wallet_id", None):
-            return await self.__handle_wallet_top_up(metadata, event.get("type"))
-        await self.__check_metadata_fields(metadata)
+            return self.__handle_wallet_top_up(metadata, event.get("type"))
+        self.__check_metadata_fields(metadata)
         order_id = metadata.get("order_id")
         user_id = metadata.get("user_id")
         order_type = metadata.get("order_type")
         iccid = metadata.get("iccid", None)
         promo_code = metadata.get("promo_code", None)
         rule_id = metadata.get("rule_id", None)
-        amount = metadata.get("amount", None)
         tax_calculation = metadata.get("tax_calculation", None)
         user_order = self.__user_order_repo.get_by_id(order_id)
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
-        user = self.__user_repo.get_by_id(user_id)
         payment_status = OrderStatusEnum.SUCCESS if event.get(
             "type") == "payment_intent.succeeded" else OrderStatusEnum.FAILURE
         if payment_status == OrderStatusEnum.FAILURE:
             logger.info(f"payment failed for order {order_id}")
             if promo_code:
-                await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="failed",
-                                                                      rule_id=rule_id, order_id=order_id)
+                asyncio.run(
+                    self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="failed",
+                                                                    rule_id=rule_id, order_id=order_id))
             return HTTPException(status_code=200, detail="Payment Failed")
         if payment_status == OrderStatusEnum.SUCCESS and tax_calculation:
             try:
@@ -249,20 +249,20 @@ class CallbackService:
                 logger.error(f"Error while creating tax transaction: {str(e)}")
 
         if payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.ASSIGN:
-            return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
-                                                          payment_status=payment_status,
-                                                          user_id=user_id,
-                                                          rule_id=rule_id)
+            return asyncio.run(self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
+                                                                payment_status=payment_status,
+                                                                user_id=user_id,
+                                                                rule_id=rule_id))
         elif payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.BUNDLE_TOP_UP:
             if not iccid:
                 logger.error(f"invalid iccid ({iccid}) for topup request ({user_order.id})")
                 return HTTPException(status_code=400, detail="Invalid iccid")
-            return await self.__bundle_service.top_up_bundle(bundle=bundle, user_order=user_order, iccid=iccid,
-                                                             user_id=user_id,
-                                                             payment_status=payment_status)
+            return asyncio.run(self.__bundle_service.top_up_bundle(bundle=bundle, user_order=user_order, iccid=iccid,
+                                                                   user_id=user_id,
+                                                                   payment_status=payment_status))
         return ResponseHelper.success_response()
 
-    async def __check_metadata_fields(self, metadata: dict):
+    def __check_metadata_fields(self, metadata: dict):
         if not all([metadata["order_id"], metadata["user_id"], metadata["bundle_code"]]):
             logger.error(f"Missing metadata fields: {metadata}")
             raise HTTPException(status_code=400, detail="Missing order details in metadata")
@@ -307,7 +307,7 @@ class CallbackService:
         except Exception as e:
             logger.error(f"error while sending email {str(e)}")
 
-    async def __handle_wallet_top_up(self, metadata: Dict[str, str], event_type: str):
+    def __handle_wallet_top_up(self, metadata: Dict[str, str], event_type: str):
 
         user_wallet_id = metadata.get("user_wallet_id")
         user_id = metadata.get("user_id")
@@ -318,8 +318,8 @@ class CallbackService:
             if event_type == "payment_intent.succeeded":
                 amount = (order.amount / 100)
                 logger.info(f"updating user wallet: {user_wallet} with new {amount=}")
-                await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
-                                                                        source=UserWalletTransactionSource.TOP_UP_WALLET)
+                asyncio.run(self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
+                                                                              source=UserWalletTransactionSource.TOP_UP_WALLET))
                 self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.SUCCESS})
                 logger.info(
                     f"Top-Up for user {user_id} wallet {user_wallet} with amount {amount} {order.currency} succeeded")
