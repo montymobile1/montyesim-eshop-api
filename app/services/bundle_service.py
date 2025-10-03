@@ -13,7 +13,7 @@ from app.config.push_notification_manager import fcm_service
 from app.config.utils import get_config
 from app.exceptions import BadRequestException
 from app.models.app import BundleModel
-from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel
+from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel, UserProfileBundleModel
 from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
 from app.repo.bundle_repo import BundleRepo
 from app.repo.bundle_tage_repo import BundleTagRepo
@@ -261,7 +261,9 @@ class BundleService:
         msisdn = user.metadata.get("msisdn", "")
         email = user.email
         order_id = f"{msisdn if msisdn else email}|{user_order.id}"
-        user_profile = self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
+        user_profile: UserProfileModel = self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
+        primary_bundle: UserProfileBundleModel = self.__user_profile_bundle_repo.get_first_by(
+            {"user_id": user_id, "iccid": iccid, "bundle_type": UserBundleType.PRIMARY_BUNDLE})
         bundle_type = self.__bundle_type(code=bundle.bundle_code)
         try:
             esim_hub_topup = await self.__esim_hub_service.create_reseller_topup(
@@ -296,7 +298,7 @@ class BundleService:
             "esim_hub_order_id": esim_hub_topup.orderId,
             "iccid": iccid,
             "bundle_type": UserBundleType.TOP_UP_BUNDLE,
-            "plan_started": False,
+            "plan_started": True if primary_bundle.bundle_expired is False else False,
             "bundle_expired": False,
             "bundle_data": bundle.model_dump(),
         })
