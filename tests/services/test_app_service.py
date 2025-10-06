@@ -279,7 +279,7 @@ class TestAppService(unittest.IsolatedAsyncioTestCase):
         }
         self.mock_banner_repo.list.return_value = [mock_banner]
 
-        response = self.app_service.banners(x_currency="USD", locale="en", x_platform="web")
+        response = self.app_service.banners(locale="en", x_platform="web")
         self.assertIsInstance(response, Response)
         self.assertEqual(response.status, "success")
         self.assertEqual(response.responseCode, 200)

@@ -77,12 +77,10 @@ async def test_update_sync_version_update(sync_service):
 
 @pytest.mark.asyncio
 async def test_delete_bundle(sync_service):
-    sync_service._SyncService__bundle_tag_repo.delete_by = MagicMock()
-    sync_service._SyncService__bundle_repo.delete = MagicMock()
+    sync_service.update_bundle_status = MagicMock()
 
     await sync_service.delete_bundle("bundle123")
-    sync_service._SyncService__bundle_tag_repo.delete_by.assert_called_with(where={"bundle_id": "bundle123"})
-    sync_service._SyncService__bundle_repo.delete.assert_called_with("bundle123")
+    sync_service.update_bundle_status.assert_called_with(bundle_id="bundle123", status=False)
 
 @pytest.mark.asyncio
 async def test_update_bundle_status(sync_service):
