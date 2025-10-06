@@ -98,23 +98,23 @@ class TestBundleService(unittest.IsolatedAsyncioTestCase):
         self.bundle_service._BundleService__user_profile_bundle_repo = self.mock_user_profile_bundle_repo
         self.bundle_service._BundleService__notification_repo = self.mock_notification_repo
 
-    async def test_bundle_exists_true(self):
+    def test_bundle_exists_true(self):
         self.mock_bundle_repo.get_by_id.return_value = MagicMock()
-        result = await self.bundle_service.bundle_exists("test_bundle")
+        result = self.bundle_service.bundle_exists("test_bundle")
         self.assertTrue(result)
 
-    async def test_bundle_exists_false(self):
+    def test_bundle_exists_false(self):
         self.mock_bundle_repo.get_by_id.return_value = None
-        result = await self.bundle_service.bundle_exists("test_bundle")
+        result = self.bundle_service.bundle_exists("test_bundle")
         self.assertFalse(result)
 
-    async def test_get_bundle_by_id(self):
+    def test_get_bundle_by_id(self):
         mock_bundle = MagicMock()
         self.mock_bundle_repo.get_by_id.return_value = mock_bundle
-        result = await self.bundle_service.get_bundle_by_id("test_bundle")
+        result = self.bundle_service.get_bundle_by_id("test_bundle")
         self.assertEqual(result, mock_bundle)
 
-    async def test_get_bundle(self):
+    def test_get_bundle(self):
         bundle = BundleDTO(
             bundle_code='TEST123',
             original_price=10.0,
@@ -123,7 +123,7 @@ class TestBundleService(unittest.IsolatedAsyncioTestCase):
             price_display='10.00 USD',
             display_title='Test Bundle',
             display_subtitle='Subtitle',
-            bundle_category=BundleCategoryDTO(id='1', name='Category', type='data', title='Data Category', code='CAT1'),
+            bundle_category=BundleCategoryDTO(type='data', title='Data Category', code='CAT1'),
             bundle_marketing_name='Marketing Name',
             bundle_name='Bundle Name',
             count_countries=1,
@@ -136,7 +136,7 @@ class TestBundleService(unittest.IsolatedAsyncioTestCase):
         self.mock_bundle_repo.get_bundle_by_id.return_value = bundle
         self.bundle_service._BundleService__currency_service = MagicMock()
         self.bundle_service._BundleService__currency_service.get_rate_by_currency.return_value = 1.0
-        response = await self.bundle_service.get_bundle("test_bundle", "USD", "en")
+        response = self.bundle_service.get_bundle("test_bundle", "USD", "en")
         self.assertEqual(response.status, "success")
         self.assertEqual(response.responseCode, 200)
 
@@ -146,7 +146,7 @@ class TestBundleService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status, "success")
         self.assertEqual(response.responseCode, 200)
 
-    async def test_get_bundles_by_country(self):
+    def test_get_bundles_by_country(self):
         self.mock_bundle_repo.list.return_value = []
         self.mock_tag_repo.get_by_id.return_value = MagicMock(data={
             "id": "1",
@@ -164,7 +164,7 @@ class TestBundleService(unittest.IsolatedAsyncioTestCase):
         self.mock_bundle_repo.list_in.return_value = []
         self.bundle_service._BundleService__currency_service = MagicMock()
         self.bundle_service._BundleService__currency_service.get_rate_by_currency.return_value = 1.0
-        response = await self.bundle_service.get_bundles_by_country("US", "USD", "en")
+        response = self.bundle_service.get_bundles_by_country("US", "USD", "en")
         self.assertEqual(response.status, "success")
         self.assertEqual(response.responseCode, 200)
 

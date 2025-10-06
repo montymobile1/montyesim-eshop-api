@@ -77,11 +77,12 @@ async def test_update_sync_version_update(sync_service):
 
 @pytest.mark.asyncio
 async def test_delete_bundle(sync_service):
-    sync_service._SyncService__bundle_repo.update = MagicMock()
+    sync_service._SyncService__bundle_tag_repo.delete_by = MagicMock()
+    sync_service._SyncService__bundle_repo.delete = MagicMock()
 
     await sync_service.delete_bundle("bundle123")
-    # The delete_bundle method only deactivates the bundle, it doesn't delete tags
-    sync_service._SyncService__bundle_repo.update.assert_called_with(record_id="bundle123", data={"is_active": False})
+    sync_service._SyncService__bundle_tag_repo.delete_by.assert_called_with(where={"bundle_id": "bundle123"})
+    sync_service._SyncService__bundle_repo.delete.assert_called_with("bundle123")
 
 @pytest.mark.asyncio
 async def test_update_bundle_status(sync_service):

@@ -23,7 +23,7 @@ async def bundles_by_country(
         x_device_id: str = Header(None),
         accept_language: str = Header("en"),
         x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))) -> Response:
-    return await service.get_bundles_by_country(country_codes=country_codes,currency_name=x_currency,locale=accept_language)
+    return service.get_bundles_by_country(country_codes=country_codes,currency_name=x_currency,locale=accept_language)
 
 
 @router.get("/by-region/{region_code}", response_model=Response[List[BundleDTO]],
@@ -53,6 +53,6 @@ async def translate(accept_language: str = Header("ar")):
 @router.get("/{bundle_code}", response_model=Response[BundleDTO], dependencies=[Depends(device_token)])
 async def bundle_by_code(bundle_code: str, x_device_id: str = Header(None), accept_language: str = Header("en"),x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))) -> \
         Response[BundleDTO]:
-    return await service.get_bundle(bundle_code,x_currency,accept_language)
+    return service.get_bundle(bundle_code,x_currency,accept_language)
 
 

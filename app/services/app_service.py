@@ -8,7 +8,7 @@ from loguru import logger
 
 from app.config.config import esim_hub_service_instance, send_email
 from app.config.constants import ErrorMessages
-from app.config.db import ConfigKeysEnum, PaymentTypeEnum
+from app.config.db import ConfigKeysEnum
 from app.exceptions import CustomException
 from app.models.app import DeviceModel
 from app.models.user import UserModel
@@ -170,8 +170,8 @@ class AppService:
             logger.error(f"Failed to fetch location for IP {ip}: {response.status_code} {response.text}")
         return None
 
-    def banners(self, x_currency: str, locale: str = "en", x_platform: str = "web") -> Response[List[BannerResponse]]:
+    def banners(self, locale: str = "en", x_platform: str = "web") -> Response[List[BannerResponse]]:
         banners = self.__banner_repo.list(where={"platform": x_platform})
-        logger.info(banners)
+        logger.info(f"banners {banners=} {locale=}")
         response = [BannerResponse(**banner.model_dump()) for banner in banners]
         return ResponseHelper.success_data_response(response, len(banners))
