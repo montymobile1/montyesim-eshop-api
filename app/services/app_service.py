@@ -85,7 +85,7 @@ class AppService:
         return ResponseHelper.success_response()
 
     async def delete_device(self, delete_device_request: DeleteDeviceRequest) -> Response:
-        logger.info(f"deleting device {delete_device_request.device_id}")
+        logger.info(f"deleting device {delete_device_request=}")
         return ResponseHelper.success_response()
 
     async def faq(self, accepted_language: str) -> Response[List[FaqResponse]]:

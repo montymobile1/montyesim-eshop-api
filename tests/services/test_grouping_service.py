@@ -42,39 +42,55 @@ async def test_get_all_regions(grouping_service):
 async def test_get_cruise_bundle(grouping_service):
     mock_tag = MagicMock()
     mock_tag.id = 1
-    grouping_service._GroupingService__tag_repo.list.return_value = [mock_tag]
+    grouping_service._GroupingService__tag_repo.select_procedure.return_value = [mock_tag]
+
     mock_bundle_tag = MagicMock()
     mock_bundle_tag.bundle_id = 10
     grouping_service._GroupingService__bundle_tag_repo.list.return_value = [mock_bundle_tag]
+
     mock_bundle = MagicMock()
-    mock_country = MagicMock(id=1)
-    mock_bundle.data = {'countries': [mock_country], 'other': 'data'}
-    grouping_service._GroupingService__bundle_repo.get_by_id.return_value = mock_bundle
-    with patch('app.services.grouping_service.BundleDTO', side_effect=lambda **kwargs: MagicMock(**kwargs)) as mock_bundle_dto, \
-         patch('app.services.grouping_service.DtoMapper.bundle_currency_update', side_effect=lambda dto, c, r: dto) as mock_update:
-        grouping_service._GroupingService__tag_repo.select_procedure.return_value = [MagicMock(name='CountryA', data={'country': 'CountryA'})]
+    mock_bundle.data = {'countries': [{'id': 1}], 'other': 'data'}
+    grouping_service._GroupingService__bundle_repo.list.return_value = [mock_bundle]
+
+    with patch('app.services.grouping_service.BundleDTO') as mock_bundle_dto, \
+         patch('app.services.grouping_service.DtoMapper.bundle_currency_update') as mock_update, \
+         patch('os.getenv', return_value='en'):
+
+        mock_bundle_dto_instance = MagicMock()
+        mock_bundle_dto_instance.countries = [MagicMock(id=1)]
+        mock_bundle_dto.return_value = mock_bundle_dto_instance
+        mock_update.return_value = mock_bundle_dto_instance
+
         result = await grouping_service.get_cruise_bundle(1.0, 'USD', 'en')
         assert len(result) == 1
-        mock_update.assert_called()
+        mock_update.assert_called_with(mock_bundle_dto_instance, 'USD', 1.0)
 
 @pytest.mark.asyncio
 async def test_get_global_bundle(grouping_service):
     mock_tag = MagicMock()
     mock_tag.id = 1
-    grouping_service._GroupingService__tag_repo.list.return_value = [mock_tag]
+    grouping_service._GroupingService__tag_repo.select_procedure.return_value = [mock_tag]
+
     mock_bundle_tag = MagicMock()
     mock_bundle_tag.bundle_id = 10
     grouping_service._GroupingService__bundle_tag_repo.list.return_value = [mock_bundle_tag]
+
     mock_bundle = MagicMock()
-    mock_country = MagicMock(id=1)
-    mock_bundle.data = {'countries': [mock_country], 'other': 'data'}
-    grouping_service._GroupingService__bundle_repo.get_by_id.return_value = mock_bundle
-    with patch('app.services.grouping_service.BundleDTO', side_effect=lambda **kwargs: MagicMock(**kwargs)) as mock_bundle_dto, \
-         patch('app.services.grouping_service.DtoMapper.bundle_currency_update', side_effect=lambda dto, c, r: dto) as mock_update:
-        grouping_service._GroupingService__tag_repo.select_procedure.return_value = [MagicMock(name='CountryA', data={'country': 'CountryA'})]
+    mock_bundle.data = {'countries': [{'id': 1}], 'other': 'data'}
+    grouping_service._GroupingService__bundle_repo.list.return_value = [mock_bundle]
+
+    with patch('app.services.grouping_service.BundleDTO') as mock_bundle_dto, \
+         patch('app.services.grouping_service.DtoMapper.bundle_currency_update') as mock_update, \
+         patch('os.getenv', return_value='en'):
+
+        mock_bundle_dto_instance = MagicMock()
+        mock_bundle_dto_instance.countries = [MagicMock(id=1)]
+        mock_bundle_dto.return_value = mock_bundle_dto_instance
+        mock_update.return_value = mock_bundle_dto_instance
+
         result = await grouping_service.get_global_bundle(1.0, 'USD', 'en')
         assert len(result) == 1
-        mock_update.assert_called()
+        mock_update.assert_called_with(mock_bundle_dto_instance, 'USD', 1.0)
 
 @pytest.mark.asyncio
 async def test_translate_tags(grouping_service):
@@ -83,10 +99,21 @@ async def test_translate_tags(grouping_service):
     mock_tag.name = 'TagName'
     mock_tag.data = {'foo': 'bar'}
     grouping_service._GroupingService__tag_repo.list.return_value = [mock_tag]
+
+    # Mock that no existing translation exists
+    grouping_service._GroupingService__tag_translation_repo.get_first_by.return_value = None
+    grouping_service._GroupingService__tag_translation_repo.create = MagicMock()
+
     with patch('app.services.grouping_service.GoogleTranslator') as mock_translator:
         instance = mock_translator.return_value
         instance.translate.return_value = 'TranslatedName'
-        grouping_service._GroupingService__tag_translation_repo.create = MagicMock()
+
         await grouping_service.translate_tags('fr')
+
         instance.translate.assert_called_with('TagName')
-        grouping_service._GroupingService__tag_translation_repo.create.assert_called()
+        grouping_service._GroupingService__tag_translation_repo.create.assert_called_with({
+            "tag_id": 1,
+            "locale": 'fr',
+            "name": 'TranslatedName',
+            "data": {'foo': 'bar'}
+        })
