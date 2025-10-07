@@ -190,7 +190,11 @@ class AuthService:
         referral_code = self.__generate_referral_code()
         logger.info(f"login request received: {login_request}")
         if user_exists:
-            authenticate(email=str(login_request.email), referral_code=referral_code)
+            authenticate(email=login_request.email,
+                         data={
+                             "display_email": login_request.email,
+                             "login_type": "email",
+                         })
             return ResponseHelper.success_response()
         else:
             user = self.__user_repo.get_first_by(where={"email": login_request.email}, filters={
@@ -199,7 +203,13 @@ class AuthService:
                 supabase_client().auth.admin.update_user_by_id(uid=user["id"], attributes={
                     "email": login_request.email,
                 })
-            authenticate(email=str(login_request.email), referral_code=referral_code)
+            authenticate(email=login_request.email,
+                         data={
+                             "referral_code": referral_code,
+                             "display_email": login_request.email,
+                             "should_notify": False,
+                             "login_type": "email",
+                         })
             return ResponseHelper.success_response()
 
     async def __handle_phone_login(self, login_request: LoginRequest) -> Response:
@@ -233,6 +243,9 @@ class AuthService:
                         "otp": otp,
                         "msisdn": login_request.phone,
                         "referral_code": self.__generate_referral_code(),
+                        "login_type": "phone",
+                        "should_notify": False,
+                        "display_email": user_email,
                     }
                 }
             })
