@@ -366,7 +366,7 @@ class EsimHubService:
             if "success" not in response:
                 logger.error("Failed to get exchange rates: {}".format(response))
                 return []
-            return [DtoMapper.to_exchange_rate(data) for data in response["data"]["exchangeRates"]]
+            return [DtoMapper.to_exchange_rate(data) for data in response["data"]["items"]]
         except Exception as e:
             logger.error("Failed to get exchange rates: {}".format(e))
             return []
