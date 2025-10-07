@@ -231,7 +231,8 @@ class AuthService:
             supabase_client().auth.admin.update_user_by_id(uid=user_exists.id, attributes={
                 'user_metadata': {
                     "otp": otp,
-                    "msisdn": login_request.phone
+                    "msisdn": login_request.phone,
+                    "login_type": "phone",
                 }
             })
         else:
