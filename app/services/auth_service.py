@@ -220,9 +220,10 @@ class AuthService:
         otp_expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
         user_email = login_request.email if login_request.email else f"{login_request.phone}_user@esim.com"
         user_exists: UsersCopyModel = self.__user_repo.get_first_by(where={"email": user_email})
-        user_msisdn = user_exists.metadata.get("msisdn", None)
-        if user_exists and user_msisdn and user_msisdn != login_request.phone:
-            raise CustomException(code=400, name=ErrorMessages.USER_WITH_EMAIL_ALREADY_EXISTS,
+        if user_exists:
+            user_msisdn = user_exists.metadata.get("msisdn", None)
+            if user_msisdn and user_msisdn != login_request.phone:
+                raise CustomException(code=400, name=ErrorMessages.USER_WITH_EMAIL_ALREADY_EXISTS,
                                   details=f"User with email {login_request.email} already exists for another phone number")
         otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=user_email)
         if user_exists:

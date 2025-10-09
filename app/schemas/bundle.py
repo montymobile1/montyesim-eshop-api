@@ -30,7 +30,6 @@ class AssignRequest(BaseModel):
     promo_code: Optional[str]
     affiliate_code: Optional[str]
     payment_type: Optional[PaymentTypeEnum] = PaymentTypeEnum.CARD
-    promo_code: Optional[str]
 
 
 class VerifyOtpRequestDto(BaseModel):
