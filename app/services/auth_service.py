@@ -132,7 +132,7 @@ class AuthService:
     async def update_user_info(self, user: UserModel, update_request: UpdateUserInfoRequest, currency_code: str):
         try:
             login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
-
+            user_model: UsersCopyModel = self.__user_repo.get_first_by(where={"id": user.id})
             user_metadata = {
                 'display_email': update_request.email,
                 'first_name': update_request.first_name,
@@ -140,13 +140,12 @@ class AuthService:
                 'msisdn': update_request.msisdn,
                 'should_notify': update_request.should_notify,
             }
-            if login_type == "email_phone":
+            login_type = user_model.metadata.get("login_type", login_type)
+            if login_type == "phone":
                 user_metadata.pop("msisdn")
                 user_metadata.pop("display_email")
             elif login_type == "email":
                 user_metadata.pop("display_email")
-            elif login_type == "phone":
-                user_metadata.pop("msisdn")
             response = supabase_client().auth.admin.update_user_by_id(user.id, {
                 'user_metadata': user_metadata
             })

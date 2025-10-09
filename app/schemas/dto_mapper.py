@@ -429,6 +429,9 @@ class DtoMapper:
         first_name = user_metadata.get("first_name", "")
         last_name = user_metadata.get("last_name", "")
         referral_code = user_metadata.get("referral_code", "")
+        login_type = user_metadata.get("login_type", "email")
+        email_editable = login_type != "email"
+        phone_editable = login_type != "phone"
 
         if fullname and first_name == "":
             name_parts = fullname.split()
@@ -451,6 +454,8 @@ class DtoMapper:
             referral_code=referral_code,
             balance=user_wallet.balance if user_wallet else 0,
             currency_code=currency,
+            email_editable=email_editable,
+            phone_editable=phone_editable,
         )
 
         if not hasattr(supabase_response, "session"):

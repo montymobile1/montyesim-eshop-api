@@ -57,8 +57,8 @@ class UserBundleService:
             if not check_bundle_available:
                 raise CustomException(code=400, name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
                                       details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
-        modified_amount = bundle.price
-        amount = bundle.price
+        modified_amount = bundle.original_price
+        amount = bundle.original_price
         rule_id = "0"
 
         data = {

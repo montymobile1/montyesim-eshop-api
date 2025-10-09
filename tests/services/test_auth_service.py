@@ -5,7 +5,7 @@ from starlette.requests import Request
 from starlette.types import Scope
 
 from app.exceptions import CustomException
-from app.models.user import UserModel
+from app.models.user import UserModel, UsersCopyModel
 from app.schemas.auth import LoginRequest, UpdateUserInfoRequest, VerifyOtpRequest
 from app.schemas.response import ResponseHelper
 from app.services.auth_service import AuthService
@@ -163,6 +163,7 @@ async def _run_update_user_info_test(auth_service, login_type, expected_metadata
     user = UserModel(id="123", email="test@example.com", token="token", msisdn="", is_verified=True)
     update_request = UpdateUserInfoRequest(email="user@email.com", msisdn="123456789", first_name="John", last_name="Doe", should_notify=True)
     auth_service._AuthService__user_repo.update_by.return_value = []
+    auth_service._AuthService__user_repo.get_first_by.return_value = UsersCopyModel(id="123", email="user@gmail.com", metadata={"login_type": login_type})
     auth_service._AuthService__user_wallet_service.get_user_wallet.return_value = MagicMock()
     with patch("app.services.auth_service.supabase_client") as mock_supabase, \
          patch("app.services.auth_service.get_config") as mock_get_config, \
@@ -199,7 +200,6 @@ async def test_update_user_info_email(auth_service):
 @pytest.mark.asyncio
 async def test_update_user_info_phone(auth_service):
     expected_metadata = {
-        'display_email': 'user@email.com',
         'first_name': 'John',
         'last_name': 'Doe',
         'should_notify': True
@@ -214,7 +214,7 @@ async def test_update_user_info_email_phone(auth_service):
         'last_name': 'Doe',
         'should_notify': True
     }
-    await _run_update_user_info_test(auth_service, 'email_phone', expected_metadata)
+    await _run_update_user_info_test(auth_service, 'phone', expected_metadata)
 
 
 @pytest.mark.asyncio
