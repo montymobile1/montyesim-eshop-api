@@ -130,8 +130,12 @@ class CallbackService:
         json_request = await request.json()
         system_currency_code = json_request["systemCurrencyCode"]
         currency_code = json_request["currencyCode"]
+        reseller_id = json_request["resellerId"]
         rate = json_request["newRate"]
         logger.info(f"receiving exchange rate update request {json_request}")
+        if reseller_id and reseller_id != os.getenv("RESELLER_ID"):
+            logger.info(f"ignoring exchange rate update request for reseller {reseller_id}")
+            return ResponseHelper.success_response()
         if system_currency_code != "USD":
             logger.info(f"ignoring exchange rate update request for {system_currency_code}")
             return ResponseHelper.success_response()

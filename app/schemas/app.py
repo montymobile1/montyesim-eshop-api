@@ -62,7 +62,6 @@ class ExchangeRate(BaseModel):
     currency_code: str
     current_rate: float
     new_rate: float
-    reseller_id: Optional[str] = None
 
 
 class BannerResponse(BaseModel):

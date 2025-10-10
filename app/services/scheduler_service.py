@@ -29,8 +29,6 @@ class SchedulerService:
         rates = await self.__esim_hub_service.get_exchange_rates(currency_codes=names)
         logger.info(f"exchange from esim hub: {rates}")
         for rate in rates:
-            if rate.reseller_id != os.getenv("ESIM_HUB_RESELLER_ID"):
-                continue
             logger.info(f"updating currency {rate.currency_code} to new rate {rate.new_rate} for reseller {rate.reseller_id}")
             self.__currency_repo.update_by(
                 {"name": rate.currency_code, "default_currency": "USD"},
