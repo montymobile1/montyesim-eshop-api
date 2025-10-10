@@ -526,5 +526,6 @@ class DtoMapper:
             "currency_code": data.get("currencyCode", ""),
             "current_rate": data.get("currentRate", ""),
             "new_rate": data.get("newRate", ""),
+            "reseller_id": data.get("resellerId", ""),
         }
         return ExchangeRate.model_validate(data)
