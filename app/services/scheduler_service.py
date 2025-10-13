@@ -37,7 +37,7 @@ class SchedulerService:
                 {"name": rate.currency_code, "default_currency": "USD"},
                 data={'rate': rate.current_rate}
             )
-        await self.__sync_service.update_sync_version()
+        self.__sync_service.update_sync_version()
         logger.info(f"Scheduled task execution ends at {time.strftime('%X')}")
 
     def scheduled_task(self):

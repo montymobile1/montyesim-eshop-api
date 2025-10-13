@@ -71,7 +71,7 @@ class SyncService:
         await self.delete_bundle(bundle_id=bundle.bundle_code)
         await self.sync_bundle(bundle=bundle)
 
-    async def update_sync_version(self):
+    def update_sync_version(self):
         new_key = uuid.uuid4().hex
         old_config = self.__config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
         if not old_config:
