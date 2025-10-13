@@ -184,9 +184,14 @@ class CallbackService:
                     asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
             if operation == "update":
                 asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
-                bundle = asyncio.run(
-                    self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
-                                                             currency_code=os.getenv("DEFAULT_CURRENCY")))
+                bundle = None
+                try:
+                    bundle = asyncio.run(
+                        self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
+                                                                 currency_code=os.getenv("DEFAULT_CURRENCY")))
+                except Exception as e:
+                    logger.error(f"error while fetching bundle {bundle_id}: {str(e)}")
+
                 if bundle:
                     logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
                     asyncio.run(self.__sync_service.sync_bundle(bundle))
