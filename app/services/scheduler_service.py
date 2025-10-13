@@ -9,6 +9,7 @@ from loguru import logger
 
 from app.config.config import esim_hub_service_instance
 from app.repo.currency_repo import CurrencyRepo
+from app.services.sync_service import SyncService
 
 load_dotenv()
 
@@ -19,6 +20,7 @@ class SchedulerService:
         self.scheduler = BackgroundScheduler()
         self.__esim_hub_service = esim_hub_service_instance()
         self.__started = False
+        self.__sync_service = SyncService()
 
     async def _async_scheduled_task(self):
         logger.info(f"Scheduled task execution start at {time.strftime('%X')}")
@@ -35,6 +37,7 @@ class SchedulerService:
                 {"name": rate.currency_code, "default_currency": "USD"},
                 data={'rate': rate.current_rate}
             )
+        await self.__sync_service.update_sync_version()
         logger.info(f"Scheduled task execution ends at {time.strftime('%X')}")
 
     def scheduled_task(self):
