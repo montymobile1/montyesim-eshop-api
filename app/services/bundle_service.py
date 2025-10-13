@@ -188,14 +188,15 @@ class BundleService:
         user = self.__user_repo.get_by_id(record_id=user_id)
         msisdn = user.metadata.get("msisdn", "")
         email = user.email
-        order_id = f"{msisdn if msisdn else email}|{user_order.id}"
+        unique_identifier = f"{msisdn if msisdn else email}|{user_order.id}"
+        order_id = user_order.id
         promo_code = user_order.promo_code if user_order.promo_code else user_order.referral_code
         new_price = (round((user_order.modified_amount / 100) * rate, 2)) if promo_code else None
         discount_amount = self.__get_discount_amount(promo_code) if promo_code else None
         discount_rate = self.__get_discount_rate(promo_code) if promo_code else None
         bundle_type = self.__bundle_type(code=bundle.bundle_code)
         esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
-                                                                             order_id=order_id, user=user,
+                                                                             order_id=unique_identifier, user=user,
                                                                              payment_type=payment_type,
                                                                              new_price=new_price,
                                                                              discount_amount=discount_amount,
