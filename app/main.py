@@ -16,14 +16,15 @@ from app.exceptions import CustomException
 from app.schemas.response import ResponseHelper
 from app.services.scheduler_service import SchedulerService
 
-scheduler_service = SchedulerService()
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    scheduler_service.start_scheduler()
-    yield
-    scheduler_service.shutdown_scheduler()
+    app.state.scheduler_service = SchedulerService()
+    app.state.scheduler_service.start_scheduler()
+    try:
+        yield
+    finally:
+        app.state.scheduler_service.shutdown_scheduler()
 
 
 esim_app = FastAPI(lifespan=lifespan, title="eSIM Reseller Backend Open Source",
@@ -86,6 +87,7 @@ async def global_exception_handler(request: Request, exc: CustomException):
             content=jsonable_encoder(response_data),
         )
     except Exception as e:
+        logger.error(f"Error in CustomException handler: {e}")
         response_data = ResponseHelper.error_response(status_code=500, title="INTERNAL_SERVER_ERROR",
                                                       error="INTERNAL_SERVER_ERROR",
                                                       developer_message="INTERNAL_SERVER_ERROR")
@@ -97,20 +99,20 @@ async def global_exception_handler(request: Request, exc: CustomException):
 
 @esim_app.exception_handler(RequestValidationError)
 async def handle_request_validation_exception(request: Request, exc: ValidationException):
-    return await handle_validations(request, exc)
+    return handle_validations(request, exc)
 
 
 @esim_app.exception_handler(ValidationError)
 async def handle_validation_error(request: Request, exc: ValidationException):
-    return await handle_validations(request, exc)
+    return handle_validations(request, exc)
 
 
 @esim_app.exception_handler(ValidationException)
 async def handle_validation_exception(request: Request, exc: ValidationException):
-    return await handle_validations(request, exc)
+    return handle_validations(request, exc)
 
 
-async def handle_validations(request: Request, exc):
+def handle_validations(request: Request, exc):
     logger.error(f"RequestValidationError: {exc} {request.url.path}")
     errors = exc.errors()
     formatted_errors = []

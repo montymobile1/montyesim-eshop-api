@@ -132,7 +132,7 @@ class AuthService:
     async def update_user_info(self, user: UserModel, update_request: UpdateUserInfoRequest, currency_code: str):
         try:
             login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
-
+            user_model: UsersCopyModel = self.__user_repo.get_first_by(where={"id": user.id})
             user_metadata = {
                 'display_email': update_request.email,
                 'first_name': update_request.first_name,
@@ -140,13 +140,12 @@ class AuthService:
                 'msisdn': update_request.msisdn,
                 'should_notify': update_request.should_notify,
             }
-            if login_type == "email_phone":
+            login_type = user_model.metadata.get("login_type", login_type)
+            if login_type == "phone":
                 user_metadata.pop("msisdn")
                 user_metadata.pop("display_email")
             elif login_type == "email":
                 user_metadata.pop("display_email")
-            elif login_type == "phone":
-                user_metadata.pop("msisdn")
             response = supabase_client().auth.admin.update_user_by_id(user.id, {
                 'user_metadata': user_metadata
             })
@@ -190,7 +189,11 @@ class AuthService:
         referral_code = self.__generate_referral_code()
         logger.info(f"login request received: {login_request}")
         if user_exists:
-            authenticate(email=str(login_request.email), referral_code=referral_code)
+            authenticate(email=login_request.email,
+                         data={
+                             "display_email": login_request.email,
+                             "login_type": "email",
+                         })
             return ResponseHelper.success_response()
         else:
             user = self.__user_repo.get_first_by(where={"email": login_request.email}, filters={
@@ -199,11 +202,16 @@ class AuthService:
                 supabase_client().auth.admin.update_user_by_id(uid=user["id"], attributes={
                     "email": login_request.email,
                 })
-            authenticate(email=str(login_request.email), referral_code=referral_code)
+            authenticate(email=login_request.email,
+                         data={
+                             "referral_code": referral_code,
+                             "display_email": login_request.email,
+                             "should_notify": False,
+                             "login_type": "email",
+                         })
             return ResponseHelper.success_response()
 
     async def __handle_phone_login(self, login_request: LoginRequest) -> Response:
-        # user_email = f"{login_request.phone}_esim@gmail.com"
         old_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
                                                                  filters={
                                                                      "metadata->>msisdn": login_request.phone})
@@ -212,8 +220,10 @@ class AuthService:
         otp_expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
         user_email = login_request.email if login_request.email else f"{login_request.phone}_user@esim.com"
         user_exists: UsersCopyModel = self.__user_repo.get_first_by(where={"email": user_email})
-        if user_exists and user_exists.metadata.get("msisdn", "") != login_request.phone:
-            raise CustomException(code=400, name=ErrorMessages.USER_WITH_EMAIL_ALREADY_EXISTS,
+        if user_exists:
+            user_msisdn = user_exists.metadata.get("msisdn", None)
+            if user_msisdn and user_msisdn != login_request.phone:
+                raise CustomException(code=400, name=ErrorMessages.USER_WITH_EMAIL_ALREADY_EXISTS,
                                   details=f"User with email {login_request.email} already exists for another phone number")
         otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=user_email)
         if user_exists:
@@ -221,7 +231,8 @@ class AuthService:
             supabase_client().auth.admin.update_user_by_id(uid=user_exists.id, attributes={
                 'user_metadata': {
                     "otp": otp,
-                    "msisdn": login_request.phone
+                    "msisdn": login_request.phone,
+                    "login_type": "phone",
                 }
             })
         else:
@@ -233,6 +244,9 @@ class AuthService:
                         "otp": otp,
                         "msisdn": login_request.phone,
                         "referral_code": self.__generate_referral_code(),
+                        "login_type": "phone",
+                        "should_notify": False,
+                        "display_email": user_email,
                     }
                 }
             })

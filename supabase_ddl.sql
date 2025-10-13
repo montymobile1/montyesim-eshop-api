@@ -39,13 +39,24 @@ grant select, update, usage on sequence device_id_seq to service_role;
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on device to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on device to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on device to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on device to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on device to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on device to service_role;
 
 create table contact_us
 (
@@ -67,13 +78,24 @@ grant select, update, usage on sequence contact_us_id_seq to service_role;
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on contact_us to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on contact_us to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on contact_us to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on contact_us to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on contact_us to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on contact_us to service_role;
 
 create table notification
 (
@@ -101,13 +123,24 @@ grant select, update, usage on sequence notification_id_seq to service_role;
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on notification to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on notification to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on notification to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on notification to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on notification to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on notification to service_role;
 
 create table users_copy
 (
@@ -123,13 +156,24 @@ alter table users_copy
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on users_copy to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on users_copy to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on users_copy to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on users_copy to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on users_copy to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on users_copy to service_role;
 
 create table app_config
 (
@@ -152,13 +196,24 @@ grant select, update, usage on sequence app_config_id_seq to service_role;
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on app_config to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on app_config to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on app_config to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on app_config to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on app_config to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on app_config to service_role;
 
 create table promotion_rule_action
 (
@@ -172,13 +227,24 @@ alter table promotion_rule_action
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on promotion_rule_action to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on promotion_rule_action to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on promotion_rule_action to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on promotion_rule_action to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on promotion_rule_action to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on promotion_rule_action to service_role;
 
 create table promotion_rule_event
 (
@@ -192,13 +258,24 @@ alter table promotion_rule_event
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on promotion_rule_event to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on promotion_rule_event to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on promotion_rule_event to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on promotion_rule_event to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on promotion_rule_event to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on promotion_rule_event to service_role;
 
 create table promotion_rule
 (
@@ -226,13 +303,24 @@ alter table promotion_rule
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on promotion_rule to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on promotion_rule to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on promotion_rule to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on promotion_rule to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on promotion_rule to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on promotion_rule to service_role;
 
 create table promotion
 (
@@ -294,7 +382,8 @@ create table user_order
         references promotion (code),
     referral_code       varchar(50) default NULL::character varying,
     modified_amount     real,
-    otp                 varchar
+    otp                 varchar,
+    payment_type        varchar(100) default null
 );
 
 alter table user_order
@@ -302,13 +391,24 @@ alter table user_order
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on user_order to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on user_order to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on user_order to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on user_order to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on user_order to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on user_order to service_role;
 
 create table user_profile
 (
@@ -335,13 +435,24 @@ alter table user_profile
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on user_profile to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on user_profile to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on user_profile to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on user_profile to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on user_profile to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on user_profile to service_role;
 
 create table user_profile_bundle
 (
@@ -376,22 +487,45 @@ grant select, update, usage on sequence user_profile_bundle_id_seq to service_ro
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on user_profile_bundle to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on user_profile_bundle to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on user_profile_bundle to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on user_profile_bundle to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on user_profile_bundle to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on user_profile_bundle to service_role;
 
-grant delete
-, insert, references, select, trigger, truncate, update on promotion to anon;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on promotion to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on promotion to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on promotion to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on promotion to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on promotion to service_role;
 
 create table promotion_usage
 (
@@ -421,13 +555,24 @@ alter table promotion_usage
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on promotion_usage to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on promotion_usage to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on promotion_usage to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on promotion_usage to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on promotion_usage to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on promotion_usage to service_role;
 
 create table user_wallet
 (
@@ -450,13 +595,24 @@ alter table user_wallet
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on user_wallet to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on user_wallet to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on user_wallet to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on user_wallet to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on user_wallet to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on user_wallet to service_role;
 
 create table user_wallet_transaction
 (
@@ -481,13 +637,24 @@ alter table user_wallet_transaction
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on user_wallet_transaction to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on user_wallet_transaction to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on user_wallet_transaction to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on user_wallet_transaction to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on user_wallet_transaction to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on user_wallet_transaction to service_role;
 
 create table bundle
 (
@@ -512,13 +679,24 @@ alter table bundle
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on bundle to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on bundle to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on bundle to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on bundle to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on bundle to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on bundle to service_role;
 
 create table tag_group
 (
@@ -546,13 +724,24 @@ grant select, update, usage on sequence tag_group_id_seq to service_role;
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on tag_group to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on tag_group to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on tag_group to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on tag_group to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on tag_group to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on tag_group to service_role;
 
 create table tag
 (
@@ -575,13 +764,24 @@ alter table tag
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on tag to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on tag to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on tag to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on tag to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on tag to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on tag to service_role;
 
 create table bundle_tag
 (
@@ -609,13 +809,24 @@ grant select, update, usage on sequence bundle_tag_id_seq to service_role;
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on bundle_tag to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on bundle_tag to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on bundle_tag to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on bundle_tag to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on bundle_tag to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on bundle_tag to service_role;
 
 create table currency
 (
@@ -639,13 +850,24 @@ grant select, update, usage on sequence currency_id_seq to service_role;
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on currency to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on currency to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on currency to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on currency to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on currency to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on currency to service_role;
 
 create table voucher
 (
@@ -673,13 +895,24 @@ grant select, update, usage on sequence voucher_id_seq to service_role;
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on voucher to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on voucher to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on voucher to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on voucher to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on voucher to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on voucher to service_role;
 
 create table tag_translation
 (
@@ -704,13 +937,24 @@ grant select, update, usage on sequence tag_translation_id_seq to service_role;
 
 grant
 delete
-, insert, references, select, trigger, truncate, update on tag_translation to anon;
+, insert, references,
+select, trigger, truncate,
+update
+on tag_translation to anon;
 
-grant delete
-, insert, references, select, trigger, truncate, update on tag_translation to authenticated;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on tag_translation to authenticated;
 
-grant delete
-, insert, references, select, trigger, truncate, update on tag_translation to service_role;
+grant
+delete
+, insert, references,
+select, trigger, truncate,
+update
+on tag_translation to service_role;
 
 create table banner
 (
@@ -2272,3 +2516,10 @@ create index idx_user_otp_mobile
 
 create index idx_user_otp_otp
     on user_otp (otp);
+
+
+INSERT INTO tag_group("id", "name", "type", "is_active", "created_at", "updated_at", "group_category")
+VALUES ('1', 'Countries', '1', 'true', now(), now(), 'on_land'),
+       ('2', 'Regions', '1', 'true', now(), now(), 'on_land'),
+       ('3', 'Cruise', '1', 'true', now(), now(), 'at_sea'),
+       ('4', 'Global', '2', 'true', now(), now(), 'on_land');

@@ -56,7 +56,7 @@ class PromotionService:
                                       locale: str = "en") -> Response[BundleDTO]:
         from app.services.bundle_service import BundleService
         bundle_service = BundleService()
-        bundle_response = await bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
+        bundle_response = bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
                                                           currency_name=x_currency, locale=locale)
         bundle: BundleDTO = bundle_response.data
         validation_response = await self.validate_promo_code(code=promotion_validation_request.promo_code,

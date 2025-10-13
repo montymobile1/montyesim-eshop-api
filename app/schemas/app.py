@@ -61,7 +61,7 @@ class ExchangeRate(BaseModel):
     system_currency_code: str
     currency_code: str
     current_rate: float
-    new_rate: float
+    new_rate: Optional[float] = None
 
 
 class BannerResponse(BaseModel):

@@ -57,8 +57,8 @@ class UserBundleService:
             if not check_bundle_available:
                 raise CustomException(code=400, name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
                                       details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
-        modified_amount = bundle.price
-        amount = bundle.price
+        modified_amount = bundle.original_price
+        amount = bundle.original_price
         rule_id = "0"
 
         data = {
@@ -126,7 +126,7 @@ class UserBundleService:
 
     async def assign_top_up(self, user: UserModel, assign_top_up_request: AssignTopUpRequest, device_id: str,
                             request: Request, x_currency: str, locale: str) -> Response:
-        bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_top_up_request.bundle_code,
+        bundle_response = self.__bundle_service.get_bundle(bundle_id=assign_top_up_request.bundle_code,
                                                                  currency_name=x_currency, locale=locale)
         bundle = bundle_response.data
 
@@ -250,8 +250,8 @@ class UserBundleService:
         bundles = await self.__esim_hub_service.get_topup_related_bundles(order_id=profile.esim_hub_order_id)
         all_bundles = []
         for bundle in bundles:
-            if await self.__bundle_service.bundle_exists(bundle.bundle_code):
-                local_bundle = await self.__bundle_service.get_bundle(bundle_id=bundle.bundle_code,
+            if self.__bundle_service.bundle_exists(bundle.bundle_code):
+                local_bundle = self.__bundle_service.get_bundle(bundle_id=bundle.bundle_code,
                                                                       currency_name=currency_code,
                                                                       locale=accept_language)
                 logger.debug(f"local bundle {local_bundle.data}")

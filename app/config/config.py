@@ -6,6 +6,7 @@ import qrcode
 from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, Template
 from loguru import logger
+from pydantic import EmailStr
 from supabase import create_client, Client
 from supabase.lib.client_options import SyncClientOptions
 
@@ -76,14 +77,11 @@ def dcb_service_instance() -> DCBService:
     return DCBService(send_otp_url=os.getenv("DCB_SEND_OTP_URL", ""), verify_otp_url="", api_key="", charge_url="")
 
 
-def authenticate(email: str, referral_code: str):
+def authenticate(email: str | EmailStr, data: dict):
     return supabase_client().auth.sign_in_with_otp(credentials={
         "email": email,
         "options": {
-            "data": {
-                "referral_code": referral_code,
-                "display_name": email,
-            }
+            "data": data
         }
     })
 

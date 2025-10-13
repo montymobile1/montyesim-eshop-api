@@ -63,6 +63,8 @@ class UserInfo(BaseModel):
     country: Optional[str] = None
     country_code: Optional[str] = None
     email: Optional[EmailStr] = None
+    email_editable: Optional[bool] = True
+    phone_editable: Optional[bool] = True
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 

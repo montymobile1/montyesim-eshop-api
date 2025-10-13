@@ -13,7 +13,7 @@ from app.config.push_notification_manager import fcm_service
 from app.config.utils import get_config
 from app.exceptions import BadRequestException
 from app.models.app import BundleModel
-from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel
+from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel, UserProfileBundleModel
 from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
 from app.repo.bundle_repo import BundleRepo
 from app.repo.bundle_tage_repo import BundleTagRepo
@@ -42,7 +42,7 @@ class BundleService:
         self.__user_profile_bundle_repo = UserProfileBundleRepo()
         self.__promotion_service = PromotionService()
 
-    async def bundle_exists(self, bundle_id: str) -> bool:
+    def bundle_exists(self, bundle_id: str) -> bool:
         try:
             bundle = self.__bundle_repo.get_by_id(record_id=bundle_id)
             return bundle is not None
@@ -50,7 +50,7 @@ class BundleService:
             logger.error(f"error while getting bundle {e}")
             return False
 
-    async def get_bundle_by_id(self, bundle_id: str) -> BundleModel | None:
+    def get_bundle_by_id(self, bundle_id: str) -> BundleModel | None:
         try:
             bundle = self.__bundle_repo.get_by_id(record_id=bundle_id)
             return bundle
@@ -58,7 +58,7 @@ class BundleService:
             logger.error(f"error while getting bundle {e}")
             return None
 
-    async def get_bundle(self, bundle_id: str, currency_name: str, locale: str = "en") -> Response[BundleDTO]:
+    def get_bundle(self, bundle_id: str, currency_name: str, locale: str = "en") -> Response[BundleDTO]:
         bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=bundle_id)
         rate = self.__currency_service.get_rate_by_currency(currency_name)
 
@@ -78,7 +78,7 @@ class BundleService:
         regions = await self.__grouping_service.get_all_regions(locale=locale)
         return ResponseHelper.success_data_response(regions, len(regions))
 
-    async def get_bundles_by_country(self, country_codes: str, currency_name: str, locale: str) -> Response[
+    def get_bundles_by_country(self, country_codes: str, currency_name: str, locale: str) -> Response[
         List[BundleDTO]]:
         if country_codes is None or len(country_codes) == 0:
             raise BadRequestException("country_codes cannot be empty")
@@ -86,7 +86,7 @@ class BundleService:
         first_tag = self.__tag_repo.get_by_id(country_codes.split(",")[0])
         country = CountryDTO.model_validate(first_tag.data)
 
-        tags = self.__tag_repo.list_in(where={}, filter={"id": [item for item in country_codes.split(',')]})
+        tags = self.__tag_repo.list_in(where={}, filter={"id": list(country_codes.split(','))})
 
         if not tags:
             raise BadRequestException("country_codes not found")
@@ -100,7 +100,7 @@ class BundleService:
         for row in results.data:
             bundle_map[row["bundle_id"]].add(row["tag_id"])
 
-        target_tag_set = set([item.id for item in tags])
+        target_tag_set = {item.id for item in tags}
         matching_bundle_ids = [
             bundle_id for bundle_id, tags in bundle_map.items()
             if tags >= target_tag_set
@@ -261,7 +261,9 @@ class BundleService:
         msisdn = user.metadata.get("msisdn", "")
         email = user.email
         order_id = f"{msisdn if msisdn else email}|{user_order.id}"
-        user_profile = self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
+        user_profile: UserProfileModel = self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
+        primary_bundle: UserProfileBundleModel = self.__user_profile_bundle_repo.get_first_by(
+            {"user_id": user_id, "iccid": iccid, "bundle_type": UserBundleType.PRIMARY_BUNDLE})
         bundle_type = self.__bundle_type(code=bundle.bundle_code)
         try:
             esim_hub_topup = await self.__esim_hub_service.create_reseller_topup(
@@ -296,7 +298,7 @@ class BundleService:
             "esim_hub_order_id": esim_hub_topup.orderId,
             "iccid": iccid,
             "bundle_type": UserBundleType.TOP_UP_BUNDLE,
-            "plan_started": False,
+            "plan_started": True if primary_bundle.bundle_expired is False else False,
             "bundle_expired": False,
             "bundle_data": bundle.model_dump(),
         })
@@ -353,7 +355,7 @@ class BundleService:
 
             if key not in filtered_bundles_dict or price < filtered_bundles_dict[key].price:
                 filtered_bundles_dict[key] = bundle
-        items = list(filtered_bundles_dict.values())
+        items = filtered_bundles_dict.values()
         sorted_bundles = sorted(items, key=lambda item: item.price, reverse=False)
         return sorted_bundles
 

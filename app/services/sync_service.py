@@ -47,12 +47,18 @@ class SyncService:
         logger.info("Syncing bundles finished")
 
     async def sync_bundle(self, bundle: BundleDTO):
+        countries = bundle.countries
+        regions = bundle.bundle_region
         try:
-            countries = bundle.countries
             await self.__sync_country_tags(countries)
-            regions = bundle.bundle_region
+        except Exception as e:
+            logger.error(f"Error while syncing country tags: {e}")
+        try:
             regions = list(filter(lambda r: r.region_code != "GLOBAL", regions))
             await self.__sync_region_tags(regions)
+        except Exception as e:
+            logger.error(f"Error while syncing region tags: {e}")
+        try:
             if not self.__bundle_repo.get_by_id(bundle.bundle_code):
                 await self.__handle_create_bundle(bundle=bundle, countries=countries, regions=regions)
             else:
