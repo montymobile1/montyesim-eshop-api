@@ -30,7 +30,7 @@ class SchedulerService:
         logger.info(f"exchange from esim hub: {rates}")
         for rate in rates:
             logger.info(
-                f"updating currency {rate.currency_code=} to  {rate.current_rate=} for reseller {rate.reseller_id=}")
+                f"updating currency {rate.currency_code=} to  {rate.current_rate=}")
             self.__currency_repo.update_by(
                 {"name": rate.currency_code, "default_currency": "USD"},
                 data={'rate': rate.current_rate}

@@ -191,15 +191,20 @@ class CallbackService:
                     asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
             if operation == "update":
                 asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
-                bundle = asyncio.run(
-                    self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
+                bundle = None
+                try:
+                    bundle = asyncio.run(
+                        self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
                                                              currency_code=os.getenv("DEFAULT_CURRENCY")))
-                if bundle:
-                    logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
-                    asyncio.run(self.__sync_service.sync_bundle(bundle))
+                except Exception as e:
+                    logger.error(f"error while fetching bundle {bundle_id} from esim hub: {str(e)}")
+                finally:
+                    if bundle:
+                        logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
+                        asyncio.run(self.__sync_service.sync_bundle(bundle))
             asyncio.run(self.__sync_service.update_sync_version())
         except Exception as e:
-            logger.error(f"error while syncing bundle {id}: {str(e)}")
+            logger.error(f"error while syncing bundle {bundle_id}: {str(e)}")
 
     def __run_full_sync(self, page_index=1):
         import asyncio
