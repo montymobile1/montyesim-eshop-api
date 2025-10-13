@@ -29,10 +29,11 @@ class SchedulerService:
         rates = await self.__esim_hub_service.get_exchange_rates(currency_codes=names)
         logger.info(f"exchange from esim hub: {rates}")
         for rate in rates:
-            logger.info(f"updating currency {rate.currency_code} to new rate {rate.new_rate} for reseller {rate.reseller_id}")
+            logger.info(
+                f"updating currency {rate.currency_code=} to  {rate.current_rate=} for reseller {rate.reseller_id=}")
             self.__currency_repo.update_by(
                 {"name": rate.currency_code, "default_currency": "USD"},
-                data={'rate': rate.new_rate}
+                data={'rate': rate.current_rate}
             )
         logger.info(f"Scheduled task execution ends at {time.strftime('%X')}")
 
