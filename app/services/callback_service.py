@@ -148,6 +148,7 @@ class CallbackService:
             return ResponseHelper.success_response()
         currency_repo.update_by(where={"name": currency_code, "default_currency": "USD"}, data={"rate": rate})
         logger.info(f"updated exchange rate for {currency_code} to {rate}")
+        await self.__sync_service.update_sync_version()
         return ResponseHelper.success_response()
 
     async def handle_sync_one_bundle(self, request: Request):
