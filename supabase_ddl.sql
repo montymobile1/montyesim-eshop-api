@@ -2523,3 +2523,8 @@ VALUES ('1', 'Countries', '1', 'true', now(), now(), 'on_land'),
        ('2', 'Regions', '1', 'true', now(), now(), 'on_land'),
        ('3', 'Cruise', '1', 'true', now(), now(), 'at_sea'),
        ('4', 'Global', '2', 'true', now(), now(), 'on_land');
+
+
+create trigger on_auth_users_changed
+after insert or update or delete on auth.users
+for each row execute function public.sync_users_copy();
