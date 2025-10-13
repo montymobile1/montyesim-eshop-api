@@ -401,6 +401,7 @@ class EsimHubService:
                         raise EsimHubException(f"eSIM Hub API request failed: {response.status_code}")
                 return response.json()
         except Exception as e:
+            logger.error(f"Error during eSIM Hub API request ({base_url+path}): {str(e)}")
             # Raise CustomException as is, otherwise wrap in EsimHubException
             from app.exceptions import CustomException
             if isinstance(e, CustomException):
