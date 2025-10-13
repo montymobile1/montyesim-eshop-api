@@ -5,6 +5,7 @@ import threading
 from datetime import datetime
 from typing import Dict
 
+import anyio.from_thread
 import stripe
 from fastapi import Request, HTTPException
 from loguru import logger
@@ -194,7 +195,7 @@ class CallbackService:
                 asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
                 bundle = None
                 try:
-                    bundle = asyncio.run(
+                    bundle = anyio.from_thread.run(
                         self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
                                                              currency_code=os.getenv("DEFAULT_CURRENCY")))
                 except Exception as e:

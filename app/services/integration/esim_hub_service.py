@@ -382,7 +382,7 @@ class EsimHubService:
         if base_url is None:
             base_url = self.__base_url
         try:
-            with httpx.Client() as client:
+            with httpx.AsyncClient() as client:
                 headers["Tenant"] = self.__tenant_key
                 headers["Content-Type"] = "application/json"
                 headers["Accept"] = "application/json"
