@@ -1,3 +1,4 @@
+import json
 import asyncio
 import json
 import os
@@ -5,7 +6,6 @@ import threading
 from datetime import datetime
 from typing import Dict
 
-import anyio.from_thread
 import stripe
 from fastapi import Request, HTTPException
 from loguru import logger
@@ -174,34 +174,35 @@ class CallbackService:
             if reseller_id and reseller_id == os.getenv("RESELLER_ID"):
                 if operation == "delete":
                     logger.info(f"deleting bundle {bundle_id} for reseller {reseller_id}")
-                    anyio.from_thread.run(self.__sync_service.delete_bundle, bundle_id)
+                    asyncio.run(self.__sync_service.delete_bundle(bundle_id))
                 elif operation == "assign" or operation == "edit_price":
                     logger.info(f"{operation} for bundle {bundle_id} for reseller {reseller_id}")
-                    bundle = anyio.from_thread.run(
-                        self.__esim_hub_service.get_bundle_by_id, bundle_id,
-                        os.getenv("DEFAULT_CURRENCY"))
-                    anyio.from_thread.run(self.__sync_service.sync_bundle, bundle)
+                    bundle = asyncio.run(
+                        self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
+                                                                 currency_code=os.getenv("DEFAULT_CURRENCY")))
+                    asyncio.run(self.__sync_service.sync_bundle(bundle=bundle))
                 elif operation == "unassign":
                     logger.info(f"unassigning bundle {bundle_id} for reseller {reseller_id}")
-                    anyio.from_thread.run(self.__sync_service.delete_bundle, bundle_id)
+                    asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
                 elif operation == "activate":
                     logger.info(f"activating bundle {bundle_id} for reseller {reseller_id}")
-                    anyio.from_thread.run(self.__sync_service.update_bundle_status, bundle_id, True)
+                    asyncio.run(self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=True))
                 elif operation == "deactivate":
                     logger.info(f"deactivating bundle {bundle_id} for reseller {reseller_id}")
-                    anyio.from_thread.run(self.__sync_service.delete_bundle, bundle_id)
+                    asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
             if operation == "update":
-                anyio.from_thread.run(self.__sync_service.delete_bundle, bundle_id)
+                asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
                 bundle = None
                 try:
-                    bundle = anyio.from_thread.run(
-                        self.__esim_hub_service.get_bundle_by_id, bundle_id, os.getenv("DEFAULT_CURRENCY"))
+                    bundle = asyncio.run(
+                        self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
+                                                                 currency_code=os.getenv("DEFAULT_CURRENCY")))
                 except Exception as e:
                     logger.error(f"error while fetching bundle {bundle_id} from esim hub: {str(e)}")
                 finally:
                     if bundle:
                         logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
-                        anyio.from_thread.run(self.__sync_service.sync_bundle, bundle)
+                        asyncio.run(self.__sync_service.sync_bundle(bundle=bundle))
             self.__sync_service.update_sync_version()
         except Exception as e:
             logger.error(f"error while syncing bundle {bundle_id}: {str(e)}")
