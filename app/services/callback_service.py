@@ -1,5 +1,4 @@
 import asyncio
-import asyncio
 import json
 import os
 import queue
@@ -9,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Optional
 
+import anyio.from_thread
 import stripe
 from fastapi import Request, HTTPException
 from loguru import logger
@@ -89,11 +89,12 @@ class CallbackService:
             except Exception as e:
                 logger.error(f"Error in sync queue processor: {str(e)}")
 
-    async def _execute_sync_request(self, sync_request: SyncRequest):
+    def _execute_sync_request(self, sync_request: SyncRequest):
         """Execute a single sync request"""
         try:
             logger.info(f"Processing sync request: {sync_request.bundle_id}, operation: {sync_request.operation}")
-            await self.__run_one_sync_internal(sync_request.bundle_id, sync_request.operation, sync_request.reseller_id)
+            anyio.from_thread.run(self.__run_one_sync_internal, sync_request.bundle_id, sync_request.operation,
+                                  sync_request.reseller_id)
             logger.info(f"Completed sync request: {sync_request.bundle_id}")
         except Exception as e:
             logger.error(f"Error processing sync request {sync_request.bundle_id}: {str(e)}")
