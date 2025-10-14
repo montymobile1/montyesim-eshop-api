@@ -22,7 +22,7 @@ class EsimHubService:
         self.__tenant_key = tenant_key
         # Create a single client with connection limits to prevent resource exhaustion
         self.__client = httpx.AsyncClient(
-            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+            limits=httpx.Limits(max_keepalive_connections=int(os.getenv("MAX_KEEPALIVE_CONNECTIONS",100)), max_connections=int(os.getenv("MAX_CONNECTIONS",200))),
             timeout=httpx.Timeout(120.0)
         )
 
