@@ -3,12 +3,12 @@ import json
 import os
 import queue
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, Optional
 
-import anyio.from_thread
 import stripe
 from fastapi import Request, HTTPException
 from loguru import logger
@@ -53,7 +53,7 @@ class CallbackService:
         self.__bundle_service = BundleService()
 
         # In-memory queue and resource management
-        self.__sync_queue = queue.Queue()
+        self.__sync_queue = queue.Queue(maxsize=int(os.getenv("SYNC_QUEUE_MAX_SIZE", 1000)))
         self.__max_workers = int(os.getenv("SYNC_MAX_WORKERS", "5"))  # Configurable max workers
         self.__executor = ThreadPoolExecutor(max_workers=self.__max_workers, thread_name_prefix="sync-worker")
         self.__queue_processor_started = False
@@ -78,9 +78,9 @@ class CallbackService:
                 if sync_request is None:  # Shutdown signal
                     break
 
-                # Submit to thread pool for processing
-                future = self.__executor.submit(self._execute_sync_request, sync_request)
-                logger.info(f"executing sync request {future.result()}")
+                # Submit to thread pool for processing - don't wait for result
+
+
                 # Mark task as done
                 self.__sync_queue.task_done()
 
@@ -93,8 +93,8 @@ class CallbackService:
         """Execute a single sync request"""
         try:
             logger.info(f"Processing sync request: {sync_request.bundle_id}, operation: {sync_request.operation}")
-            anyio.from_thread.run(self.__run_one_sync_internal, sync_request.bundle_id, sync_request.operation,
-                                  sync_request.reseller_id)
+            asyncio.run(self.__run_one_sync_internal(sync_request.bundle_id, sync_request.operation,
+                                                     sync_request.reseller_id))
             logger.info(f"Completed sync request: {sync_request.bundle_id}")
         except Exception as e:
             logger.error(f"Error processing sync request {sync_request.bundle_id}: {str(e)}")
@@ -217,34 +217,32 @@ class CallbackService:
         reseller_id = json_data.get("reseller_id", None)
 
         # Start queue processor if not already running
-        self._start_queue_processor()
+
 
         # Add sync request to queue instead of creating thread
         sync_request = SyncRequest(bundle_id=bundle_id, operation=operation, reseller_id=reseller_id)
-        self.__sync_queue.put(sync_request)
+        self.__executor.submit(self._execute_sync_request, sync_request)
+        logger.debug(f"Submitted sync request to thread pool: {sync_request.bundle_id}")
 
-        queue_size = self.__sync_queue.qsize()
-        logger.info(f"Added sync request to queue. Queue size: {queue_size}")
+        logger.info(f"Added sync request to queue. Queue size: {self.__executor._work_queue.qsize()}")
 
         return ResponseHelper.success_response()
 
     def handle_sync_one_bundle_by_id(self, request: Request, id: str):
         logger.info(f"receiving bundle sync request {id}")
 
-        # Start queue processor if not already running
-        self._start_queue_processor()
 
         # Add sync request to queue instead of creating thread
         sync_request = SyncRequest(bundle_id=id, operation="update")
-        self.__sync_queue.put(sync_request)
+        self.__executor.submit(self._execute_sync_request, sync_request)
+        logger.debug(f"Submitted sync request to thread pool: {sync_request.bundle_id}")
 
-        queue_size = self.__sync_queue.qsize()
-        logger.info(f"Added sync request to queue. Queue size: {queue_size}")
+        logger.info(f"Added sync request to queue. Queue size: {self.__executor._work_queue.qsize()}")
 
         return ResponseHelper.success_response()
 
     async def __run_one_sync_internal(self, bundle_id: str, operation: str, reseller_id: str = None):
-        """Internal method that actually performs the sync work - called by queue processor"""
+        """Internal method that actually performs tkhe sync work - called by queue processor"""
         try:
             if reseller_id and reseller_id == os.getenv("RESELLER_ID"):
                 if operation == "delete":
