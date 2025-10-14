@@ -1,9 +1,7 @@
 import asyncio
 import json
 import os
-import queue
 import threading
-import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
@@ -29,6 +27,7 @@ from app.schemas.response import ResponseHelper
 from app.services.bundle_service import BundleService
 from app.services.promotion_service import PromotionService
 from app.services.sync_service import SyncService
+from app.services.task_executor import TaskExecutor
 from app.services.user_wallet_service import UserWalletService
 
 
@@ -51,43 +50,11 @@ class CallbackService:
         self.__user_wallet_service = UserWalletService()
         self.__promotion_service = PromotionService()
         self.__bundle_service = BundleService()
+        self.__task_executor = TaskExecutor()
 
         # In-memory queue and resource management
-        self.__sync_queue = queue.Queue(maxsize=int(os.getenv("SYNC_QUEUE_MAX_SIZE", 1000)))
         self.__max_workers = int(os.getenv("SYNC_MAX_WORKERS", "5"))  # Configurable max workers
         self.__executor = ThreadPoolExecutor(max_workers=self.__max_workers, thread_name_prefix="sync-worker")
-        self.__queue_processor_started = False
-        self.__queue_processor_lock = threading.Lock()
-
-    def _start_queue_processor(self):
-        """Start the queue processor if not already started"""
-        with self.__queue_processor_lock:
-            if not self.__queue_processor_started:
-                self.__queue_processor_started = True
-                # Start the queue processor in a separate thread
-                threading.Thread(target=self._process_sync_queue, daemon=True, name="sync-queue-processor").start()
-                logger.info(f"Started sync queue processor with {self.__max_workers} workers")
-
-    def _process_sync_queue(self):
-        """Process sync requests from the queue using thread pool"""
-        logger.info("Sync queue processor started")
-        while True:
-            try:
-                # Get request from queue (blocks until available)
-                sync_request = self.__sync_queue.get(timeout=1)
-                if sync_request is None:  # Shutdown signal
-                    break
-
-                # Submit to thread pool for processing - don't wait for result
-
-
-                # Mark task as done
-                self.__sync_queue.task_done()
-
-            except queue.Empty:
-                continue
-            except Exception as e:
-                logger.error(f"Error in sync queue processor: {str(e)}")
 
     def _execute_sync_request(self, sync_request: SyncRequest):
         """Execute a single sync request"""
@@ -216,21 +183,18 @@ class CallbackService:
         bundle_id = json_data.get("bundle_id")
         reseller_id = json_data.get("reseller_id", None)
 
-        # Start queue processor if not already running
+        # Create a wrapper function to execute the async method
+        def sync_task():
+            asyncio.run(self.__run_one_sync_internal(bundle_id, operation, reseller_id))
 
-
-        # Add sync request to queue instead of creating thread
-        sync_request = SyncRequest(bundle_id=bundle_id, operation=operation, reseller_id=reseller_id)
-        self.__executor.submit(self._execute_sync_request, sync_request)
-        logger.debug(f"Submitted sync request to thread pool: {sync_request.bundle_id}")
-
-        logger.info(f"Added sync request to queue. Queue size: {self.__executor._work_queue.qsize()}")
+        # Add sync request to task executor
+        self.__task_executor.add_task(sync_task)
+        logger.info(f"Added sync request to queue. Queue size: {self.__task_executor.queue_size()}")
 
         return ResponseHelper.success_response()
 
     def handle_sync_one_bundle_by_id(self, request: Request, id: str):
         logger.info(f"receiving bundle sync request {id}")
-
 
         # Add sync request to queue instead of creating thread
         sync_request = SyncRequest(bundle_id=id, operation="update")
