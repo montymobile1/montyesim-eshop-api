@@ -20,6 +20,22 @@ class EsimHubService:
         self.__api_key = api_key
         self.__base_url = base_url
         self.__tenant_key = tenant_key
+        # Create a single client with connection limits to prevent resource exhaustion
+        self.__client = httpx.AsyncClient(
+            limits=httpx.Limits(max_keepalive_connections=20, max_connections=100),
+            timeout=httpx.Timeout(120.0)
+        )
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+
+    async def close(self):
+        """Close the HTTP client to free resources"""
+        if hasattr(self, '_EsimHubService__client'):
+            await self.__client.aclose()
 
     async def get_regions(self) -> List[RegionDTO]:
         params = {
@@ -382,24 +398,31 @@ class EsimHubService:
         if base_url is None:
             base_url = self.__base_url
         try:
-            with httpx.AsyncClient() as client:
-                headers["Tenant"] = self.__tenant_key
-                headers["Content-Type"] = "application/json"
-                headers["Accept"] = "application/json"
-                headers["Api-Key"] = self.__api_key
-                response = client.request(method=method, url=base_url + path, headers=headers, params=params,
-                                          json=body, timeout=120)
-                logger.debug("Request: curl -X {} {} {} Response: {}".format(method, response.url, " ".join(
-                    [f'--header "{key}: {value}"' for key, value in headers.items()]), response))
-                if response.status_code != httpx.codes.OK:
-                    try:
-                        json_response = response.json()
-                        raise EsimHubException(
-                            json_response["message"] if "message" in json_response else str(json_response))
-                    except Exception as e:
-                        logger.debug(f"failed to parse response as JSON: {str(e)}")
-                        raise EsimHubException(f"eSIM Hub API request failed: {response.status_code}")
-                return response.json()
+            headers["Tenant"] = self.__tenant_key
+            headers["Content-Type"] = "application/json"
+            headers["Accept"] = "application/json"
+            headers["Api-Key"] = self.__api_key
+
+            # Use the persistent client instead of creating a new one each time
+            response = await self.__client.request(
+                method=method,
+                url=base_url + path,
+                headers=headers,
+                params=params,
+                json=body
+            )
+
+            logger.debug("Request: curl -X {} {} {} Response: {}".format(method, response.url, " ".join(
+                [f'--header "{key}: {value}"' for key, value in headers.items()]), response))
+            if response.status_code != httpx.codes.OK:
+                try:
+                    json_response = response.json()
+                    raise EsimHubException(
+                        json_response["message"] if "message" in json_response else str(json_response))
+                except Exception as e:
+                    logger.debug(f"failed to parse response as JSON: {str(e)}")
+                    raise EsimHubException(f"eSIM Hub API request failed: {response.status_code}")
+            return response.json()
         except Exception as e:
             logger.error(f"Error during eSIM Hub API request ({base_url+path}): {str(e)}")
             # Raise CustomException as is, otherwise wrap in EsimHubException
