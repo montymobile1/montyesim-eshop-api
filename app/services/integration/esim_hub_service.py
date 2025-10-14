@@ -20,22 +20,12 @@ class EsimHubService:
         self.__api_key = api_key
         self.__base_url = base_url
         self.__tenant_key = tenant_key
-        # Create a single client with connection limits to prevent resource exhaustion
-        self.__client = httpx.AsyncClient(
-            limits=httpx.Limits(max_keepalive_connections=int(os.getenv("MAX_KEEPALIVE_CONNECTIONS",100)), max_connections=int(os.getenv("MAX_CONNECTIONS",200))),
-            timeout=httpx.Timeout(120.0)
+
+        self.__limits = httpx.Limits(
+            max_keepalive_connections=int(os.getenv("MAX_KEEPALIVE_CONNECTIONS", 100)),
+            max_connections=int(os.getenv("MAX_CONNECTIONS", 200)),
         )
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        await self.close()
-
-    async def close(self):
-        """Close the HTTP client to free resources"""
-        if hasattr(self, '_EsimHubService__client'):
-            await self.__client.aclose()
+        self.__timeout = httpx.Timeout(120.0)
 
     async def get_regions(self) -> List[RegionDTO]:
         params = {
@@ -403,16 +393,17 @@ class EsimHubService:
             headers["Accept"] = "application/json"
             headers["Api-Key"] = self.__api_key
 
-            # Use the persistent client instead of creating a new one each time
-            response = await self.__client.request(
-                method=method,
-                url=base_url + path,
-                headers=headers,
-                params=params,
-                json=body
-            )
+            # Create a per-request AsyncClient to avoid cross-thread/event-loop reuse
+            async with httpx.AsyncClient(limits=self.__limits, timeout=self.__timeout) as client:
+                response = await client.request(
+                    method=method,
+                    url=base_url + path,
+                    headers=headers,
+                    params=params,
+                    json=body
+                )
 
-            logger.debug("Request: curl -X {} {} {} Response: {}".format(method, response.url, " ".join(
+            logger.debug("Request: curl -X {} {} {} Response: {}".format(method, base_url + path, " ".join(
                 [f'--header "{key}: {value}"' for key, value in headers.items()]), response))
             if response.status_code != httpx.codes.OK:
                 try:
@@ -424,7 +415,7 @@ class EsimHubService:
                     raise EsimHubException(f"eSIM Hub API request failed: {response.status_code}")
             return response.json()
         except Exception as e:
-            logger.error(f"Error during eSIM Hub API request ({base_url+path}): {str(e)}")
+            logger.error(f"Error during eSIM Hub API request ({base_url + path}): {str(e)}")
             # Raise CustomException as is, otherwise wrap in EsimHubException
             from app.exceptions import CustomException
             if isinstance(e, CustomException):
