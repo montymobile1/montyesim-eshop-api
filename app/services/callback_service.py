@@ -2,8 +2,10 @@ import asyncio
 import json
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict
+from typing import Dict, Optional
 
 import stripe
 from fastapi import Request, HTTPException
@@ -25,7 +27,15 @@ from app.schemas.response import ResponseHelper
 from app.services.bundle_service import BundleService
 from app.services.promotion_service import PromotionService
 from app.services.sync_service import SyncService
+from app.services.task_executor import TaskExecutor
 from app.services.user_wallet_service import UserWalletService
+
+
+@dataclass
+class SyncRequest:
+    bundle_id: str
+    operation: str
+    reseller_id: Optional[str] = None
 
 
 class CallbackService:
@@ -40,6 +50,21 @@ class CallbackService:
         self.__user_wallet_service = UserWalletService()
         self.__promotion_service = PromotionService()
         self.__bundle_service = BundleService()
+        self.__task_executor = TaskExecutor()
+
+        # In-memory queue and resource management
+        self.__max_workers = int(os.getenv("SYNC_MAX_WORKERS", "5"))  # Configurable max workers
+        self.__executor = ThreadPoolExecutor(max_workers=self.__max_workers, thread_name_prefix="sync-worker")
+
+    def _execute_sync_request(self, sync_request: SyncRequest):
+        """Execute a single sync request"""
+        try:
+            logger.info(f"Processing sync request: {sync_request.bundle_id}, operation: {sync_request.operation}")
+            asyncio.run(self.__run_one_sync_internal(sync_request.bundle_id, sync_request.operation,
+                                                     sync_request.reseller_id))
+            logger.info(f"Completed sync request: {sync_request.bundle_id}")
+        except Exception as e:
+            logger.error(f"Error processing sync request {sync_request.bundle_id}: {str(e)}")
 
     async def handle_plan_event_callback(self, callback_request: Request):
         try:
@@ -148,7 +173,7 @@ class CallbackService:
             return ResponseHelper.success_response()
         currency_repo.update_by(where={"name": currency_code, "default_currency": "USD"}, data={"rate": rate})
         logger.info(f"updated exchange rate for {currency_code} to {rate}")
-        await self.__sync_service.update_sync_version()
+        self.__sync_service.update_sync_version()
         return ResponseHelper.success_response()
 
     async def handle_sync_one_bundle(self, request: Request):
@@ -158,59 +183,70 @@ class CallbackService:
         bundle_id = json_data.get("bundle_id")
         reseller_id = json_data.get("reseller_id", None)
 
-        thread = threading.Thread(target=self.__run_one_sync, args=(bundle_id, operation, reseller_id))
-        thread.start()
+        # Create a wrapper function to execute the async method
+        def sync_task():
+            asyncio.run(self.__run_one_sync_internal(bundle_id, operation, reseller_id))
+
+        # Add sync request to task executor
+        self.__task_executor.add_task(sync_task)
+        logger.info(f"Added sync request to queue. Queue size: {self.__task_executor.queue_size()}")
+
         return ResponseHelper.success_response()
 
     def handle_sync_one_bundle_by_id(self, request: Request, id: str):
         logger.info(f"receiving bundle sync request {id}")
-        thread = threading.Thread(target=self.__run_one_sync, args=(id, "update"))
-        thread.start()
+
+        # Add sync request to queue instead of creating thread
+        sync_request = SyncRequest(bundle_id=id, operation="update")
+        self.__executor.submit(self._execute_sync_request, sync_request)
+        logger.debug(f"Submitted sync request to thread pool: {sync_request.bundle_id}")
+
+        logger.info(f"Added sync request to queue. Queue size: {self.__executor._work_queue.qsize()}")
+
         return ResponseHelper.success_response()
 
-    def __run_one_sync(self, bundle_id: str, operation: str, reseller_id: str = None):
-        import asyncio
+    async def __run_one_sync_internal(self, bundle_id: str, operation: str, reseller_id: str = None):
+        """Internal method that actually performs tkhe sync work - called by queue processor"""
         try:
             if reseller_id and reseller_id == os.getenv("RESELLER_ID"):
                 if operation == "delete":
                     logger.info(f"deleting bundle {bundle_id} for reseller {reseller_id}")
-                    asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
+                    await self.__sync_service.delete_bundle(bundle_id=bundle_id)
                 elif operation == "assign" or operation == "edit_price":
                     logger.info(f"{operation} for bundle {bundle_id} for reseller {reseller_id}")
-                    bundle = asyncio.run(
-                        self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
-                                                                 currency_code=os.getenv("DEFAULT_CURRENCY")))
-                    asyncio.run(self.__sync_service.sync_bundle(bundle))
+                    bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
+                                                                            currency_code=os.getenv("DEFAULT_CURRENCY"))
+                    await self.__sync_service.sync_bundle(bundle)
                 elif operation == "unassign":
                     logger.info(f"unassigning bundle {bundle_id} for reseller {reseller_id}")
-                    asyncio.run(self.__sync_service.delete_bundle(bundle_id))
+                    await self.__sync_service.delete_bundle(bundle_id=bundle_id)
                 elif operation == "activate":
                     logger.info(f"activating bundle {bundle_id} for reseller {reseller_id}")
-                    asyncio.run(self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=True))
+                    await self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=True)
                 elif operation == "deactivate":
                     logger.info(f"deactivating bundle {bundle_id} for reseller {reseller_id}")
-                    asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
+                    await self.__sync_service.delete_bundle(bundle_id=bundle_id)
             if operation == "update":
-                asyncio.run(self.__sync_service.delete_bundle(bundle_id=bundle_id))
+                await self.__sync_service.delete_bundle(bundle_id=bundle_id)
                 bundle = None
                 try:
-                    bundle = asyncio.run(
-                        self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
-                                                             currency_code=os.getenv("DEFAULT_CURRENCY")))
+                    bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
+                                                                            currency_code=os.getenv("DEFAULT_CURRENCY"))
                 except Exception as e:
                     logger.error(f"error while fetching bundle {bundle_id} from esim hub: {str(e)}")
                 finally:
                     if bundle:
                         logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
-                        asyncio.run(self.__sync_service.sync_bundle(bundle))
-            asyncio.run(self.__sync_service.update_sync_version())
+                        await self.__sync_service.sync_bundle(bundle)
+            self.__sync_service.update_sync_version()
         except Exception as e:
             logger.error(f"error while syncing bundle {bundle_id}: {str(e)}")
+            raise  # Re-raise so the queue processor can log it
 
     def __run_full_sync(self, page_index=1):
         import asyncio
         asyncio.run(self.__sync_service.sync_bundles(page_index=page_index))
-        asyncio.run(self.__sync_service.update_sync_version())
+        self.__sync_service.update_sync_version()
 
     def __handle_payment_webhook_data(self, event: dict):
         logger.debug(f"Received payment webhook.{event.get('type')}")
@@ -289,8 +325,8 @@ class CallbackService:
                 "montyesim_msisdn": msisdn,
                 "iccid": iccid
             }
-
-            template = get_email_template('eighty_percent_email_template.htm')
+            language = user.metadata.get("language", "en")
+            template = get_email_template(f"eighty_percent_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="80% Consumption", html_content=html_content,
                        recipients=email)
@@ -309,8 +345,8 @@ class CallbackService:
                 "montyesim_msisdn": msisdn,
                 "iccid": iccid
             }
-
-            template = get_email_template('expiry_email_template.htm')
+            language = user.metadata.get("language", "en")
+            template = get_email_template(f"expiry_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="100% Consumption", html_content=html_content,
                        recipients=user.metadata.get("email", email))
