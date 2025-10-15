@@ -119,7 +119,8 @@ class UserBundleService:
             return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.CARD:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
-                                                    assign_request=assign_request, rule_id=rule_id, request=request)
+                                                    assign_request=assign_request, rule_id=rule_id, request=request,
+                                                    x_currency=x_currency)
         else:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
@@ -127,7 +128,7 @@ class UserBundleService:
     async def assign_top_up(self, user: UserModel, assign_top_up_request: AssignTopUpRequest, device_id: str,
                             request: Request, x_currency: str, locale: str) -> Response:
         bundle_response = self.__bundle_service.get_bundle(bundle_id=assign_top_up_request.bundle_code,
-                                                                 currency_name=x_currency, locale=locale)
+                                                           currency_name=x_currency, locale=locale)
         bundle = bundle_response.data
 
         order = self.__user_order_repo.create({
@@ -151,7 +152,8 @@ class UserBundleService:
         elif payment_type == PaymentTypeEnum.CARD:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
                                                     assign_request=None, rule_id="0", request=request,
-                                                    iccid=assign_top_up_request.iccid)
+                                                    iccid=assign_top_up_request.iccid,
+                                                    x_currency=x_currency)
         else:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
@@ -252,8 +254,8 @@ class UserBundleService:
         for bundle in bundles:
             if self.__bundle_service.bundle_exists(bundle.bundle_code):
                 local_bundle = self.__bundle_service.get_bundle(bundle_id=bundle.bundle_code,
-                                                                      currency_name=currency_code,
-                                                                      locale=accept_language)
+                                                                currency_name=currency_code,
+                                                                locale=accept_language)
                 logger.debug(f"local bundle {local_bundle.data}")
                 all_bundles.append(local_bundle.data)
 
@@ -379,8 +381,9 @@ class UserBundleService:
 
     async def __handle_card_payment(self, user: UserModel, order: UserOrderModel, device_id: str,
                                     assign_request: AssignRequest | None, rule_id: str,
-                                    request: Request, iccid: str = None) -> Response:
-        rate = self.__currency_service.get_currency_rate("USD", to_currency=os.getenv("DEFAULT_CURRENCY"))
+                                    request: Request, iccid: str = None,
+                                    x_currency: str = os.getenv("DEFAULT_CURRENCY")) -> Response:
+        rate = self.__currency_service.get_currency_rate("USD", to_currency=x_currency)
         order_amount = order.modified_amount if order.modified_amount else order.amount
         original_amount = (order_amount / 100) * rate
         stripe_amount = int(Decimal(order_amount * rate).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
@@ -400,6 +403,7 @@ class UserBundleService:
         payment_intent, tax = create_payment_intent(user_bundle_order=order, user_email=user.email,
                                                     metadata=metadata,
                                                     rate=rate,
+                                                    currency=x_currency,
                                                     ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id
         self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
