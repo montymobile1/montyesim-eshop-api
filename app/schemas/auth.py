@@ -84,3 +84,4 @@ class UpdateUserInfoRequest(BaseModel):
     last_name: Optional[str] = None
     should_notify: Optional[bool] = False
     language: Optional[str] = "En"
+    currency: Optional[str] = os.getenv("DEFAULT_CURRENCY")

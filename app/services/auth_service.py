@@ -140,6 +140,7 @@ class AuthService:
                 'msisdn': update_request.msisdn,
                 'should_notify': update_request.should_notify,
                 'language': update_request.language,
+                'currency': update_request.currency,
             }
             login_type = user_model.metadata.get("login_type", login_type)
             if login_type == "phone":
