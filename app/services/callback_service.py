@@ -325,8 +325,8 @@ class CallbackService:
                 "montyesim_msisdn": msisdn,
                 "iccid": iccid
             }
-
-            template = get_email_template('eighty_percent_email_template.htm')
+            language = user.metadata.get("language", "en")
+            template = get_email_template(f"eighty_percent_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="80% Consumption", html_content=html_content,
                        recipients=email)
@@ -345,8 +345,8 @@ class CallbackService:
                 "montyesim_msisdn": msisdn,
                 "iccid": iccid
             }
-
-            template = get_email_template('expiry_email_template.htm')
+            language = user.metadata.get("language", "en")
+            template = get_email_template(f"expiry_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="100% Consumption", html_content=html_content,
                        recipients=user.metadata.get("email", email))

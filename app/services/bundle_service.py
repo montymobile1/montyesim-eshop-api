@@ -329,8 +329,8 @@ class BundleService:
                 "msisdn": msisdn,
                 "user": email
             }
-
-            template = get_email_template('send_qr_email_template.htm')
+            language = user.metadata.get("language", "en")
+            template = get_email_template(f"send_qr_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="Activate Your Esim", html_content=html_content,
                        recipients=user.metadata.get("email", email), attachment=qr)
