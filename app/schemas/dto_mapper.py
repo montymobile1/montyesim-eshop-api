@@ -453,7 +453,7 @@ class DtoMapper:
             should_notify=user_metadata.get("should_notify", False),
             referral_code=referral_code,
             balance=user_wallet.balance if user_wallet else 0,
-            currency_code=user_metadata.get("currency_code", currency),
+            currency_code=user_metadata.get("currency", currency),
             email_editable=email_editable,
             phone_editable=phone_editable,
             language=user_metadata.get("language", "En"),
