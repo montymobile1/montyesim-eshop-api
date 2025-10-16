@@ -92,15 +92,15 @@ class UserWalletService:
             "user_id": user.id,
             "bundle_id": None,
             "order_type": UserOrderType.WALLET_TOP_UP,
-            "amount": int(round(amount * 100)),
+            "amount": int(round(top_up_request.amount * 100)),
             "currency": currency,
             "bundle_data": "-",
             "searched_countries": "-",
             "anonymous_user_id": None,
         })
 
-        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=round(top_up_request.amount * 100),
-                                                  currency=currency,
+        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=round(amount * 100),
+                                                  currency=x_currency,
                                                   metadata={
                                                       "user_id": user.id,
                                                       "user_wallet_id": user_wallet.id,
