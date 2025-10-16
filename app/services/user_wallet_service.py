@@ -74,7 +74,7 @@ class UserWalletService:
                 rate = self.__currency_service.get_currency_rate(from_currency=user_wallet.currency,
                                                                  to_currency=transaction_currency)
                 thread = threading.Thread(target=self.__send_push,
-                                          args=(round(amount * rate, 2), user_wallet.currency, user_id))
+                                          args=(round(amount * rate, 2), transaction_currency, user_id))
                 thread.start()
             dto = DtoMapper.to_user_wallet_response(user_wallet)
             return ResponseHelper.success_data_response(dto, 1)
@@ -96,14 +96,14 @@ class UserWalletService:
             "user_id": user.id,
             "bundle_id": None,
             "order_type": UserOrderType.WALLET_TOP_UP,
-            "amount": int(round(amount * 100)),
+            "amount": round(amount * 100),
             "currency": x_currency,
             "bundle_data": "-",
             "searched_countries": "-",
             "anonymous_user_id": None,
         })
 
-        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=round(amount * 100),
+        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=round(amount * 100,2),
                                                   currency=x_currency,
                                                   metadata={
                                                       "user_id": user.id,
