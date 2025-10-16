@@ -49,7 +49,8 @@ class UserWalletService:
         wallet.amount = wallet.amount * rate
         return DtoMapper.to_user_wallet_response(wallet)
 
-    async def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp") -> Response[
+    async def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp",
+                                     transaction_currency: str = os.getenv("DEFAULT_CURRENCY")) -> Response[
         UserWalletResponse]:
         try:
             user_wallet: UserWalletModel = self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
@@ -70,8 +71,11 @@ class UserWalletService:
                 "status": "success"
             })
             if amount > 0:
+                rate = self.__currency_service.get_currency_rate(from_currency=user_wallet.currency,
+                                                                 to_currency=transaction_currency)
                 thread = threading.Thread(target=self.__send_push,
-                                          args=(amount, user_wallet.currency, user_id,))
+                                          args=(round(amount * rate, 2), user_wallet.currency, user_id,
+                                                transaction_currency))
                 thread.start()
             dto = DtoMapper.to_user_wallet_response(user_wallet)
             return ResponseHelper.success_data_response(dto, 1)
