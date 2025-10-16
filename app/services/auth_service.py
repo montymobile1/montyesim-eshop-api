@@ -18,6 +18,7 @@ from app.schemas.auth import LoginRequest, VerifyOtpRequest, UpdateUserInfoReque
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import ResponseHelper, Response
 from app.schemas.user_wallet import UserWalletRequestDto, UserWalletResponse
+from app.services.currency_service import CurrencyService
 from app.services.user_otp_service import UserOtpService
 from app.services.user_wallet_service import UserWalletService
 
@@ -30,6 +31,7 @@ class AuthService:
         self.__user_wallet_service = UserWalletService()
         self.__dcb_service = dcb_service_instance()
         self.__user_otp_service = UserOtpService()
+        self.__currency_service = CurrencyService()
 
     async def login(self, login_request: LoginRequest) -> Response:
         if (login_request.phone and login_request.email) or login_request.phone:
@@ -121,7 +123,11 @@ class AuthService:
     async def get_user_info(self, user: UserModel, currency_code: str):
         try:
             response = supabase_client().auth.get_user(user.token)
+            rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("DEFAULT_CURRENCY", "USD"),
+                                                             to_currency=currency_code)
             user_wallet = await self.create_wallet_if_not_exists(user_id=user.id, currency_code=currency_code)
+            if user_wallet:
+                user_wallet.balance = round(user_wallet.balance * rate, 2)
             return ResponseHelper.success_data_response(
                 DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet, currency=currency_code),
                 0)
@@ -226,7 +232,7 @@ class AuthService:
             user_msisdn = user_exists.metadata.get("msisdn", None)
             if user_msisdn and user_msisdn != login_request.phone:
                 raise CustomException(code=400, name=ErrorMessages.USER_WITH_EMAIL_ALREADY_EXISTS,
-                                  details=f"User with email {login_request.email} already exists for another phone number")
+                                      details=f"User with email {login_request.email} already exists for another phone number")
         otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=user_email)
         if user_exists:
             logger.info(f"generating new otp for user: {user_email}")
