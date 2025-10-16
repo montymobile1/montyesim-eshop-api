@@ -365,7 +365,8 @@ class CallbackService:
                 amount = (order.amount / 100)
                 logger.info(f"updating user wallet: {user_wallet} with new {amount=}")
                 asyncio.run(self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
-                                                                              source=UserWalletTransactionSource.TOP_UP_WALLET))
+                                                                              source=UserWalletTransactionSource.TOP_UP_WALLET,
+                                                                              transaction_currency=order.currency))
                 self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.SUCCESS})
                 logger.info(
                     f"Top-Up for user {user_id} wallet {user_wallet} with amount {amount} {order.currency} succeeded")

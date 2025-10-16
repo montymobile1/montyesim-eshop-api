@@ -50,7 +50,7 @@ class UserWalletService:
         return DtoMapper.to_user_wallet_response(wallet)
 
     async def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp",
-                                     transaction_currency: str = os.getenv("DEFAULT_CURRENCY")) -> Response[
+                                     transaction_currency: str = os.getenv("SYSTEM_CURRENCY", "USD")) -> Response[
         UserWalletResponse]:
         try:
             user_wallet: UserWalletModel = self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
