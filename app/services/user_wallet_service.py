@@ -83,7 +83,7 @@ class UserWalletService:
         PaymentIntentResponse]:
         currency = os.getenv("DEFAULT_CURRENCY")
         amount = top_up_request.amount
-        rate = self.__currency_service.get_currency_rate(from_currency=x_currency, to_currency=currency)
+        rate = self.__currency_service.get_currency_rate(from_currency=currency, to_currency=x_currency)
         amount = round(amount * rate, 2)
         user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user.id})
         if not user_wallet:
