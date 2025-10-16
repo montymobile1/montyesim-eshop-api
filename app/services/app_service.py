@@ -89,23 +89,32 @@ class AppService:
         return ResponseHelper.success_response()
 
     async def faq(self, accepted_language: str) -> Response[List[FaqResponse]]:
-        results = await self.__esim_hub_service.get_content_tags(tag="FAQ", lang_code=accepted_language)
-        faqs = []
-        for item in results:
-            if len(item.children) == 0:
-                continue
-            faqs.append(
-                FaqResponse(
-                    question=item.contentDetails[0].name,
-                    answer=item.children[0].contentDetails[0].name
+        try:
+            results = await self.__esim_hub_service.get_content_tags(tag="FAQ", lang_code=accepted_language)
+            faqs = []
+            for item in results:
+                if len(item.children) == 0:
+                    continue
+                faqs.append(
+                    FaqResponse(
+                        question=item.contentDetails[0].name,
+                        answer=item.children[0].contentDetails[0].name
+                    )
                 )
-            )
-        faqs.reverse()
-        return ResponseHelper.success_data_response(faqs, len(faqs))
+            faqs.reverse()
+            return ResponseHelper.success_data_response(faqs, len(faqs))
+        except Exception as e:
+            logger.error(f"Error fetching FAQ content: {e}")
+            return ResponseHelper.success_data_response([], 0)
 
     async def about_us(self, accepted_language: str) -> Response[PageContentResponse]:
-        response = await self.__esim_hub_service.get_content_tag("ABOUT_US", accepted_language)
-        return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
+        try:
+            response = await self.__esim_hub_service.get_content_tag("ABOUT_US", accepted_language)
+            return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
+        except Exception as e:
+            logger.error(f"Error fetching About Us content: {e}")
+            return ResponseHelper.success_data_response(
+                PageContentResponse(page_title="", page_content="", page_intro=""), 1)
 
     async def contact_us(self, contact_us_request: ContactUsRequest):
         response = self.__contact_us_repo.create({
@@ -126,12 +135,22 @@ class AppService:
         return ResponseHelper.success_response()
 
     async def terms_and_conditions(self, accepted_language) -> Response[PageContentResponse]:
-        response = await self.__esim_hub_service.get_content_tag("TERM_CONDITION", accepted_language)
-        return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
+        try:
+            response = await self.__esim_hub_service.get_content_tag("TERM_CONDITION", accepted_language)
+            return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
+        except Exception as e:
+            logger.error(f"Error fetching Terms and Conditions content: {e}")
+            return ResponseHelper.success_data_response(
+                PageContentResponse(page_title="", page_content="", page_intro=""), 1)
 
     async def privacy_policy(self, accepted_language: str) -> Response[PageContentResponse]:
-        response = await self.__esim_hub_service.get_content_tag("PRIVACY_POLICY", accepted_language)
-        return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
+        try:
+            response = await self.__esim_hub_service.get_content_tag("PRIVACY_POLICY", accepted_language)
+            return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
+        except Exception as e:
+            logger.error(f"Error fetching Privacy Policy content: {e}")
+            return ResponseHelper.success_data_response(
+                PageContentResponse(page_title="", page_content="", page_intro=""), 1)
 
     async def user_guide(self):
         return ResponseHelper.success_response()
