@@ -1,8 +1,11 @@
+import os
+
 from loguru import logger
 
 from app.config.constants import UserWalletTransactionSource, ErrorMessages
 from app.exceptions import CustomException
 from app.models.user import UserModel
+from app.models.voucher import VoucherModel
 from app.repo.voucher_repo import VoucherRepo
 from app.schemas.response import ResponseHelper
 from app.schemas.voucher import VoucherRequestRedeem
@@ -22,7 +25,7 @@ class VoucherService:
         if is_used:
             raise CustomException(code=400, name=ErrorMessages.VOUCHER_ALREADY_USED,
                                   details="Voucher Already Used")
-        voucher = self.__voucher_repo.get_first_by(
+        voucher: VoucherModel = self.__voucher_repo.get_first_by(
             where={"code": voucher_redeem_request.code, "is_active": True, "is_used": False})
         if not voucher:
             raise CustomException(code=404, name=ErrorMessages.INVALID_VOUCHER_CODE,
@@ -39,7 +42,8 @@ class VoucherService:
                                       details="Voucher Expired")
 
         try:
-            rate = self.__currency_service.get_rate_by_currency(x_currency)
+            rate = self.__currency_service.get_currency_rate(from_currency="USD",
+                                                             to_currency=os.getenv("DEFAULT_CURRENCY", "USD"))
             await self.__user_wallet_service.add_wallet_transaction(amount=(voucher.amount * rate), user_id=user.id,
                                                                     source=UserWalletTransactionSource.VOUCHER)
             self.__voucher_repo.update_by(where={"id": voucher.id}, data={"used_by": user.id, "is_used": True})
