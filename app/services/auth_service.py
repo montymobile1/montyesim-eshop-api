@@ -123,11 +123,7 @@ class AuthService:
     async def get_user_info(self, user: UserModel, currency_code: str):
         try:
             response = supabase_client().auth.get_user(user.token)
-            rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("DEFAULT_CURRENCY", "USD"),
-                                                             to_currency=currency_code)
             user_wallet = await self.create_wallet_if_not_exists(user_id=user.id, currency_code=currency_code)
-            if user_wallet:
-                user_wallet.balance = round(user_wallet.balance * rate, 2)
             return ResponseHelper.success_data_response(
                 DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet, currency=currency_code),
                 0)

@@ -44,7 +44,8 @@ class UserWalletService:
         wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"user_id": user_id})
         if not wallet:
             return None
-        rate = self.__currency_service.get_currency_rate(from_currency=wallet.currency, to_currency=currency_code)
+        rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("DEFAULT_CURRENCY", "USD"),
+                                                         to_currency=currency_code)
         wallet.amount = wallet.amount * rate
         return DtoMapper.to_user_wallet_response(wallet)
 
@@ -83,7 +84,7 @@ class UserWalletService:
         PaymentIntentResponse]:
         currency = os.getenv("DEFAULT_CURRENCY")
         amount = top_up_request.amount
-        rate = self.__currency_service.get_currency_rate(from_currency=currency, to_currency=x_currency)
+        rate = self.__currency_service.get_currency_rate(from_currency=x_currency, to_currency=currency)
         amount = round(amount * rate, 2)
         user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user.id})
         if not user_wallet:
