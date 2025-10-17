@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Dict, Optional
 
 import stripe
+from dateutil import parser as dateutil_parser
 from fastapi import Request, HTTPException
 from loguru import logger
 
@@ -17,6 +18,7 @@ from app.config.notification_types import send_consumption_80_bundle_notificatio
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
 from app.config.push_notification_manager import fcm_service
+from app.config.utils import parse_iso_datetime
 from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel, UserProfileBundleModel, \
     UserProfileModel
 from app.repo import UserOrderRepo, UserProfileRepo, UserRepo, UserProfileBundleRepo
@@ -415,8 +417,13 @@ class CallbackService:
             elif event_type in ["StartBundle", "PLAN-STARTED", "thing activated", "Plan Started and Selected",
                                 "SESSION_START", "Started"]:
                 datetime_str = order.validity
-                dt_object = datetime.strptime(datetime_str, "%Y-%m-%dT%H:%M:%S")
-                date_only_str = dt_object.strftime("%Y-%m-%d")
+                dt_object = parse_iso_datetime(datetime_str)
+                if not dt_object:
+                    logger.error(f"Failed to parse validity datetime '{datetime_str}'")
+                    return
+
+                # Use the date component in YYYY-MM-DD format
+                date_only_str = dt_object.date().isoformat()
                 notification_data = send_plan_started_notification(
                     bundle_name=order.bundle_display_name,
                     validity_date=date_only_str
@@ -443,3 +450,5 @@ class CallbackService:
         logger.info(f"Updating bundle {esim_hub_order_id} {iccid} plan_started to {plan_started}")
         self.__user_profile_bundle_repo.update_by(where={"esim_hub_order_id": esim_hub_order_id, "iccid": iccid},
                                                   data={"plan_started": plan_started})
+
+

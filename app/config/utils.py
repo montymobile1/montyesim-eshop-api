@@ -179,3 +179,21 @@ def stripe_get_payment_details(intent_code) -> PaymentDetailsDTO | None:
         "display_brand": card_brand,
         "country": charge.payment_method_details.card.get("country"),
     })
+
+
+def parse_iso_datetime(datetime_str: str):
+    """Parse ISO8601 datetime strings robustly.
+
+    Returns a datetime.datetime on success or None on failure.
+    Handles fractional seconds and timezone offsets via dateutil.isoparse with a
+    fallback to datetime.fromisoformat.
+    """
+    if not datetime_str:
+        return None
+    try:
+        return dateutil_parser.isoparse(datetime_str)
+    except Exception:
+        try:
+            return datetime.fromisoformat(datetime_str)
+        except Exception:
+            return None
