@@ -11,6 +11,7 @@ import stripe
 from dateutil import parser as dateutil_parser
 from fastapi import Request, HTTPException
 from loguru import logger
+from soupsieve.util import lower
 
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email, get_email_template
 from app.config.constants import PaymentIntentEvents, UserWalletTransactionSource
@@ -327,7 +328,7 @@ class CallbackService:
                 "montyesim_msisdn": msisdn,
                 "iccid": iccid
             }
-            language = user.metadata.get("language", "en")
+            language = lower(user.metadata.get("language", "en"))
             template = get_email_template(f"eighty_percent_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="80% Consumption", html_content=html_content,
@@ -347,7 +348,7 @@ class CallbackService:
                 "montyesim_msisdn": msisdn,
                 "iccid": iccid
             }
-            language = user.metadata.get("language", "en")
+            language = lower(user.metadata.get("language", "en"))
             template = get_email_template(f"expiry_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="100% Consumption", html_content=html_content,

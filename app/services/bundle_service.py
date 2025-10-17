@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import List, Literal
 
 from loguru import logger
+from soupsieve.util import lower
 
 from app.config.config import esim_hub_service_instance, send_email, generate_qr_code, get_email_template
 from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum, PromotionRuleAction, ConfigKeysEnum
@@ -329,7 +330,7 @@ class BundleService:
                 "msisdn": msisdn,
                 "user": email
             }
-            language = user.metadata.get("language", "en")
+            language = lower(user.metadata.get("language", "en"))
             template = get_email_template(f"send_qr_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="Activate Your Esim", html_content=html_content,
