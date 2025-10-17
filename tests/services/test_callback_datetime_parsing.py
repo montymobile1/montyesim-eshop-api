@@ -1,10 +1,10 @@
 import pytest
-from app.services.callback_service import _parse_iso_datetime
+from app.config.utils import parse_iso_datetime
 
 
 def test_parse_iso_with_fractional_and_tz():
     s = "2023-01-01T12:34:56.749657+00:00"
-    dt = _parse_iso_datetime(s)
+    dt = parse_iso_datetime(s)
     assert dt is not None
     assert dt.year == 2023
     assert dt.month == 1
@@ -17,7 +17,6 @@ def test_parse_iso_with_fractional_and_tz():
 
 
 def test_parse_invalid_returns_none():
-    assert _parse_iso_datetime("") is None
-    assert _parse_iso_datetime(None) is None
-    assert _parse_iso_datetime("not a date") is None
-
+    assert parse_iso_datetime("") is None
+    assert parse_iso_datetime(None) is None
+    assert parse_iso_datetime("not a date") is None

@@ -1,8 +1,11 @@
 import os
+from decimal import Decimal, ROUND_HALF_UP
 
 import stripe
 from loguru import logger
 from stripe import PaymentIntent, Charge
+from dateutil import parser as dateutil_parser
+from datetime import datetime
 
 from app.config.config import STRIPE_SECRET_KEY
 from app.config.constants import ErrorMessages
@@ -39,7 +42,11 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
         else:
             customer = customers.get("data")[0]
         order_amount = user_bundle_order.modified_amount if user_bundle_order.modified_amount else user_bundle_order.amount
-        order_amount = round(float(order_amount / 100 * rate), 2) * 100
+        # Use Decimal to avoid float precision issues: order_amount is in cents
+        rate_dec = Decimal(str(rate))
+        order_amount_cents = Decimal(str(order_amount))
+        # compute target currency smallest unit (cents) and round to whole cents
+        order_amount = int((order_amount_cents * rate_dec).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
         if os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() in ("true", "1", "yes"):
             logger.info(f"Automatic tax calculation enabled, calculating tax for amount {order_amount}")
             tax = calculate_tax(currency=currency, amount=order_amount,

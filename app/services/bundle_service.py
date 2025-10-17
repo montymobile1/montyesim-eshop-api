@@ -184,7 +184,7 @@ class BundleService:
         return ResponseHelper.success_data_response(countries, len(countries))
 
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
-                         payment_status: str, rule_id: str = None, payment_type: str = PaymentTypeEnum.CARD):
+                         payment_status: str, payment_type: str, rule_id: str = None):
         rate = self.__currency_service.get_currency_rate(from_currency=user_order.currency, to_currency="USD")
         user = self.__user_repo.get_by_id(record_id=user_id)
         msisdn = user.metadata.get("msisdn", "")

@@ -4,17 +4,16 @@ import os
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Dict, Optional
 
 import stripe
-from dateutil import parser as dateutil_parser
 from fastapi import Request, HTTPException
 from loguru import logger
 from soupsieve.util import lower
 
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email, get_email_template
 from app.config.constants import PaymentIntentEvents, UserWalletTransactionSource
+from app.config.db import PaymentTypeEnum
 from app.config.notification_types import send_consumption_80_bundle_notification, \
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
@@ -301,7 +300,8 @@ class CallbackService:
             return asyncio.run(self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
                                                                 payment_status=payment_status,
                                                                 user_id=user_id,
-                                                                rule_id=rule_id))
+                                                                rule_id=rule_id,
+                                                                payment_type=PaymentTypeEnum.CARD))
         elif payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.BUNDLE_TOP_UP:
             if not iccid:
                 logger.error(f"invalid iccid ({iccid}) for topup request ({user_order.id})")
@@ -451,5 +451,3 @@ class CallbackService:
         logger.info(f"Updating bundle {esim_hub_order_id} {iccid} plan_started to {plan_started}")
         self.__user_profile_bundle_repo.update_by(where={"esim_hub_order_id": esim_hub_order_id, "iccid": iccid},
                                                   data={"plan_started": plan_started})
-
-
