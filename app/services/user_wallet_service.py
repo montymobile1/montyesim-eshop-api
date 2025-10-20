@@ -35,8 +35,7 @@ class UserWalletService:
         return DtoMapper.to_user_wallet_response(wallet)
 
     async def create_wallet(self, user_wallet_request_dto: UserWalletRequestDto) -> UserWalletResponse:
-        wallet = self.__create_wallet(user_id=user_wallet_request_dto.user_id, amount=user_wallet_request_dto.amount,
-                                      currency=user_wallet_request_dto.currency)
+        wallet = self.__create_wallet(user_id=user_wallet_request_dto.user_id, amount=user_wallet_request_dto.amount)
         return DtoMapper.to_user_wallet_response(wallet)
 
     async def get_user_wallet_by_user_id(self, user_id: str, currency_code: str = os.getenv(
@@ -44,7 +43,7 @@ class UserWalletService:
         wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"user_id": user_id})
         if not wallet:
             return None
-        rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("DEFAULT_CURRENCY", "USD"),
+        rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
                                                          to_currency=currency_code)
         wallet.amount = wallet.amount * rate
         return DtoMapper.to_user_wallet_response(wallet)
@@ -85,25 +84,25 @@ class UserWalletService:
     async def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UserModel, request: Request,
                             x_currency: str) -> Response[
         PaymentIntentResponse]:
-        currency = os.getenv("DEFAULT_CURRENCY")
+        system_currency = os.getenv("SYSTEM_CURRENCY", "USD")
         amount = top_up_request.amount
-        rate = self.__currency_service.get_currency_rate(from_currency=x_currency, to_currency=currency)
-        amount = round(amount * rate, 2)
+        rate = self.__currency_service.get_currency_rate(from_currency=system_currency, to_currency=x_currency)
+        amount = amount * rate
         user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user.id})
         if not user_wallet:
-            user_wallet = self.__create_wallet(user_id=user.user_id, amount=0, currency=currency)
+            user_wallet = self.__create_wallet(user_id=user.user_id, amount=0)
         order = self.__user_order_repo.create(data={
             "user_id": user.id,
             "bundle_id": None,
             "order_type": UserOrderType.WALLET_TOP_UP,
             "amount": round(amount * 100),
-            "currency": x_currency,
+            "currency": os.getenv("SYSTEM_CURRENCY", "USD"),
             "bundle_data": "-",
             "searched_countries": "-",
             "anonymous_user_id": None,
         })
 
-        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=round(amount * 100,2),
+        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=amount * 100,
                                                   currency=x_currency,
                                                   metadata={
                                                       "user_id": user.id,
@@ -125,9 +124,9 @@ class UserWalletService:
                                          merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
                                          billing_country_code="GB",
                                          order_id=order.id,
-                                         total_price_display=f"{top_up_request.amount:.2f} {currency}",
-                                         subtotal_price_display=f"{intent.amount:.2f} {currency}",
-                                         tax_price_display=f"{tax_excl} {currency}",
+                                         total_price_display=f"{top_up_request.amount:.2f} {x_currency}",
+                                         subtotal_price_display=f"{intent.amount:.2f} {x_currency}",
+                                         tax_price_display=f"{tax_excl} {x_currency}",
                                          has_tax=tax_excl > 0
                                          )
         return ResponseHelper.success_data_response(response, 0)
@@ -140,11 +139,11 @@ class UserWalletService:
                                                                 order_by="created_at", desc=True)
         return transactions
 
-    def __create_wallet(self, user_id: str, amount: float, currency: str):
+    def __create_wallet(self, user_id: str, amount: float):
         wallet = self.__user_wallet_repo.create(data={
             "user_id": user_id,
             "amount": amount,
-            "currency": currency
+            "currency": os.getenv("SYSTEM_CURRENCY", "USD")
         })
         logger.info(f"creating wallet for user {user_id}")
         return wallet

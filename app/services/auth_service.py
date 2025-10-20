@@ -69,7 +69,7 @@ class AuthService:
             user_wallet_request_dto = UserWalletRequestDto(
                 user_id=user_id,
                 amount=0.0,
-                currency=os.getenv("DEFAULT_CURRENCY", "USD")
+                currency=os.getenv("SYSTEM_CURRENCY", "USD")
             )
             wallet = await self.__user_wallet_service.create_wallet(user_wallet_request_dto)
             if wallet:
