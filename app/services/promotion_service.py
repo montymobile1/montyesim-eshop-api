@@ -44,7 +44,7 @@ class PromotionService:
                 continue
             promotion_history = PromotionHistoryDto(
                 is_referral=transaction.source != UserWalletTransactionSource.CASHBACK,
-                amount=f"{round(transaction.amount * rate, 2)} {x_currency}",
+                amount=f"{int(((transaction.amount * rate) * 100) / 100)} {x_currency}",
                 name=transaction.source,
                 promotion_name="",
                 date=transaction.created_at)
@@ -57,7 +57,7 @@ class PromotionService:
         from app.services.bundle_service import BundleService
         bundle_service = BundleService()
         bundle_response = bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
-                                                          currency_name=x_currency, locale=locale)
+                                                    currency_name=x_currency, locale=locale)
         bundle: BundleDTO = bundle_response.data
         validation_response = await self.validate_promo_code(code=promotion_validation_request.promo_code,
                                                              bundle=bundle, user_id=user_id, device_id=device_id,
@@ -363,7 +363,8 @@ class PromotionService:
         if referred_user:
             previously_used = self.__promotion_usage_repo.list(
                 where={"device_id": device_id, "status": PromotionStatusEnum.COMPLETED.value})
-            previously_used = list(filter(lambda x: x.referral_code != "" and x.referral_code is not None, previously_used))
+            previously_used = list(
+                filter(lambda x: x.referral_code != "" and x.referral_code is not None, previously_used))
             if len(previously_used) > 0:
                 raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE,
                                       details=ErrorMessages.REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE)
