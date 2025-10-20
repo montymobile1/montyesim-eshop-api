@@ -107,6 +107,7 @@ class UserBundleService:
         payment_type = assign_request.payment_type
 
         if modified_amount == 0:
+            self.__user_order_repo.update_by({"id": order.id}, data={"modified_amount": 0})
             await self.__bundle_service.buy_bundle(user_order=order, bundle=bundle, user_id=user.id,
                                                    payment_status=OrderStatusEnum.SUCCESS, rule_id=rule_id
                                                    , payment_type=payment_type)
