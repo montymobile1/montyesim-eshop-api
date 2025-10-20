@@ -1,5 +1,4 @@
 import os
-import threading
 from collections import defaultdict
 from datetime import datetime
 from typing import List, Literal
@@ -26,6 +25,7 @@ from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
 from app.services.grouping_service import GroupingService
 from app.services.promotion_service import PromotionService
+from app.services.task_executor import TaskExecutor
 
 
 class BundleService:
@@ -42,6 +42,7 @@ class BundleService:
         self.__user_profile_repo = UserProfileRepo()
         self.__user_profile_bundle_repo = UserProfileBundleRepo()
         self.__promotion_service = PromotionService()
+        self.__task_executor = TaskExecutor()
 
     def bundle_exists(self, bundle_id: str) -> bool:
         try:
@@ -252,9 +253,11 @@ class BundleService:
         await self.__send_buy_notification(bundle_name=bundle.bundle_name, iccid=esim_hub_order.iccid,
                                            user_id=user_order.user_id)
         user = self.__user_repo.get_by_id(record_id=user_order.user_id)
-        thread = threading.Thread(target=self.__send_email, args=(user, user_profile, bundle, user_order))
-        thread.start()
 
+        def task():
+            self.__send_email(user=user, user_profile=user_profile, bundle=bundle, user_order=user_order)
+
+        self.__task_executor.add_task(task)
         return ResponseHelper.success_response()
 
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,

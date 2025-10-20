@@ -1,8 +1,6 @@
 import asyncio
 import json
 import os
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -53,10 +51,6 @@ class CallbackService:
         self.__promotion_service = PromotionService()
         self.__bundle_service = BundleService()
         self.__task_executor = TaskExecutor()
-
-        # In-memory queue and resource management
-        self.__max_workers = int(os.getenv("SYNC_MAX_WORKERS", "5"))  # Configurable max workers
-        self.__executor = ThreadPoolExecutor(max_workers=self.__max_workers, thread_name_prefix="sync-worker")
 
     def _execute_sync_request(self, sync_request: SyncRequest):
         """Execute a single sync request"""
@@ -135,8 +129,12 @@ class CallbackService:
         except stripe.error.SignatureVerificationError:
             logger.error("Stripe webhook signature verification failed.")
             raise HTTPException(status_code=400, detail="Invalid signature")
-        thread = threading.Thread(target=self.__handle_payment_webhook_data, args=(event,))
-        thread.start()
+
+        def task():
+            return self.__handle_payment_webhook_data(event=event)
+
+        self.__task_executor.add_task(task)
+
         return ResponseHelper.success_response()
 
     async def handle_payment_webhook_fake(self, request: Request):
@@ -149,8 +147,10 @@ class CallbackService:
         await self.__handle_payment_webhook_data(payload_json)
 
     def handle_sync_all_bundles(self, page_index=1):
-        thread = threading.Thread(target=self.__run_full_sync, args=(page_index,))
-        thread.start()
+        def task():
+            self.__run_full_sync(page_index=page_index)
+
+        self.__task_executor.add_task(task)
         return ResponseHelper.success_response()
 
     async def handle_exchange_rate_update(self, request: Request):
@@ -196,15 +196,7 @@ class CallbackService:
         return ResponseHelper.success_response()
 
     def handle_sync_one_bundle_by_id(self, request: Request, id: str):
-        logger.info(f"receiving bundle sync request {id}")
-
-        # Add sync request to queue instead of creating thread
-        sync_request = SyncRequest(bundle_id=id, operation="update")
-        self.__executor.submit(self._execute_sync_request, sync_request)
-        logger.debug(f"Submitted sync request to thread pool: {sync_request.bundle_id}")
-
-        logger.info(f"Added sync request to queue. Queue size: {self.__executor._work_queue.qsize()}")
-
+        logger.info(f"receiving bundle sync by id request for bundle {id}")
         return ResponseHelper.success_response()
 
     async def __run_one_sync_internal(self, bundle_id: str, operation: str, reseller_id: str = None):
