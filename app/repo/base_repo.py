@@ -11,32 +11,12 @@ T = TypeVar("T", bound=BaseModel)
 
 class BaseRepository(Generic[T]):
     # Static class variable to hold the singleton supabase client
-    _supabase_client = None
 
     def __init__(self, table_name: DatabaseTables, model: Type[T]):
-        # Use singleton pattern for supabase client to avoid creating multiple instances
-        if BaseRepository._supabase_client is None:
-            BaseRepository._supabase_client = supabase_client()
 
-        self.client = BaseRepository._supabase_client
+        self.client = supabase_client()
         self.table = self.client.table(table_name)
         self.model = model
-
-    @classmethod
-    def get_client(cls):
-        """Get the singleton supabase client instance"""
-        if cls._supabase_client is None:
-            cls._supabase_client = supabase_client()
-        return cls._supabase_client
-
-    @classmethod
-    def close_client(cls):
-        """Close the singleton supabase client if needed for cleanup"""
-        if cls._supabase_client is not None:
-            # Close the client if it has a close method
-            if hasattr(cls._supabase_client, 'close'):
-                cls._supabase_client.close()
-            cls._supabase_client = None
 
     def select(self, tables: dict, where: dict = (), filters: dict = (), limit: int = 1000, offset: int = 0,
                order_by: str = None, desc=False,
