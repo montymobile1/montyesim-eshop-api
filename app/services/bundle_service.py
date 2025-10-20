@@ -303,7 +303,7 @@ class BundleService:
             "esim_hub_order_id": esim_hub_topup.orderId,
             "iccid": iccid,
             "bundle_type": UserBundleType.TOP_UP_BUNDLE,
-            "plan_started": True if primary_bundle.bundle_expired is False else False,
+            "plan_started": True if primary_bundle.bundle_expired is True else False,
             "bundle_expired": False,
             "bundle_data": bundle.model_dump(),
         })
