@@ -59,5 +59,6 @@
   "DISCOUNT_PERCENTAGE": "Discount Percentage",
   "USER_NOT_FOUND": "User not found.",
   "USER_WITH_EMAIL_ALREADY_EXISTS": "A user with this email already exists.",
-  "INSUFFICIENT_WALLET_BALANCE": "You don't have enough balance in your wallet to complete this transaction."
+  "INSUFFICIENT_WALLET_BALANCE": "You don't have enough balance in your wallet to complete this transaction.",
+  "INVALID_TOP_UP_AMOUNT": "Invalid top-up amount provided."
 }

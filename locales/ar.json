@@ -59,5 +59,6 @@
   "DISCOUNT_PERCENTAGE": "نسبة الخصم",
   "USER_NOT_FOUND": "المستخدم غير موجود.",
   "USER_WITH_EMAIL_ALREADY_EXISTS": "يوجد مستخدم بهذا البريد الإلكتروني بالفعل.",
-  "INSUFFICIENT_WALLET_BALANCE": "ليس لديك رصيد كافٍ في محفظتك لإتمام هذه المعاملة."
+  "INSUFFICIENT_WALLET_BALANCE": "ليس لديك رصيد كافٍ في محفظتك لإتمام هذه المعاملة.",
+  "INVALID_TOP_UP_AMOUNT": "تم تقديم مبلغ شحن غير صالح."
 }

@@ -245,9 +245,8 @@ class BundleService:
         # await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
         if user_order.promo_code or user_order.referral_code:
             await self.__promotion_service.apply_promotion_code_after_purchase(user_id=user_id,
-                                                                               code=user_order.promo_code or user_order.referral_code,
                                                                                status="completed",
-                                                                               order_id=user_order.id,
+                                                                               user_order=user_order,
                                                                                rule_id=rule_id)
 
         await self.__send_buy_notification(bundle_name=bundle.bundle_name, iccid=esim_hub_order.iccid,
