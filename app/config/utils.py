@@ -1,11 +1,11 @@
 import os
-from decimal import Decimal, ROUND_HALF_UP
+from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
 
 import stripe
+from dateutil import parser as dateutil_parser
 from loguru import logger
 from stripe import PaymentIntent, Charge
-from dateutil import parser as dateutil_parser
-from datetime import datetime
 
 from app.config.config import STRIPE_SECRET_KEY
 from app.config.constants import ErrorMessages
@@ -133,7 +133,7 @@ def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, m
             amount=amount,
             currency=currency,
             payment_method_types=["card"],
-            description=f"Top-up for user {user_email} for amount {amount/100:.2f} {currency}",
+            description=f"Top-up for user {user_email} for amount {amount / 100:.2f} {currency}",
             metadata=metadata,
             customer=customer.id
         )
@@ -204,3 +204,8 @@ def parse_iso_datetime(datetime_str: str):
             return datetime.fromisoformat(datetime_str)
         except Exception:
             return None
+
+
+def truncate_two_decimals_decimal(value) -> Decimal:
+    d = Decimal(str(value))
+    return d.quantize(Decimal('0.00'), rounding=ROUND_DOWN)

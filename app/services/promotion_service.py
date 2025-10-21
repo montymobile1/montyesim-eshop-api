@@ -6,7 +6,7 @@ from loguru import logger
 from app.config.constants import UserWalletTransactionSource, ErrorMessages
 from app.config.db import PromotionRuleAction, Beneficiary, PromotionRuleEvent, ConfigKeysEnum, PromotionStatusEnum
 from app.config.i18n import I18n
-from app.config.utils import get_config
+from app.config.utils import get_config, truncate_two_decimals_decimal
 from app.exceptions import CustomException
 from app.models.promotion import PromotionModel, PromotionUsageModel
 from app.models.promotion import PromotionRuleModel
@@ -44,7 +44,7 @@ class PromotionService:
                 continue
             promotion_history = PromotionHistoryDto(
                 is_referral=transaction.source != UserWalletTransactionSource.CASHBACK,
-                amount=f"{int(((transaction.amount * rate) * 100)) / 100} {x_currency}",
+                amount=f"{truncate_two_decimals_decimal(transaction.amount * rate)} {x_currency}",
                 name=transaction.source,
                 promotion_name="",
                 date=transaction.created_at)
