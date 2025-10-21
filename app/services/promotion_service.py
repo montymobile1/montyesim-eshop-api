@@ -35,7 +35,7 @@ class PromotionService:
         self.__user_profile_repo = UserProfileRepo()
 
     async def history(self, user_id: str, x_currency: str) -> Response[List[PromotionHistoryDto]]:
-        rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("DEFAULT_CURRENCY"),
+        rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
                                                          to_currency=x_currency)
         transactions = self.__user_wallet_service.get_wallet_transactions(user_id=user_id)
         history = []
