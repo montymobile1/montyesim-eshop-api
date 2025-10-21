@@ -51,7 +51,7 @@ class UserWalletService:
         wallet.amount = wallet.amount * rate
         return DtoMapper.to_user_wallet_response(wallet)
 
-    async def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp",
+    def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp",
                                      transaction_currency: str = os.getenv("SYSTEM_CURRENCY", "USD")) -> Response[
         UserWalletResponse]:
         try:

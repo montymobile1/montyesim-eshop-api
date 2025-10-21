@@ -347,7 +347,7 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.INSUFFICIENT_WALLET_BALANCE,
                                   details="Insufficient wallet balance, please top up your wallet")
         try:
-            await self.__user_wallet_service.add_wallet_transaction(amount=(bundle_price * -1),
+            self.__user_wallet_service.add_wallet_transaction(amount=(bundle_price * -1),
                                                                     user_id=user.id,
                                                                     source=UserWalletTransactionSource.PURCHASE_BUNDLE)
             if user_order.order_type == UserOrderType.ASSIGN:

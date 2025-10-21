@@ -41,7 +41,7 @@ class VoucherService:
 
         try:
             rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=x_currency)
-            await self.__user_wallet_service.add_wallet_transaction(amount=((int(voucher.amount * rate) * 100) / 100),
+            self.__user_wallet_service.add_wallet_transaction(amount=((int(voucher.amount * rate) * 100) / 100),
                                                                     user_id=user.id,
                                                                     source=UserWalletTransactionSource.VOUCHER)
             self.__voucher_repo.update_by(where={"id": voucher.id}, data={"used_by": user.id, "is_used": True})

@@ -359,11 +359,13 @@ class CallbackService:
             if event_type == "payment_intent.succeeded":
                 amount = (order.amount / 100)
                 logger.info(f"updating user wallet: {user_wallet} with new {amount=}")
+
                 def task():
                     self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
                                                                       source=UserWalletTransactionSource.TOP_UP_WALLET,
                                                                       transaction_currency=order.currency)
                     return
+
                 self.__task_executor.add_task(task)
                 self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.SUCCESS})
                 logger.info(
