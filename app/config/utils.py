@@ -133,7 +133,7 @@ def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, m
             amount=amount,
             currency=currency,
             payment_method_types=["card"],
-            description=f"Topup for user {user_email} for amount {amount} {currency}",
+            description=f"Top-up for user {user_email} for amount {amount/100:.2f} {currency}",
             metadata=metadata,
             customer=customer.id
         )

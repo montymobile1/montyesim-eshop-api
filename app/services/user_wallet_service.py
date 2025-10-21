@@ -98,8 +98,8 @@ class UserWalletService:
 
         order_amount = int(amount * 100)
         if x_currency != user_wallet.currency:
-            rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
-                                                             to_currency=x_currency)
+            rate = self.__currency_service.get_currency_rate(from_currency=x_currency,
+                                                             to_currency=os.getenv("SYSTEM_CURRENCY", "USD"))
             order_amount = int((amount * rate) * 100)
 
         if order_amount <= 50:
@@ -116,7 +116,7 @@ class UserWalletService:
             "anonymous_user_id": None,
         })
 
-        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=(amount*100),
+        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=int(amount*100),
                                                   currency=x_currency,
                                                   metadata={
                                                       "user_id": user.id,
@@ -139,7 +139,7 @@ class UserWalletService:
                                          billing_country_code="GB",
                                          order_id=order.id,
                                          total_price_display=f"{top_up_request.amount:.2f} {x_currency}",
-                                         subtotal_price_display=f"{intent.amount:.2f} {x_currency}",
+                                         subtotal_price_display=f"{intent.amount/100:.2f} {x_currency}",
                                          tax_price_display=f"{tax_excl} {x_currency}",
                                          has_tax=tax_excl > 0
                                          )
