@@ -116,7 +116,7 @@ class UserWalletService:
             "anonymous_user_id": None,
         })
 
-        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=amount,
+        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=(amount*100),
                                                   currency=x_currency,
                                                   metadata={
                                                       "user_id": user.id,
