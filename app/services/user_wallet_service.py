@@ -91,25 +91,32 @@ class UserWalletService:
                       x_currency: str) -> Response[
         PaymentIntentResponse]:
         amount = top_up_request.amount
-        if amount <= 0.5:
-            raise CustomException(code=400, name=ErrorMessages.INVALID_TOP_UP_AMOUNT,
-                                  details="Top up amount must be greater than 0.5")
+
         user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user.id})
         if not user_wallet:
             user_wallet = self.__create_wallet(user_id=user.user_id, amount=0)
+
+        order_amount = int(amount * 100)
+        if x_currency != user_wallet.currency:
+            rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
+                                                             to_currency=x_currency)
+            order_amount = int((amount * rate) * 100)
+
+        if order_amount <= 50:
+            raise CustomException(code=400, name=ErrorMessages.INVALID_TOP_UP_AMOUNT,
+                                  details="Top up amount must be greater than 0.5")
         order = self.__user_order_repo.create(data={
             "user_id": user.id,
             "bundle_id": None,
             "order_type": UserOrderType.WALLET_TOP_UP,
-            "amount": amount * 100,
+            "amount": order_amount,
             "currency": os.getenv("SYSTEM_CURRENCY", "USD"),
             "bundle_data": "-",
             "searched_countries": "-",
             "anonymous_user_id": None,
         })
-        rate = self.__currency_service.get_currency_rate(from_currency=x_currency,
-                                                         to_currency=user_wallet.currency)
-        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=(amount * rate) * 100,
+
+        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=amount,
                                                   currency=x_currency,
                                                   metadata={
                                                       "user_id": user.id,
