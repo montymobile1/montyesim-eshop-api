@@ -142,6 +142,9 @@ class AuthService:
                 'language': update_request.language,
                 'currency': update_request.currency,
             }
+            if user_model.metadata.get("referral_code", None) is None:
+                referral_code = self.__generate_referral_code()
+                user_metadata['referral_code'] = referral_code
             login_type = user_model.metadata.get("login_type", login_type)
             if login_type == "phone":
                 user_metadata.pop("msisdn")
