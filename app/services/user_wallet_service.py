@@ -11,8 +11,8 @@ from app.config.notification_types import send_wallet_top_up_succeeded_notificat
 from app.config.push_notification_manager import fcm_service
 from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral
 from app.exceptions import CustomException
-from app.models.user import UserWalletModel, UserModel, UserWalletTransactionModel
-from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo
+from app.models.user import UserWalletModel, UserModel, UserWalletTransactionModel, UsersCopyModel
+from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo, UserRepo
 from app.schemas.bundle import PaymentIntentResponse
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import Response, ResponseHelper
@@ -27,6 +27,7 @@ class UserWalletService:
         self.__user_order_repo = UserOrderRepo()
         self.__user_wallet_transaction_repo = UserWalletTransactionRepo()
         self.__currency_service = CurrencyService()
+        self.__user_repo = UserRepo()
 
     async def get_user_wallet_by_id(self, user_wallet_id: str) -> UserWalletResponse | None:
         wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"id": user_wallet_id})
@@ -51,10 +52,12 @@ class UserWalletService:
         wallet.amount = wallet.amount * rate
         return DtoMapper.to_user_wallet_response(wallet)
 
-    def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp",
-                                     transaction_currency: str = os.getenv("SYSTEM_CURRENCY", "USD")) -> Response[
+    def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp") -> Response[
         UserWalletResponse]:
         try:
+            user: UsersCopyModel = self.__user_repo.get_first_by(where={"id": user_id})
+            transaction_currency = user.metadata.get("currency", os.getenv("SYSTEM_CURRENCY", "USD"))
+
             user_wallet: UserWalletModel = self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
             if user_wallet is None:
                 raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
@@ -116,7 +119,7 @@ class UserWalletService:
             "anonymous_user_id": None,
         })
 
-        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=int(amount*100),
+        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=int(amount * 100),
                                                   currency=x_currency,
                                                   metadata={
                                                       "user_id": user.id,
@@ -139,7 +142,7 @@ class UserWalletService:
                                          billing_country_code="GB",
                                          order_id=order.id,
                                          total_price_display=f"{top_up_request.amount:.2f} {x_currency}",
-                                         subtotal_price_display=f"{intent.amount/100:.2f} {x_currency}",
+                                         subtotal_price_display=f"{intent.amount / 100:.2f} {x_currency}",
                                          tax_price_display=f"{tax_excl} {x_currency}",
                                          has_tax=tax_excl > 0
                                          )
