@@ -453,7 +453,7 @@ class DtoMapper:
             user_token=supabase_response.user.id,
             should_notify=user_metadata.get("should_notify", False),
             referral_code=referral_code,
-            balance=0 if user_wallet is None else truncate_two_decimals_decimal(user_wallet.balance),
+            balance=user_wallet.balance if user_wallet else 0,
             currency_code=user_metadata.get("currency", os.getenv("DEFAULT_CURRENCY")),
             email_editable=email_editable,
             phone_editable=phone_editable,
