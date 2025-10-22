@@ -333,7 +333,11 @@ class BundleService:
                 "user": email
             }
             language = lower(user.metadata.get("language", "en"))
-            template = get_email_template(f"send_qr_email_template_{language}.htm")
+            try:
+                template = get_email_template(f"send_qr_email_template_{language}.htm")
+            except Exception as e:
+                logger.error(f"error while getting email template for language {language}, error: {str(e)}")
+                template = get_email_template("send_qr_email_template_en.htm")
             html_content = template.render(data=data)
             send_email(subject="Activate Your Esim", html_content=html_content,
                        recipients=user.metadata.get("email", email), attachment=qr)

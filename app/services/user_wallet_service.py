@@ -64,8 +64,8 @@ class UserWalletService:
 
             transaction_amount = amount
             if user_wallet.currency != transaction_currency:
-                rate = self.__currency_service.get_currency_rate(from_currency=transaction_currency,
-                                                                 to_currency=user_wallet.currency)
+                rate = self.__currency_service.get_currency_rate(from_currency=user_wallet.currency,
+                                                                 to_currency=transaction_currency)
                 transaction_amount = amount * rate
             current_amount = float(user_wallet.amount)
             add_amount = float(transaction_amount)
