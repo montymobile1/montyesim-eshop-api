@@ -8,7 +8,6 @@ from gotrue import AuthResponse
 from loguru import logger
 
 from app.config.context import currency_context
-from app.config.utils import truncate_two_decimals_decimal
 from app.models.app import CurrencyModel
 from app.models.notification import NotificationModel
 from app.models.promotion import PromotionUsageModel
@@ -480,7 +479,7 @@ class DtoMapper:
     @staticmethod
     def to_user_wallet_response(user_wallet: UserWalletModel) -> UserWalletResponse:
         data = {
-            "balance": truncate_two_decimals_decimal(user_wallet.amount),
+            "balance": user_wallet.amount,
             "currency": user_wallet.currency
         }
         return UserWalletResponse.model_validate(data)
