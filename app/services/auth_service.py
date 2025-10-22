@@ -198,7 +198,7 @@ class AuthService:
                          data={
                              "display_email": login_request.email,
                              "login_type": "email",
-                             "language": language,
+                             "language": language
                          })
             return ResponseHelper.success_response()
         else:
@@ -215,6 +215,7 @@ class AuthService:
                              "should_notify": False,
                              "login_type": "email",
                              "language": language,
+                             "currency": os.getenv("DEFAULT_CURRENCY", "USD"),
                          })
             return ResponseHelper.success_response()
 
@@ -241,6 +242,7 @@ class AuthService:
                     "msisdn": login_request.phone,
                     "login_type": "phone",
                     "language": language,
+                    "currency": os.getenv("DEFAULT_CURRENCY", "USD"),
                 }
             })
         else:
@@ -256,6 +258,7 @@ class AuthService:
                         "should_notify": False,
                         "display_email": user_email,
                         "language": language,
+                        "currency": os.getenv("DEFAULT_CURRENCY", "USD"),
                     }
                 }
             })

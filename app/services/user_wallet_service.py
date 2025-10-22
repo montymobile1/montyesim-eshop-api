@@ -63,10 +63,15 @@ class UserWalletService:
                 raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
             transaction_amount = amount
+            notification_amount = amount
             if user_wallet.currency != transaction_currency and order_currency is None:
                 rate = self.__currency_service.get_currency_rate(from_currency=user_wallet.currency,
                                                                  to_currency=transaction_currency)
                 transaction_amount = truncate_two_decimals_decimal(amount * rate)
+            if user_wallet.currency != transaction_currency:
+                rate = self.__currency_service.get_currency_rate(from_currency=user_wallet.currency,
+                                                                 to_currency=transaction_currency)
+                notification_amount = truncate_two_decimals_decimal(amount * rate)
             current_amount = float(user_wallet.amount)
             add_amount = float(transaction_amount)
             new_amount = current_amount + add_amount
@@ -82,7 +87,7 @@ class UserWalletService:
             })
             if amount > 0:
                 thread = threading.Thread(target=self.__send_push,
-                                          args=(transaction_amount, transaction_currency, user_id))
+                                          args=(notification_amount, transaction_currency, user_id))
                 thread.start()
             dto = DtoMapper.to_user_wallet_response(user_wallet)
             return ResponseHelper.success_data_response(dto, 1)
