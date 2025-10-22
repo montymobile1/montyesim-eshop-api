@@ -10,7 +10,7 @@ from app.config.config import esim_hub_service_instance, send_email, generate_qr
 from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum, PromotionRuleAction, ConfigKeysEnum
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
-from app.config.utils import get_config
+from app.config.utils import get_config, truncate_two_decimals_decimal
 from app.exceptions import BadRequestException
 from app.models.app import BundleModel
 from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel, UserProfileBundleModel
@@ -317,13 +317,15 @@ class BundleService:
             msisdn = os.getenv("WHATSAPP_NUMBER")
             if msisdn:
                 msisdn = msisdn.replace("+", "").replace("-", "").replace(" ", "")
+            currency = user.metadata.get("currency", os.getenv("SYSTEM_CURRENCY", "USD"))
+            rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=currency)
             coverage = self.__get_coverage(user_profile=user_profile, bundle=bundle)
             display_email = user.metadata.get("display_email", None)
             email = user.metadata.get("email", user.email) if display_email is None else display_email
             data = {
                 "bundle_name": bundle.bundle_name,
                 "gprs_limit_display": bundle.gprs_limit_display,
-                "price": f"{round(user_order.modified_amount / 100, 2)} {user_order.currency.upper()}",
+                "price": f"{truncate_two_decimals_decimal(user_order.modified_amount * rate)} {currency.upper()}",
                 "coverage": coverage,
                 "validity": bundle.validity_display,
                 "iccid": user_profile.iccid,
