@@ -52,7 +52,7 @@ class UserWalletService:
         wallet.amount = wallet.amount * rate
         return DtoMapper.to_user_wallet_response(wallet)
 
-    def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp") -> Response[
+    def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp",order_currency:str=None) -> Response[
         UserWalletResponse]:
         try:
             user: UsersCopyModel = self.__user_repo.get_first_by(where={"id": user_id})
@@ -63,7 +63,7 @@ class UserWalletService:
                 raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
             transaction_amount = amount
-            if user_wallet.currency != transaction_currency:
+            if user_wallet.currency != transaction_currency and order_currency is None:
                 rate = self.__currency_service.get_currency_rate(from_currency=user_wallet.currency,
                                                                  to_currency=transaction_currency)
                 transaction_amount = truncate_two_decimals_decimal(amount * rate)
