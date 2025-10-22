@@ -9,7 +9,7 @@ from app.config.constants import ErrorMessages
 from app.config.db import UserOrderType
 from app.config.notification_types import send_wallet_top_up_succeeded_notification
 from app.config.push_notification_manager import fcm_service
-from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral
+from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral, truncate_two_decimals_decimal
 from app.exceptions import CustomException
 from app.models.user import UserWalletModel, UserModel, UserWalletTransactionModel, UsersCopyModel
 from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo, UserRepo
@@ -66,7 +66,7 @@ class UserWalletService:
             if user_wallet.currency != transaction_currency:
                 rate = self.__currency_service.get_currency_rate(from_currency=user_wallet.currency,
                                                                  to_currency=transaction_currency)
-                transaction_amount = amount * rate
+                transaction_amount = truncate_two_decimals_decimal(amount * rate)
             current_amount = float(user_wallet.amount)
             add_amount = float(transaction_amount)
             new_amount = current_amount + add_amount
