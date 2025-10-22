@@ -1,6 +1,8 @@
 import os
 from typing import List
 
+from loguru import logger
+
 from app.repo.currency_repo import CurrencyRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import CurrencyDto
@@ -22,6 +24,17 @@ class CurrencyService:
             return 1.0
 
         return currency.rate
+
+    def convert(self, from_currency: str, to_currency: str, amount: float) -> float:
+        system_currency = os.getenv("SYSTEM_CURRENCY", "USD")
+        if from_currency == system_currency:
+            rate = self.get_rate_by_currency(to_currency)
+            logger.info(f"Converting from {from_currency} to {to_currency} amount: {amount} with rate * {rate}")
+            return amount * rate
+        else:
+            rate = self.get_rate_by_currency(from_currency)
+            logger.info(f"Converting from {from_currency} to {to_currency} amount: {amount} with rate / {rate}")
+            return amount / rate
 
     def get_currency_rate(self, from_currency: str, to_currency: str):
         currency = self.__currency_repo.get_first_by(

@@ -107,8 +107,10 @@ class UserBundleService:
         payment_type = assign_request.payment_type
 
         if modified_amount == 0:
+            self.__user_order_repo.update_by({"id": order.id}, data={"modified_amount": 0})
             await self.__bundle_service.buy_bundle(user_order=order, bundle=bundle, user_id=user.id,
-                                                   payment_status=OrderStatusEnum.SUCCESS, rule_id=rule_id)
+                                                   payment_status=OrderStatusEnum.SUCCESS, rule_id=rule_id
+                                                   , payment_type=payment_type)
             response = PaymentIntentResponse(order_id=order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
 
@@ -135,7 +137,8 @@ class UserBundleService:
             "user_id": user.id,
             "bundle_id": assign_top_up_request.bundle_code,
             "order_type": UserOrderType.BUNDLE_TOP_UP,
-            "amount": round(bundle.price * 100),
+            "amount": round(bundle.original_price * 100),
+            "modified_amount": round(bundle.original_price * 100),
             "currency": os.getenv("DEFAULT_CURRENCY"),
             "bundle_data": bundle.model_dump_json(),
             "searched_countries": None,
@@ -329,7 +332,8 @@ class UserBundleService:
         response = self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=user_order.amount)
         payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
         return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                      payment_status=payment_status)
+                                                      payment_status=payment_status,
+                                                      payment_type=PaymentTypeEnum.DCB)
 
     async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,
                                       rule_id: str,
@@ -343,7 +347,7 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.INSUFFICIENT_WALLET_BALANCE,
                                   details="Insufficient wallet balance, please top up your wallet")
         try:
-            await self.__user_wallet_service.add_wallet_transaction(amount=(bundle_price * -1),
+            self.__user_wallet_service.add_wallet_transaction(amount=(bundle_price * -1),
                                                                     user_id=user.id,
                                                                     source=UserWalletTransactionSource.PURCHASE_BUNDLE)
             if user_order.order_type == UserOrderType.ASSIGN:
@@ -383,10 +387,23 @@ class UserBundleService:
                                     assign_request: AssignRequest | None, rule_id: str,
                                     request: Request, iccid: str = None,
                                     x_currency: str = os.getenv("DEFAULT_CURRENCY")) -> Response:
-        rate = self.__currency_service.get_currency_rate("USD", to_currency=x_currency)
-        order_amount = order.modified_amount if order.modified_amount else order.amount
-        original_amount = (order_amount / 100) * rate
-        stripe_amount = int(Decimal(order_amount * rate).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
+        # Use Decimal throughout to avoid float rounding issues
+        raw_rate = self.__currency_service.get_currency_rate("USD", to_currency=x_currency)
+        rate = Decimal(str(raw_rate))
+
+        # order.modified_amount may sometimes be a float (see background update), so convert via str to Decimal
+        order_amount_value = order.modified_amount if order.modified_amount is not None else order.amount
+        # represent amount in cents as Decimal (may include fractional cents in some edge cases earlier)
+        order_amount_cents = Decimal(str(order_amount_value))
+
+        # Calculate amounts using Decimal and quantize appropriately
+        # original_amount is the display amount in the target currency (x_currency)
+        original_amount = (order_amount_cents / Decimal('100') * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+        # stripe expects integer smallest-units (cents). Compute target cents and round half up to whole cents.
+        target_cents = (order_amount_cents * rate).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+        stripe_amount = int(target_cents)
+
         metadata = {
             "order_id": order.id,
             "user_id": order.user_id,
@@ -402,7 +419,7 @@ class UserBundleService:
             metadata["iccid"] = iccid
         payment_intent, tax = create_payment_intent(user_bundle_order=order, user_email=user.email,
                                                     metadata=metadata,
-                                                    rate=rate,
+                                                    rate=raw_rate,
                                                     currency=x_currency,
                                                     ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id

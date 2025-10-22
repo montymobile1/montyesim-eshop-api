@@ -37,4 +37,4 @@ async def top_up_wallet(request: Request, top_up_request: TopUpWalletRequest,
                         user: Annotated[UserModel, Depends(bearer_token)],
                         x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))) -> \
         Response[PaymentIntentResponse]:
-    return await service.top_up_wallet(top_up_request=top_up_request, user=user, request=request, x_currency=x_currency)
+    return service.top_up_wallet(top_up_request=top_up_request, user=user, request=request, x_currency=x_currency)

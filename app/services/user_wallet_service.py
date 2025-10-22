@@ -11,8 +11,8 @@ from app.config.notification_types import send_wallet_top_up_succeeded_notificat
 from app.config.push_notification_manager import fcm_service
 from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral
 from app.exceptions import CustomException
-from app.models.user import UserWalletModel, UserModel, UserWalletTransactionModel
-from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo
+from app.models.user import UserWalletModel, UserModel, UserWalletTransactionModel, UsersCopyModel
+from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo, UserRepo
 from app.schemas.bundle import PaymentIntentResponse
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import Response, ResponseHelper
@@ -27,6 +27,7 @@ class UserWalletService:
         self.__user_order_repo = UserOrderRepo()
         self.__user_wallet_transaction_repo = UserWalletTransactionRepo()
         self.__currency_service = CurrencyService()
+        self.__user_repo = UserRepo()
 
     async def get_user_wallet_by_id(self, user_wallet_id: str) -> UserWalletResponse | None:
         wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"id": user_wallet_id})
@@ -35,8 +36,10 @@ class UserWalletService:
         return DtoMapper.to_user_wallet_response(wallet)
 
     async def create_wallet(self, user_wallet_request_dto: UserWalletRequestDto) -> UserWalletResponse:
-        wallet = self.__create_wallet(user_id=user_wallet_request_dto.user_id, amount=user_wallet_request_dto.amount,
-                                      currency=user_wallet_request_dto.currency)
+        user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user_wallet_request_dto.user_id})
+        if user_wallet:
+            return DtoMapper.to_user_wallet_response(user_wallet)
+        wallet = self.__create_wallet(user_id=user_wallet_request_dto.user_id, amount=user_wallet_request_dto.amount)
         return DtoMapper.to_user_wallet_response(wallet)
 
     async def get_user_wallet_by_user_id(self, user_id: str, currency_code: str = os.getenv(
@@ -44,19 +47,28 @@ class UserWalletService:
         wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"user_id": user_id})
         if not wallet:
             return None
-        rate = self.__currency_service.get_currency_rate(from_currency=wallet.currency, to_currency=currency_code)
+        rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
+                                                         to_currency=currency_code)
         wallet.amount = wallet.amount * rate
         return DtoMapper.to_user_wallet_response(wallet)
 
-    async def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp") -> Response[
+    def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp") -> Response[
         UserWalletResponse]:
         try:
+            user: UsersCopyModel = self.__user_repo.get_first_by(where={"id": user_id})
+            transaction_currency = user.metadata.get("currency", os.getenv("SYSTEM_CURRENCY", "USD"))
+
             user_wallet: UserWalletModel = self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
             if user_wallet is None:
                 raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
+            transaction_amount = amount
+            if user_wallet.currency != transaction_currency:
+                rate = self.__currency_service.get_currency_rate(from_currency=transaction_currency,
+                                                                 to_currency=user_wallet.currency)
+                transaction_amount = amount * rate
             current_amount = float(user_wallet.amount)
-            add_amount = float(amount)
+            add_amount = float(transaction_amount)
             new_amount = current_amount + add_amount
             user_wallet.amount = new_amount
             self.__user_wallet_repo.update_by(where={"user_id": user_id},
@@ -70,7 +82,7 @@ class UserWalletService:
             })
             if amount > 0:
                 thread = threading.Thread(target=self.__send_push,
-                                          args=(amount, user_wallet.currency, user_id,))
+                                          args=(transaction_amount, transaction_currency, user_id))
                 thread.start()
             dto = DtoMapper.to_user_wallet_response(user_wallet)
             return ResponseHelper.success_data_response(dto, 1)
@@ -78,28 +90,36 @@ class UserWalletService:
             logger.error(str(e))
             raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
-    async def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UserModel, request: Request,
-                            x_currency: str) -> Response[
+    def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UserModel, request: Request,
+                      x_currency: str) -> Response[
         PaymentIntentResponse]:
-        currency = os.getenv("DEFAULT_CURRENCY")
         amount = top_up_request.amount
-        rate = self.__currency_service.get_currency_rate(from_currency=x_currency, to_currency=currency)
-        amount = round(amount * rate, 2)
+
         user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user.id})
         if not user_wallet:
-            user_wallet = self.__create_wallet(user_id=user.user_id, amount=0, currency=currency)
+            user_wallet = self.__create_wallet(user_id=user.user_id, amount=0)
+
+        order_amount = int(amount * 100)
+        if x_currency != user_wallet.currency:
+            rate = self.__currency_service.get_currency_rate(from_currency=x_currency,
+                                                             to_currency=os.getenv("SYSTEM_CURRENCY", "USD"))
+            order_amount = int((amount * rate) * 100)
+
+        if order_amount <= 50:
+            raise CustomException(code=400, name=ErrorMessages.INVALID_TOP_UP_AMOUNT,
+                                  details="Top up amount must be greater than 0.5")
         order = self.__user_order_repo.create(data={
             "user_id": user.id,
             "bundle_id": None,
             "order_type": UserOrderType.WALLET_TOP_UP,
-            "amount": int(round(top_up_request.amount * 100)),
-            "currency": currency,
+            "amount": order_amount,
+            "currency": os.getenv("SYSTEM_CURRENCY", "USD"),
             "bundle_data": "-",
             "searched_countries": "-",
             "anonymous_user_id": None,
         })
 
-        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=round(amount * 100),
+        intent, tax = create_wallet_top_up_intent(user_email=user.email, amount=int(amount * 100),
                                                   currency=x_currency,
                                                   metadata={
                                                       "user_id": user.id,
@@ -121,9 +141,9 @@ class UserWalletService:
                                          merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
                                          billing_country_code="GB",
                                          order_id=order.id,
-                                         total_price_display=f"{top_up_request.amount:.2f} {currency}",
-                                         subtotal_price_display=f"{intent.amount:.2f} {currency}",
-                                         tax_price_display=f"{tax_excl} {currency}",
+                                         total_price_display=f"{top_up_request.amount:.2f} {x_currency}",
+                                         subtotal_price_display=f"{intent.amount / 100:.2f} {x_currency}",
+                                         tax_price_display=f"{tax_excl} {x_currency}",
                                          has_tax=tax_excl > 0
                                          )
         return ResponseHelper.success_data_response(response, 0)
@@ -136,11 +156,11 @@ class UserWalletService:
                                                                 order_by="created_at", desc=True)
         return transactions
 
-    def __create_wallet(self, user_id: str, amount: float, currency: str):
+    def __create_wallet(self, user_id: str, amount: float):
         wallet = self.__user_wallet_repo.create(data={
             "user_id": user_id,
             "amount": amount,
-            "currency": currency
+            "currency": os.getenv("SYSTEM_CURRENCY", "USD")
         })
         logger.info(f"creating wallet for user {user_id}")
         return wallet

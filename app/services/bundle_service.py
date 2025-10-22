@@ -1,10 +1,10 @@
 import os
-import threading
 from collections import defaultdict
 from datetime import datetime
 from typing import List, Literal
 
 from loguru import logger
+from soupsieve.util import lower
 
 from app.config.config import esim_hub_service_instance, send_email, generate_qr_code, get_email_template
 from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum, PromotionRuleAction, ConfigKeysEnum
@@ -25,6 +25,7 @@ from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
 from app.services.grouping_service import GroupingService
 from app.services.promotion_service import PromotionService
+from app.services.task_executor import TaskExecutor
 
 
 class BundleService:
@@ -41,6 +42,7 @@ class BundleService:
         self.__user_profile_repo = UserProfileRepo()
         self.__user_profile_bundle_repo = UserProfileBundleRepo()
         self.__promotion_service = PromotionService()
+        self.__task_executor = TaskExecutor()
 
     def bundle_exists(self, bundle_id: str) -> bool:
         try:
@@ -183,7 +185,7 @@ class BundleService:
         return ResponseHelper.success_data_response(countries, len(countries))
 
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
-                         payment_status: str, rule_id: str = None, payment_type: str = PaymentTypeEnum.CARD):
+                         payment_status: str, payment_type: str, rule_id: str = None):
         rate = self.__currency_service.get_currency_rate(from_currency=user_order.currency, to_currency="USD")
         user = self.__user_repo.get_by_id(record_id=user_id)
         msisdn = user.metadata.get("msisdn", "")
@@ -243,17 +245,18 @@ class BundleService:
         # await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
         if user_order.promo_code or user_order.referral_code:
             await self.__promotion_service.apply_promotion_code_after_purchase(user_id=user_id,
-                                                                               code=user_order.promo_code or user_order.referral_code,
                                                                                status="completed",
-                                                                               order_id=user_order.id,
+                                                                               user_order=user_order,
                                                                                rule_id=rule_id)
 
         await self.__send_buy_notification(bundle_name=bundle.bundle_name, iccid=esim_hub_order.iccid,
                                            user_id=user_order.user_id)
         user = self.__user_repo.get_by_id(record_id=user_order.user_id)
-        thread = threading.Thread(target=self.__send_email, args=(user, user_profile, bundle, user_order))
-        thread.start()
 
+        def task():
+            self.__send_email(user=user, user_profile=user_profile, bundle=bundle, user_order=user_order)
+
+        self.__task_executor.add_task(task)
         return ResponseHelper.success_response()
 
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,
@@ -299,7 +302,7 @@ class BundleService:
             "esim_hub_order_id": esim_hub_topup.orderId,
             "iccid": iccid,
             "bundle_type": UserBundleType.TOP_UP_BUNDLE,
-            "plan_started": True if primary_bundle.bundle_expired is False else False,
+            "plan_started": True if primary_bundle.bundle_expired is True else False,
             "bundle_expired": False,
             "bundle_data": bundle.model_dump(),
         })
@@ -329,7 +332,7 @@ class BundleService:
                 "msisdn": msisdn,
                 "user": email
             }
-            language = user.metadata.get("language", "en")
+            language = lower(user.metadata.get("language", "en"))
             template = get_email_template(f"send_qr_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="Activate Your Esim", html_content=html_content,

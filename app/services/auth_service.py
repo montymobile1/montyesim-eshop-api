@@ -31,11 +31,11 @@ class AuthService:
         self.__dcb_service = dcb_service_instance()
         self.__user_otp_service = UserOtpService()
 
-    async def login(self, login_request: LoginRequest) -> Response:
+    async def login(self, login_request: LoginRequest, language: str = "en") -> Response:
         if (login_request.phone and login_request.email) or login_request.phone:
-            return await self.__handle_phone_login(login_request=login_request)
+            return await self.__handle_phone_login(login_request=login_request, language=language)
         elif login_request.email:
-            return self.__handle_email_login(login_request=login_request)
+            return self.__handle_email_login(login_request=login_request, language=language)
         else:
             raise BadRequestException("Email or Phone are required.")
 
@@ -67,7 +67,7 @@ class AuthService:
             user_wallet_request_dto = UserWalletRequestDto(
                 user_id=user_id,
                 amount=0.0,
-                currency=os.getenv("DEFAULT_CURRENCY", "USD")
+                currency=os.getenv("SYSTEM_CURRENCY", "USD")
             )
             wallet = await self.__user_wallet_service.create_wallet(user_wallet_request_dto)
             if wallet:
@@ -142,6 +142,9 @@ class AuthService:
                 'language': update_request.language,
                 'currency': update_request.currency,
             }
+            if user_model.metadata.get("referral_code", None) is None:
+                referral_code = self.__generate_referral_code()
+                user_metadata['referral_code'] = referral_code
             login_type = user_model.metadata.get("login_type", login_type)
             if login_type == "phone":
                 user_metadata.pop("msisdn")
@@ -177,7 +180,7 @@ class AuthService:
             code = uuid.uuid4().hex[:8].upper()
         return code
 
-    def __handle_email_login(self, login_request: LoginRequest) -> Response[None]:
+    def __handle_email_login(self, login_request: LoginRequest, language: str = "en") -> Response[None]:
         user_exists: UserModel = self.__user_repo.get_first_by(
             where={"email": login_request.email})
         if login_request.email == "test.apple@example.com":
@@ -195,6 +198,7 @@ class AuthService:
                          data={
                              "display_email": login_request.email,
                              "login_type": "email",
+                             "language": language,
                          })
             return ResponseHelper.success_response()
         else:
@@ -210,10 +214,11 @@ class AuthService:
                              "display_email": login_request.email,
                              "should_notify": False,
                              "login_type": "email",
+                             "language": language,
                          })
             return ResponseHelper.success_response()
 
-    async def __handle_phone_login(self, login_request: LoginRequest) -> Response:
+    async def __handle_phone_login(self, login_request: LoginRequest, language: str = "en") -> Response:
         old_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
                                                                  filters={
                                                                      "metadata->>msisdn": login_request.phone})
@@ -226,7 +231,7 @@ class AuthService:
             user_msisdn = user_exists.metadata.get("msisdn", None)
             if user_msisdn and user_msisdn != login_request.phone:
                 raise CustomException(code=400, name=ErrorMessages.USER_WITH_EMAIL_ALREADY_EXISTS,
-                                  details=f"User with email {login_request.email} already exists for another phone number")
+                                      details=f"User with email {login_request.email} already exists for another phone number")
         otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=user_email)
         if user_exists:
             logger.info(f"generating new otp for user: {user_email}")
@@ -235,6 +240,7 @@ class AuthService:
                     "otp": otp,
                     "msisdn": login_request.phone,
                     "login_type": "phone",
+                    "language": language,
                 }
             })
         else:
@@ -249,6 +255,7 @@ class AuthService:
                         "login_type": "phone",
                         "should_notify": False,
                         "display_email": user_email,
+                        "language": language,
                     }
                 }
             })

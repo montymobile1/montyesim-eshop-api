@@ -1,22 +1,22 @@
 import asyncio
 import json
 import os
-import threading
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Dict, Optional
 
 import stripe
 from fastapi import Request, HTTPException
 from loguru import logger
+from soupsieve.util import lower
 
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email, get_email_template
 from app.config.constants import PaymentIntentEvents, UserWalletTransactionSource
+from app.config.db import PaymentTypeEnum
 from app.config.notification_types import send_consumption_80_bundle_notification, \
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
 from app.config.push_notification_manager import fcm_service
+from app.config.utils import parse_iso_datetime
 from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel, UserProfileBundleModel, \
     UserProfileModel
 from app.repo import UserOrderRepo, UserProfileRepo, UserRepo, UserProfileBundleRepo
@@ -51,10 +51,6 @@ class CallbackService:
         self.__promotion_service = PromotionService()
         self.__bundle_service = BundleService()
         self.__task_executor = TaskExecutor()
-
-        # In-memory queue and resource management
-        self.__max_workers = int(os.getenv("SYNC_MAX_WORKERS", "5"))  # Configurable max workers
-        self.__executor = ThreadPoolExecutor(max_workers=self.__max_workers, thread_name_prefix="sync-worker")
 
     def _execute_sync_request(self, sync_request: SyncRequest):
         """Execute a single sync request"""
@@ -133,8 +129,12 @@ class CallbackService:
         except stripe.error.SignatureVerificationError:
             logger.error("Stripe webhook signature verification failed.")
             raise HTTPException(status_code=400, detail="Invalid signature")
-        thread = threading.Thread(target=self.__handle_payment_webhook_data, args=(event,))
-        thread.start()
+
+        def task():
+            return self.__handle_payment_webhook_data(event=event)
+
+        self.__task_executor.add_task(task)
+
         return ResponseHelper.success_response()
 
     async def handle_payment_webhook_fake(self, request: Request):
@@ -147,8 +147,10 @@ class CallbackService:
         await self.__handle_payment_webhook_data(payload_json)
 
     def handle_sync_all_bundles(self, page_index=1):
-        thread = threading.Thread(target=self.__run_full_sync, args=(page_index,))
-        thread.start()
+        def task():
+            self.__run_full_sync(page_index=page_index)
+
+        self.__task_executor.add_task(task)
         return ResponseHelper.success_response()
 
     async def handle_exchange_rate_update(self, request: Request):
@@ -194,15 +196,7 @@ class CallbackService:
         return ResponseHelper.success_response()
 
     def handle_sync_one_bundle_by_id(self, request: Request, id: str):
-        logger.info(f"receiving bundle sync request {id}")
-
-        # Add sync request to queue instead of creating thread
-        sync_request = SyncRequest(bundle_id=id, operation="update")
-        self.__executor.submit(self._execute_sync_request, sync_request)
-        logger.debug(f"Submitted sync request to thread pool: {sync_request.bundle_id}")
-
-        logger.info(f"Added sync request to queue. Queue size: {self.__executor._work_queue.qsize()}")
-
+        logger.info(f"receiving bundle sync by id request for bundle {id}")
         return ResponseHelper.success_response()
 
     async def __run_one_sync_internal(self, bundle_id: str, operation: str, reseller_id: str = None):
@@ -298,7 +292,8 @@ class CallbackService:
             return asyncio.run(self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
                                                                 payment_status=payment_status,
                                                                 user_id=user_id,
-                                                                rule_id=rule_id))
+                                                                rule_id=rule_id,
+                                                                payment_type=PaymentTypeEnum.CARD))
         elif payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.BUNDLE_TOP_UP:
             if not iccid:
                 logger.error(f"invalid iccid ({iccid}) for topup request ({user_order.id})")
@@ -325,7 +320,7 @@ class CallbackService:
                 "montyesim_msisdn": msisdn,
                 "iccid": iccid
             }
-            language = user.metadata.get("language", "en")
+            language = lower(user.metadata.get("language", "en"))
             template = get_email_template(f"eighty_percent_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="80% Consumption", html_content=html_content,
@@ -345,7 +340,7 @@ class CallbackService:
                 "montyesim_msisdn": msisdn,
                 "iccid": iccid
             }
-            language = user.metadata.get("language", "en")
+            language = lower(user.metadata.get("language", "en"))
             template = get_email_template(f"expiry_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="100% Consumption", html_content=html_content,
@@ -364,8 +359,13 @@ class CallbackService:
             if event_type == "payment_intent.succeeded":
                 amount = (order.amount / 100)
                 logger.info(f"updating user wallet: {user_wallet} with new {amount=}")
-                asyncio.run(self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
-                                                                              source=UserWalletTransactionSource.TOP_UP_WALLET))
+
+                def task():
+                    self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
+                                                                      source=UserWalletTransactionSource.TOP_UP_WALLET)
+                    return
+
+                self.__task_executor.add_task(task)
                 self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.SUCCESS})
                 logger.info(
                     f"Top-Up for user {user_id} wallet {user_wallet} with amount {amount} {order.currency} succeeded")
@@ -414,8 +414,13 @@ class CallbackService:
             elif event_type in ["StartBundle", "PLAN-STARTED", "thing activated", "Plan Started and Selected",
                                 "SESSION_START", "Started"]:
                 datetime_str = order.validity
-                dt_object = datetime.strptime(datetime_str, "%Y-%m-%dT%H:%M:%S")
-                date_only_str = dt_object.strftime("%Y-%m-%d")
+                dt_object = parse_iso_datetime(datetime_str)
+                if not dt_object:
+                    logger.error(f"Failed to parse validity datetime '{datetime_str}'")
+                    return
+
+                # Use the date component in YYYY-MM-DD format
+                date_only_str = dt_object.date().isoformat()
                 notification_data = send_plan_started_notification(
                     bundle_name=order.bundle_display_name,
                     validity_date=date_only_str

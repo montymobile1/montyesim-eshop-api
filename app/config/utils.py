@@ -1,6 +1,9 @@
 import os
+from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
 
 import stripe
+from dateutil import parser as dateutil_parser
 from loguru import logger
 from stripe import PaymentIntent, Charge
 
@@ -39,7 +42,11 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
         else:
             customer = customers.get("data")[0]
         order_amount = user_bundle_order.modified_amount if user_bundle_order.modified_amount else user_bundle_order.amount
-        order_amount = round(float(order_amount / 100 * rate), 2) * 100
+        # Use Decimal to avoid float precision issues: order_amount is in cents
+        rate_dec = Decimal(str(rate))
+        order_amount_cents = Decimal(str(order_amount))
+        # compute target currency smallest unit (cents) and round to whole cents
+        order_amount = int((order_amount_cents * rate_dec).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
         if os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() in ("true", "1", "yes"):
             logger.info(f"Automatic tax calculation enabled, calculating tax for amount {order_amount}")
             tax = calculate_tax(currency=currency, amount=order_amount,
@@ -126,7 +133,7 @@ def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, m
             amount=amount,
             currency=currency,
             payment_method_types=["card"],
-            description=f"Topup for user {user_email} for amount {amount} {currency}",
+            description=f"Top-up for user {user_email} for amount {amount / 100:.2f} {currency}",
             metadata=metadata,
             customer=customer.id
         )
@@ -179,3 +186,26 @@ def stripe_get_payment_details(intent_code) -> PaymentDetailsDTO | None:
         "display_brand": card_brand,
         "country": charge.payment_method_details.card.get("country"),
     })
+
+
+def parse_iso_datetime(datetime_str: str):
+    """Parse ISO8601 datetime strings robustly.
+
+    Returns a datetime.datetime on success or None on failure.
+    Handles fractional seconds and timezone offsets via dateutil.isoparse with a
+    fallback to datetime.fromisoformat.
+    """
+    if not datetime_str:
+        return None
+    try:
+        return dateutil_parser.isoparse(datetime_str)
+    except Exception:
+        try:
+            return datetime.fromisoformat(datetime_str)
+        except Exception:
+            return None
+
+
+def truncate_two_decimals_decimal(value) -> Decimal:
+    d = Decimal(str(value))
+    return d.quantize(Decimal('0.00'), rounding=ROUND_DOWN)
