@@ -75,6 +75,7 @@ class AuthService:
                 return wallet
             else:
                 return None
+        user_wallet.balance = float(truncate_two_decimals_decimal(user_wallet.balance))
         return user_wallet
 
     def validate_token(self, request: Request) -> Response[bool]:
