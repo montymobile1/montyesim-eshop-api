@@ -40,7 +40,8 @@ class VoucherService:
         try:
             self.__user_wallet_service.add_wallet_transaction(amount=voucher.amount,
                                                               user_id=user.id,
-                                                              source=UserWalletTransactionSource.VOUCHER)
+                                                              source=UserWalletTransactionSource.VOUCHER,
+                                                              order_currency="USD")
             self.__voucher_repo.update_by(where={"id": voucher.id}, data={"used_by": user.id, "is_used": True})
             return ResponseHelper.success_response()
         except Exception as ex:
