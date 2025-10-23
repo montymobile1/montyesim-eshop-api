@@ -242,9 +242,7 @@ class AuthService:
                 'user_metadata': {
                     "otp": otp,
                     "msisdn": login_request.phone,
-                    "login_type": "phone",
-                    "language": language,
-                    "currency": os.getenv("DEFAULT_CURRENCY", "USD"),
+                    "login_type": "phone"
                 }
             })
         else:
