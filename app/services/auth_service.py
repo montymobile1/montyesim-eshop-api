@@ -135,24 +135,34 @@ class AuthService:
         try:
             login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
             user_model: UsersCopyModel = self.__user_repo.get_first_by(where={"id": user.id})
-            user_metadata = {
-                'display_email': update_request.email,
-                'first_name': update_request.first_name,
-                'last_name': update_request.last_name,
-                'msisdn': update_request.msisdn,
-                'should_notify': update_request.should_notify,
-                'language': update_request.language,
-                'currency': update_request.currency,
-            }
+            # Only include fields that are explicitly provided (not None) in the metadata
+            user_metadata = {}
+            if getattr(update_request, 'email', None) is not None:
+                user_metadata['display_email'] = update_request.email
+            if getattr(update_request, 'first_name', None) is not None:
+                user_metadata['first_name'] = update_request.first_name
+            if getattr(update_request, 'last_name', None) is not None:
+                user_metadata['last_name'] = update_request.last_name
+            if getattr(update_request, 'msisdn', None) is not None:
+                user_metadata['msisdn'] = update_request.msisdn
+            # should_notify, language and currency have defaults on the Pydantic model; include them
+            # only if they are not None to respect optional updates.
+            if getattr(update_request, 'should_notify', None) is not None:
+                user_metadata['should_notify'] = update_request.should_notify
+            if getattr(update_request, 'language', None) is not None:
+                user_metadata['language'] = update_request.language
+            if getattr(update_request, 'currency', None) is not None:
+                user_metadata['currency'] = update_request.currency
             if user_model.metadata.get("referral_code", None) is None:
                 referral_code = self.__generate_referral_code()
                 user_metadata['referral_code'] = referral_code
             login_type = user_model.metadata.get("login_type", login_type)
             if login_type == "phone":
-                user_metadata.pop("msisdn")
-                user_metadata.pop("display_email")
+                # remove fields that shouldn't be present for phone-login users (use safe pop)
+                user_metadata.pop("msisdn", None)
+                user_metadata.pop("display_email", None)
             elif login_type == "email":
-                user_metadata.pop("display_email")
+                user_metadata.pop("display_email", None)
             response = supabase_client().auth.admin.update_user_by_id(user.id, {
                 'user_metadata': user_metadata
             })
