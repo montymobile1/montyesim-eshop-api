@@ -9,7 +9,7 @@ from app.config.constants import ErrorMessages
 from app.config.db import UserOrderType
 from app.config.notification_types import send_wallet_top_up_succeeded_notification
 from app.config.push_notification_manager import fcm_service
-from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral
+from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral, truncate_two_decimals_decimal
 from app.exceptions import CustomException
 from app.models.user import UserWalletModel, UserModel, UserWalletTransactionModel, UsersCopyModel
 from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo, UserRepo
@@ -52,7 +52,7 @@ class UserWalletService:
         wallet.amount = wallet.amount * rate
         return DtoMapper.to_user_wallet_response(wallet)
 
-    def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp") -> Response[
+    def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp",order_currency:str=None) -> Response[
         UserWalletResponse]:
         try:
             user: UsersCopyModel = self.__user_repo.get_first_by(where={"id": user_id})
@@ -63,10 +63,15 @@ class UserWalletService:
                 raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
             transaction_amount = amount
+            notification_amount = amount
+            if user_wallet.currency != transaction_currency and order_currency is None:
+                rate = self.__currency_service.get_currency_rate(from_currency=user_wallet.currency,
+                                                                 to_currency=transaction_currency)
+                transaction_amount = truncate_two_decimals_decimal(amount * rate)
             if user_wallet.currency != transaction_currency:
-                rate = self.__currency_service.get_currency_rate(from_currency=transaction_currency,
-                                                                 to_currency=user_wallet.currency)
-                transaction_amount = amount * rate
+                rate = self.__currency_service.get_currency_rate(from_currency=user_wallet.currency,
+                                                                 to_currency=transaction_currency)
+                notification_amount = truncate_two_decimals_decimal(amount * rate)
             current_amount = float(user_wallet.amount)
             add_amount = float(transaction_amount)
             new_amount = current_amount + add_amount
@@ -82,7 +87,7 @@ class UserWalletService:
             })
             if amount > 0:
                 thread = threading.Thread(target=self.__send_push,
-                                          args=(transaction_amount, transaction_currency, user_id))
+                                          args=(notification_amount, transaction_currency, user_id))
                 thread.start()
             dto = DtoMapper.to_user_wallet_response(user_wallet)
             return ResponseHelper.success_data_response(dto, 1)

@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance
+from app.config.utils import truncate_two_decimals_decimal
 from app.repo.currency_repo import CurrencyRepo
 from app.services.sync_service import SyncService
 
@@ -37,6 +38,21 @@ class SchedulerService:
                 {"name": rate.currency_code, "default_currency": "USD"},
                 data={'rate': rate.current_rate}
             )
+            inverse_rate = truncate_two_decimals_decimal(1 / rate.current_rate if rate.current_rate != 0 else 0)
+            logger.info(
+                f"updating currency USD to  {rate.currency_code=} with inverse rate {inverse_rate=}")
+
+            old_record = self.__currency_repo.get_first_by(
+                where={"default_currency": rate.currency_code, "name": "USD"})
+            if old_record:
+                self.__currency_repo.update_by(
+                    {"default_currency": rate.currency_code, "name": "USD"},
+                    data={'rate': inverse_rate}
+                )
+            else:
+                self.__currency_repo.create(
+                    data={"default_currency": rate.currency_code, "name": "USD", "rate": inverse_rate}
+                )
         self.__sync_service.update_sync_version()
         logger.info(f"Scheduled task execution ends at {time.strftime('%X')}")
 

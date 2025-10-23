@@ -36,7 +36,7 @@ class CurrencyService:
             logger.info(f"Converting from {from_currency} to {to_currency} amount: {amount} with rate / {rate}")
             return amount / rate
 
-    def get_currency_rate(self, from_currency: str, to_currency: str):
+    def get_currency_rate(self, from_currency: str, to_currency: str) -> float:
         currency = self.__currency_repo.get_first_by(
             where={"name": to_currency, "default_currency": from_currency})
         if not currency:

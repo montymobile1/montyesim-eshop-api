@@ -206,6 +206,6 @@ def parse_iso_datetime(datetime_str: str):
             return None
 
 
-def truncate_two_decimals_decimal(value) -> Decimal:
+def truncate_two_decimals_decimal(value: float) -> Decimal:
     d = Decimal(str(value))
     return d.quantize(Decimal('0.00'), rounding=ROUND_DOWN)

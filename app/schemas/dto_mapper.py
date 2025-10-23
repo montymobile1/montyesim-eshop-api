@@ -392,7 +392,7 @@ class DtoMapper:
                               currency: str = None) -> UserOrderHistoryResponse:
         if currency == user_order.currency:
             rate = 1.0
-        amount = (user_order.modified_amount or user_order.amount)
+        amount = (user_order.modified_amount if user_order.modified_amount is not None else user_order.amount)
         data = {
             "order_number": user_order.id,
             "order_status": user_order.payment_status,
@@ -452,7 +452,7 @@ class DtoMapper:
             user_token=supabase_response.user.id,
             should_notify=user_metadata.get("should_notify", False),
             referral_code=referral_code,
-            balance=round(user_wallet.balance if user_wallet else 0, 2),
+            balance=user_wallet.balance if user_wallet else 0,
             currency_code=user_metadata.get("currency", os.getenv("DEFAULT_CURRENCY")),
             email_editable=email_editable,
             phone_editable=phone_editable,

@@ -9,7 +9,7 @@ from loguru import logger
 from app.config.config import authenticate, supabase_client, dcb_service_instance
 from app.config.constants import ErrorMessages
 from app.config.db import ConfigKeysEnum
-from app.config.utils import get_config
+from app.config.utils import get_config, truncate_two_decimals_decimal
 from app.exceptions import CustomException, BadRequestException
 from app.models.user import UserModel, UsersCopyModel
 from app.repo.device_repo import DeviceRepo
@@ -71,9 +71,11 @@ class AuthService:
             )
             wallet = await self.__user_wallet_service.create_wallet(user_wallet_request_dto)
             if wallet:
+                wallet.balance = float(truncate_two_decimals_decimal(wallet.balance))
                 return wallet
             else:
                 return None
+        user_wallet.balance = float(truncate_two_decimals_decimal(user_wallet.balance))
         return user_wallet
 
     def validate_token(self, request: Request) -> Response[bool]:
@@ -198,7 +200,7 @@ class AuthService:
                          data={
                              "display_email": login_request.email,
                              "login_type": "email",
-                             "language": language,
+                             "language": language
                          })
             return ResponseHelper.success_response()
         else:
@@ -215,6 +217,7 @@ class AuthService:
                              "should_notify": False,
                              "login_type": "email",
                              "language": language,
+                             "currency": os.getenv("DEFAULT_CURRENCY", "USD"),
                          })
             return ResponseHelper.success_response()
 
@@ -239,8 +242,7 @@ class AuthService:
                 'user_metadata': {
                     "otp": otp,
                     "msisdn": login_request.phone,
-                    "login_type": "phone",
-                    "language": language,
+                    "login_type": "phone"
                 }
             })
         else:
@@ -256,6 +258,7 @@ class AuthService:
                         "should_notify": False,
                         "display_email": user_email,
                         "language": language,
+                        "currency": os.getenv("DEFAULT_CURRENCY", "USD"),
                     }
                 }
             })
