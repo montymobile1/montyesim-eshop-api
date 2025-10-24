@@ -134,9 +134,9 @@ class AuthService:
     async def update_user_info(self, user: UserModel, update_request: UpdateUserInfoRequest, currency_code: str):
         try:
             login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
-            user_model: UsersCopyModel = self.__user_repo.get_first_by(where={"id": user.id})
+            response = supabase_client().auth.get_user(user.token)
             # Only include fields that are explicitly provided (not None) in the metadata
-            user_metadata = user_model.metadata
+            user_metadata = response.user.user_metadata
             if getattr(update_request, 'email', None) is not None:
                 user_metadata['display_email'] = update_request.email
             if getattr(update_request, 'first_name', None) is not None:
@@ -153,10 +153,10 @@ class AuthService:
                 user_metadata['language'] = update_request.language
             if getattr(update_request, 'currency', None) is not None:
                 user_metadata['currency'] = update_request.currency
-            if user_model.metadata.get("referral_code", None) is None:
+            if user_metadata.get("referral_code", None) is None:
                 referral_code = self.__generate_referral_code()
                 user_metadata['referral_code'] = referral_code
-            login_type = user_model.metadata.get("login_type", login_type)
+            login_type = user_metadata.get("login_type", login_type)
             if login_type == "phone":
                 # remove fields that shouldn't be present for phone-login users (use safe pop)
                 user_metadata.pop("msisdn", None)
