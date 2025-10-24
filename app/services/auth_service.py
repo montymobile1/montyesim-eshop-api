@@ -136,7 +136,7 @@ class AuthService:
             login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
             user_model: UsersCopyModel = self.__user_repo.get_first_by(where={"id": user.id})
             # Only include fields that are explicitly provided (not None) in the metadata
-            user_metadata = {}
+            user_metadata = user_model.metadata
             if getattr(update_request, 'email', None) is not None:
                 user_metadata['display_email'] = update_request.email
             if getattr(update_request, 'first_name', None) is not None:
