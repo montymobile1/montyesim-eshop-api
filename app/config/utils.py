@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
+from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN, ROUND_UP
 
 import stripe
 from dateutil import parser as dateutil_parser
@@ -209,3 +209,7 @@ def parse_iso_datetime(datetime_str: str):
 def truncate_two_decimals_decimal(value: float) -> Decimal:
     d = Decimal(str(value))
     return d.quantize(Decimal('0.00'), rounding=ROUND_DOWN)
+
+def truncate_two_decimals_decimal_rounded(value: float) -> float:
+    d = Decimal(str(value))
+    return float(d.quantize(Decimal('0.00'), rounding=ROUND_UP))
