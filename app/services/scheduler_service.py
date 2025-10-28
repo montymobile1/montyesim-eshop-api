@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance
-from app.config.utils import truncate_two_decimals_decimal
+from app.config.utils import truncate_two_decimals_decimal_rounded
 from app.repo.currency_repo import CurrencyRepo
 from app.services.sync_service import SyncService
 
@@ -38,7 +38,7 @@ class SchedulerService:
                 {"name": rate.currency_code, "default_currency": "USD"},
                 data={'rate': rate.current_rate}
             )
-            inverse_rate = 1 / rate.current_rate if rate.current_rate != 0 else 0
+            inverse_rate = truncate_two_decimals_decimal_rounded(1 / rate.current_rate if rate.current_rate != 0 else 0)
             logger.info(
                 f"updating currency USD to  {rate.currency_code=} with inverse rate {inverse_rate=}")
 
