@@ -3,6 +3,7 @@ from typing import List
 
 from loguru import logger
 
+from app.models.app import CurrencyModel
 from app.repo.currency_repo import CurrencyRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import CurrencyDto
@@ -44,8 +45,12 @@ class CurrencyService:
         return currency.rate
 
     def get_all_currency(self) -> Response[List[CurrencyDto]]:
-        currency_list = self.__currency_repo.list(where={"default_currency": "USD"})
+        currency_list: List[CurrencyModel] = self.__currency_repo.list(where={"default_currency": "USD"})
         currency_dto = []
+        added = []
         for currency in currency_list:
+            if f"{currency.default_currency}-{currency.name}" in added:
+                continue
+            added.append(f"{currency.default_currency}-{currency.name}")
             currency_dto.append(DtoMapper.to_currency_dto(currency))
         return ResponseHelper.success_data_response(currency_dto, len(currency_list))
