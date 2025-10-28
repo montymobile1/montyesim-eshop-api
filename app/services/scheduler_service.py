@@ -43,15 +43,15 @@ class SchedulerService:
                 f"updating currency USD to  {rate.currency_code=} with inverse rate {inverse_rate=}")
 
             old_record = self.__currency_repo.get_first_by(
-                where={"default_currency": rate.currency_code, "name": "USD"})
+                where={"name": rate.currency_code, "default_currency": "USD"})
             if old_record:
                 self.__currency_repo.update_by(
-                    {"default_currency": rate.currency_code, "name": "USD"},
+                    {"name": rate.currency_code, "default_currency": "USD"},
                     data={'rate': inverse_rate}
                 )
             else:
                 self.__currency_repo.create(
-                    data={"default_currency": rate.currency_code, "name": "USD", "rate": inverse_rate}
+                    data={"name": rate.currency_code, "default_currency": "USD", "rate": inverse_rate}
                 )
         self.__sync_service.update_sync_version()
         logger.info(f"Scheduled task execution ends at {time.strftime('%X')}")
