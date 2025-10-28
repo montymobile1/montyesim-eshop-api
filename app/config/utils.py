@@ -1,6 +1,6 @@
 import os
 from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN
+from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN, ROUND_UP
 
 import stripe
 from dateutil import parser as dateutil_parser
