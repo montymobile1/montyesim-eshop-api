@@ -52,7 +52,12 @@ class UserWalletService:
         wallet.amount = wallet.amount * rate
         return DtoMapper.to_user_wallet_response(wallet)
 
-    def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp",order_currency:str=None) -> Response[
+    def get_user_wallet(self, user_id) -> UserWalletModel:
+        wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"user_id": user_id})
+        return wallet
+
+    def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp", order_currency: str = None) -> \
+    Response[
         UserWalletResponse]:
         try:
             user: UsersCopyModel = self.__user_repo.get_first_by(where={"id": user_id})
