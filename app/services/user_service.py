@@ -344,7 +344,7 @@ class UserBundleService:
         PaymentIntentResponse]:
         wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user.id)
         rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=wallet.currency)
-        bundle_price = truncate_two_decimals_decimal(modified_amount * rate)
+        bundle_price = float(truncate_two_decimals_decimal(modified_amount * rate))
         if wallet.balance < bundle_price:
             raise CustomException(code=400, name=ErrorMessages.INSUFFICIENT_WALLET_BALANCE,
                                   details="Insufficient wallet balance, please top up your wallet")

@@ -168,7 +168,7 @@ class CallbackService:
             return ResponseHelper.success_response()
         from app.repo.currency_repo import CurrencyRepo
         currency_repo = CurrencyRepo()
-        inverse_rate = truncate_two_decimals_decimal(1 / rate if rate != 0 else 0)
+        inverse_rate = float(truncate_two_decimals_decimal(1 / rate if rate != 0 else 0))
         logger.info(
             f"updating currency USD to  {currency_code=} with inverse rate {inverse_rate=}")
 
