@@ -16,7 +16,7 @@ from app.config.notification_types import send_consumption_80_bundle_notificatio
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
 from app.config.push_notification_manager import fcm_service
-from app.config.utils import parse_iso_datetime, truncate_two_decimals_decimal
+from app.config.utils import parse_iso_datetime
 from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel, UserProfileBundleModel, \
     UserProfileModel
 from app.repo import UserOrderRepo, UserProfileRepo, UserRepo, UserProfileBundleRepo
@@ -168,7 +168,7 @@ class CallbackService:
             return ResponseHelper.success_response()
         from app.repo.currency_repo import CurrencyRepo
         currency_repo = CurrencyRepo()
-        inverse_rate = float(truncate_two_decimals_decimal(1 / rate if rate != 0 else 0))
+        inverse_rate = 1 / rate if rate != 0 else 0
         logger.info(
             f"updating currency USD to  {currency_code=} with inverse rate {inverse_rate=}")
 
