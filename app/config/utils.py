@@ -21,11 +21,12 @@ stripe.api_key = STRIPE_SECRET_KEY
 
 def get_config(key: ConfigKeysEnum | str, default_value: str | int | float | None = None) -> str | None:
     config_repo = ConfigRepo()
-    val: AppConfigModel = config_repo.get_first_by(where={"key": key.value})
+    key = key.value if isinstance(key, ConfigKeysEnum) else key
+    val: AppConfigModel = config_repo.get_first_by(where={"key": key})
     if val is None:
-        os_val = os.getenv(str(key.value), default_value)
+        os_val = os.getenv(str(key), default_value)
         if os_val:
-            config_repo.create({"key": key.value, "value": os_val})
+            config_repo.create({"key": key, "value": os_val})
         return os_val
     return val.value
 
@@ -209,6 +210,7 @@ def parse_iso_datetime(datetime_str: str):
 def truncate_two_decimals_decimal(value: float) -> Decimal:
     d = Decimal(str(value))
     return d.quantize(Decimal('0.00'), rounding=ROUND_DOWN)
+
 
 def truncate_two_decimals_decimal_rounded(value: float) -> float:
     d = Decimal(str(value))
