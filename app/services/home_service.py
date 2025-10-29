@@ -6,6 +6,7 @@ from loguru import logger
 
 from app.config.config import esim_hub_service_instance
 from app.config.db import ConfigKeysEnum
+from app.config.utils import get_config
 from app.schemas.home import HomeResponseDto, BundleDTO
 from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
@@ -132,7 +133,7 @@ class HomeService:
 
     async def __get_countries_v2(self, locale: str):
         try:
-            forbidden_countries = os.getenv("FORBIDDEN_COUNTRIES", "").split(",")
+            forbidden_countries = get_config("FORBIDDEN_COUNTRIES", "").split(",")
             countries = await self.__grouping_service.get_all_countries(locale)
             return [country for country in countries if country.country_code not in forbidden_countries]
         except Exception as e:

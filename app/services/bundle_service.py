@@ -371,7 +371,7 @@ class BundleService:
         return sorted_bundles
 
     def __filter_forbidden_countries(self, bundles: List[BundleDTO]) -> List[BundleDTO]:
-        forbidden_countries = os.getenv("FORBIDDEN_COUNTRIES", "").split(",")
+        forbidden_countries = get_config("FORBIDDEN_COUNTRIES", "").split(",")
         filtered_bundles = []
         for bundle in bundles:
             allowed_countries = [country for country in bundle.countries if
