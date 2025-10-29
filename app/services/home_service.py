@@ -132,7 +132,9 @@ class HomeService:
 
     async def __get_countries_v2(self, locale: str):
         try:
-            return await self.__grouping_service.get_all_countries(locale)
+            forbidden_countries = os.getenv("FORBIDDEN_COUNTRIES", "").split(",")
+            countries = await self.__grouping_service.get_all_countries(locale)
+            return [country for country in countries if country.country_code not in forbidden_countries]
         except Exception as e:
             logger.error(f"error while getting countries: {str(e)}")
             return []
