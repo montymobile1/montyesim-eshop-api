@@ -138,7 +138,6 @@ def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, m
             metadata=metadata,
             customer=customer.id
         )
-        logger.debug(f"Payment intent:  {payment_intent}")
         return payment_intent, tax
 
     except stripe.error.StripeError as e:

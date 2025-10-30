@@ -333,7 +333,8 @@ class BundleService:
                 "smdp_address": user_profile.smdp_address,
                 "activation_code": user_profile.activation_code,
                 "msisdn": msisdn,
-                "user": email
+                "user": email,
+                "base_url": os.getenv("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
             }
             language = lower(user.metadata.get("language", "en"))
             try:
