@@ -326,7 +326,9 @@ class CallbackService:
 
     async def __send_email_80_consumption(self, user: UsersCopyModel, bundle_name, iccid):
         try:
-            msisdn = os.getenv("WHATSAPP_NUMBER").replace("+", "").replace("-", "").replace(" ", "")
+            msisdn = os.getenv("WHATSAPP_NUMBER", "")
+            if msisdn:
+                msisdn = msisdn.replace("+", "").replace("-", "").replace(" ", "")
             display_email = user.metadata.get("display_email", None)
             email = user.metadata.get("email", user.email) if display_email is None else display_email
 
@@ -334,7 +336,8 @@ class CallbackService:
                 "user": email,
                 "bundle_name": bundle_name,
                 "montyesim_msisdn": msisdn,
-                "iccid": iccid
+                "iccid": iccid,
+                "base_url": os.getenv("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
             }
             language = lower(user.metadata.get("language", "en"))
             template = get_email_template(f"eighty_percent_email_template_{language}.htm")
@@ -346,7 +349,9 @@ class CallbackService:
 
     async def __send_email_100_consumption(self, user: UsersCopyModel, bundle_name, iccid):
         try:
-            msisdn = os.getenv("WHATSAPP_NUMBER").replace("+", "").replace("-", "").replace(" ", "")
+            msisdn = os.getenv("WHATSAPP_NUMBER", "")
+            if msisdn:
+                msisdn = msisdn.replace("+", "").replace("-", "").replace(" ", "")
             display_email = user.metadata.get("display_email", None)
             email = user.metadata.get("email", user.email) if display_email is None else display_email
 
@@ -354,7 +359,8 @@ class CallbackService:
                 "user": email,
                 "bundle_name": bundle_name,
                 "montyesim_msisdn": msisdn,
-                "iccid": iccid
+                "iccid": iccid,
+                "base_url": os.getenv("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
             }
             language = lower(user.metadata.get("language", "en"))
             template = get_email_template(f"expiry_email_template_{language}.htm")

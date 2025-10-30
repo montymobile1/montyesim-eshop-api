@@ -176,6 +176,7 @@ class BundleService:
                 filtered_bundles.append(bundle)
 
         filtered = self.__filter_by_gprs_limit(filtered_bundles)
+        filtered = self.__filter_forbidden_countries(filtered)
         duration = (datetime.now() - start_time).total_seconds()
         logger.info(f"get_bundles_by_region executed in {duration} seconds")
         return ResponseHelper.success_data_response(filtered, len(filtered))
@@ -332,7 +333,8 @@ class BundleService:
                 "smdp_address": user_profile.smdp_address,
                 "activation_code": user_profile.activation_code,
                 "msisdn": msisdn,
-                "user": email
+                "user": email,
+                "base_url": os.getenv("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
             }
             language = lower(user.metadata.get("language", "en"))
             try:
@@ -368,6 +370,17 @@ class BundleService:
         items = filtered_bundles_dict.values()
         sorted_bundles = sorted(items, key=lambda item: item.price, reverse=False)
         return sorted_bundles
+
+    def __filter_forbidden_countries(self, bundles: List[BundleDTO]) -> List[BundleDTO]:
+        forbidden_countries = get_config("FORBIDDEN_COUNTRIES", "").split(",")
+        filtered_bundles = []
+        for bundle in bundles:
+            allowed_countries = [country for country in bundle.countries if
+                                 country.country_code not in forbidden_countries]
+            if allowed_countries:
+                bundle.countries = allowed_countries
+                filtered_bundles.append(bundle)
+        return filtered_bundles
 
     def __get_coverage(self, user_profile: UserProfileModel, bundle: BundleDTO):
         try:
