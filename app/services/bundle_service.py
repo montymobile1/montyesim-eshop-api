@@ -1,20 +1,19 @@
 import os
+import threading
 from collections import defaultdict
 from datetime import datetime
-from typing import List, Literal
+from typing import List
 
+from coverage.html import os
 from loguru import logger
-from soupsieve.util import lower
 
 from app.config.config import esim_hub_service_instance, send_email, generate_qr_code, get_email_template
-from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum, PromotionRuleAction, ConfigKeysEnum
+from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
-from app.config.helper import get_config
-from app.config.utils import truncate_two_decimals_decimal
 from app.exceptions import BadRequestException
 from app.models.app import BundleModel
-from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel, UserProfileBundleModel
+from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel
 from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
 from app.repo.bundle_repo import BundleRepo
 from app.repo.bundle_tage_repo import BundleTagRepo
@@ -26,7 +25,6 @@ from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
 from app.services.grouping_service import GroupingService
 from app.services.promotion_service import PromotionService
-from app.services.task_executor import TaskExecutor
 
 
 class BundleService:
@@ -43,9 +41,8 @@ class BundleService:
         self.__user_profile_repo = UserProfileRepo()
         self.__user_profile_bundle_repo = UserProfileBundleRepo()
         self.__promotion_service = PromotionService()
-        self.__task_executor = TaskExecutor()
 
-    def bundle_exists(self, bundle_id: str) -> bool:
+    async def bundle_exists(self, bundle_id: str) -> bool:
         try:
             bundle = self.__bundle_repo.get_by_id(record_id=bundle_id)
             return bundle is not None
@@ -53,7 +50,7 @@ class BundleService:
             logger.error(f"error while getting bundle {e}")
             return False
 
-    def get_bundle_by_id(self, bundle_id: str) -> BundleModel | None:
+    async def get_bundle_by_id(self, bundle_id: str) -> BundleModel | None:
         try:
             bundle = self.__bundle_repo.get_by_id(record_id=bundle_id)
             return bundle
@@ -61,7 +58,7 @@ class BundleService:
             logger.error(f"error while getting bundle {e}")
             return None
 
-    def get_bundle(self, bundle_id: str, currency_name: str, locale: str = "en") -> Response[BundleDTO]:
+    async def get_bundle(self, bundle_id: str, currency_name: str, locale: str = "en") -> Response[BundleDTO]:
         bundle = self.__bundle_repo.get_bundle_by_id(bundle_id=bundle_id)
         rate = self.__currency_service.get_rate_by_currency(currency_name)
 
@@ -81,7 +78,7 @@ class BundleService:
         regions = await self.__grouping_service.get_all_regions(locale=locale)
         return ResponseHelper.success_data_response(regions, len(regions))
 
-    def get_bundles_by_country(self, country_codes: str, currency_name: str, locale: str) -> Response[
+    async def get_bundles_by_country(self, country_codes: str, currency_name: str, locale: str) -> Response[
         List[BundleDTO]]:
         if country_codes is None or len(country_codes) == 0:
             raise BadRequestException("country_codes cannot be empty")
@@ -89,7 +86,7 @@ class BundleService:
         first_tag = self.__tag_repo.get_by_id(country_codes.split(",")[0])
         country = CountryDTO.model_validate(first_tag.data)
 
-        tags = self.__tag_repo.list_in(where={}, filter={"id": list(country_codes.split(','))})
+        tags = self.__tag_repo.list_in(where={}, filter={"id": [item for item in country_codes.split(',')]})
 
         if not tags:
             raise BadRequestException("country_codes not found")
@@ -103,7 +100,7 @@ class BundleService:
         for row in results.data:
             bundle_map[row["bundle_id"]].add(row["tag_id"])
 
-        target_tag_set = {item.id for item in tags}
+        target_tag_set = set([item.id for item in tags])
         matching_bundle_ids = [
             bundle_id for bundle_id, tags in bundle_map.items()
             if tags >= target_tag_set
@@ -177,7 +174,6 @@ class BundleService:
                 filtered_bundles.append(bundle)
 
         filtered = self.__filter_by_gprs_limit(filtered_bundles)
-        filtered = self.__filter_forbidden_countries(filtered)
         duration = (datetime.now() - start_time).total_seconds()
         logger.info(f"get_bundles_by_region executed in {duration} seconds")
         return ResponseHelper.success_data_response(filtered, len(filtered))
@@ -187,26 +183,15 @@ class BundleService:
         return ResponseHelper.success_data_response(countries, len(countries))
 
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
-                         payment_status: str, payment_type: str, rule_id: str = None):
-        rate = self.__currency_service.get_currency_rate(from_currency=user_order.currency, to_currency="USD")
+                         payment_status: str, promo_code: str = None,
+                         rule_id: str = None, payment_type: str = PaymentTypeEnum.CARD):
         user = self.__user_repo.get_by_id(record_id=user_id)
         msisdn = user.metadata.get("msisdn", "")
         email = user.email
-        unique_identifier = f"{msisdn if msisdn else email}|{user_order.id}"
-        order_id = user_order.id
-        promo_code = user_order.promo_code if user_order.promo_code else user_order.referral_code
-        new_price = (round((user_order.modified_amount / 100) * rate, 2)) if promo_code else None
-        discount_amount = self.__get_discount_amount(promo_code) if promo_code else None
-        discount_rate = self.__get_discount_rate(promo_code) if promo_code else None
-        bundle_type = self.__bundle_type(code=bundle.bundle_code)
+        order_id = f"{msisdn if msisdn else email}|{user_order.id}"
         esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
-                                                                             order_id=unique_identifier, user=user,
-                                                                             payment_type=payment_type,
-                                                                             new_price=new_price,
-                                                                             discount_amount=discount_amount,
-                                                                             discount_rate=discount_rate,
-                                                                             bundle_type=bundle_type)
-
+                                                                             order_id=order_id, user=user,
+                                                                             payment_type=payment_type)
         user_order.payment_status = payment_status
         user_order.payment_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
         user_order.order_status = OrderStatusEnum.SUCCESS
@@ -247,38 +232,33 @@ class BundleService:
         # await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
         if user_order.promo_code or user_order.referral_code:
             await self.__promotion_service.apply_promotion_code_after_purchase(user_id=user_id,
+                                                                               code=user_order.promo_code or user_order.referral_code,
                                                                                status="completed",
-                                                                               user_order=user_order,
+                                                                               order_id=user_order.id,
                                                                                rule_id=rule_id)
 
         await self.__send_buy_notification(bundle_name=bundle.bundle_name, iccid=esim_hub_order.iccid,
                                            user_id=user_order.user_id)
         user = self.__user_repo.get_by_id(record_id=user_order.user_id)
+        thread = threading.Thread(target=self.__send_email, args=(user, user_profile, bundle, user_order))
+        thread.start()
 
-        def task():
-            self.__send_email(user=user, user_profile=user_profile, bundle=bundle, user_order=user_order)
-
-        self.__task_executor.add_task(task)
         return ResponseHelper.success_response()
 
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,
-                            payment_status: str, payment_type: str = PaymentTypeEnum.CARD):
+                            payment_status: str):
         user = self.__user_repo.get_by_id(record_id=user_id)
         msisdn = user.metadata.get("msisdn", "")
         email = user.email
         order_id = f"{msisdn if msisdn else email}|{user_order.id}"
-        user_profile: UserProfileModel = self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
-        primary_bundle: UserProfileBundleModel = self.__user_profile_bundle_repo.get_first_by(
-            {"user_id": user_id, "iccid": iccid, "bundle_type": UserBundleType.PRIMARY_BUNDLE})
-        bundle_type = self.__bundle_type(code=bundle.bundle_code)
+        user_profile = self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
         try:
             esim_hub_topup = await self.__esim_hub_service.create_reseller_topup(
                 esim_hub_order_id=user_profile.esim_hub_order_id,
                 bundle_code=bundle.bundle_code,
                 order_id=order_id,
                 user=user,
-                payment_type=payment_type,
-                bundle_type=bundle_type)
+                payment_type=PaymentTypeEnum.CARD)
         except Exception as e:
             esim_hub_topup = None
             logger.error(f"error while topping up bundle {str(e)}")
@@ -304,7 +284,7 @@ class BundleService:
             "esim_hub_order_id": esim_hub_topup.orderId,
             "iccid": iccid,
             "bundle_type": UserBundleType.TOP_UP_BUNDLE,
-            "plan_started": True if primary_bundle.bundle_expired is True else False,
+            "plan_started": False,
             "bundle_expired": False,
             "bundle_data": bundle.model_dump(),
         })
@@ -316,33 +296,26 @@ class BundleService:
                      user_order: UserOrderModel):
         try:
             qr = generate_qr_code(f"LPA:1${user_profile.smdp_address}${user_profile.activation_code}")
-            msisdn = get_config("WHATSAPP_NUMBER", "")
-            if msisdn and msisdn != "":
+            msisdn = os.getenv("WHATSAPP_NUMBER")
+            if msisdn:
                 msisdn = msisdn.replace("+", "").replace("-", "").replace(" ", "")
-            currency = user.metadata.get("currency", os.getenv("SYSTEM_CURRENCY", "USD"))
-            rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=currency)
             coverage = self.__get_coverage(user_profile=user_profile, bundle=bundle)
             display_email = user.metadata.get("display_email", None)
             email = user.metadata.get("email", user.email) if display_email is None else display_email
             data = {
                 "bundle_name": bundle.bundle_name,
                 "gprs_limit_display": bundle.gprs_limit_display,
-                "price": f"{truncate_two_decimals_decimal(user_order.modified_amount * rate)} {currency.upper()}",
+                "price": f"{round(user_order.modified_amount / 100, 2)} {user_order.currency.upper()}",
                 "coverage": coverage,
                 "validity": bundle.validity_display,
                 "iccid": user_profile.iccid,
                 "smdp_address": user_profile.smdp_address,
                 "activation_code": user_profile.activation_code,
                 "msisdn": msisdn,
-                "user": email,
-                "base_url": get_config("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
+                "user": email
             }
-            language = lower(user.metadata.get("language", "en"))
-            try:
-                template = get_email_template(f"send_qr_email_template_{language}.htm")
-            except Exception as e:
-                logger.error(f"error while getting email template for language {language}, error: {str(e)}")
-                template = get_email_template("send_qr_email_template_en.htm")
+
+            template = get_email_template('send_qr_email_template.htm')
             html_content = template.render(data=data)
             send_email(subject="Activate Your Esim", html_content=html_content,
                        recipients=user.metadata.get("email", email), attachment=qr)
@@ -368,20 +341,9 @@ class BundleService:
 
             if key not in filtered_bundles_dict or price < filtered_bundles_dict[key].price:
                 filtered_bundles_dict[key] = bundle
-        items = filtered_bundles_dict.values()
+        items = list(filtered_bundles_dict.values())
         sorted_bundles = sorted(items, key=lambda item: item.price, reverse=False)
         return sorted_bundles
-
-    def __filter_forbidden_countries(self, bundles: List[BundleDTO]) -> List[BundleDTO]:
-        forbidden_countries = get_config("FORBIDDEN_COUNTRIES", "").split(",")
-        filtered_bundles = []
-        for bundle in bundles:
-            allowed_countries = [country for country in bundle.countries if
-                                 country.country_code not in forbidden_countries]
-            if allowed_countries:
-                bundle.countries = allowed_countries
-                filtered_bundles.append(bundle)
-        return filtered_bundles
 
     def __get_coverage(self, user_profile: UserProfileModel, bundle: BundleDTO):
         try:
@@ -402,47 +364,3 @@ class BundleService:
             if searched_countries.region:
                 coverage = searched_countries.region.region_name
         return coverage
-
-    def __get_discount_amount(self, promo_code: str):
-        try:
-            if self.__promotion_service.is_referral_code(promo_code):
-                rule = self.__promotion_service.get_referral_rule()
-                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT:
-                    return float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
-            promotion = self.__promotion_service.get_promotion_by_code(promo_code)
-            if promotion:
-                rule = self.__promotion_service.get_rule_by_id(promotion.rule_id)
-                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT:
-                    return promotion.amount
-            return 0
-        except Exception as e:
-            logger.error(f"error while getting discount amount {str(e)}")
-            return 0
-
-    def __get_discount_rate(self, promo_code: str):
-        try:
-            if self.__promotion_service.is_referral_code(promo_code):
-                rule = self.__promotion_service.get_referral_rule()
-                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE:
-                    return float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
-            promotion = self.__promotion_service.get_promotion_by_code(promo_code)
-            if promotion:
-                rule = self.__promotion_service.get_rule_by_id(promotion.rule_id)
-                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE:
-                    return promotion.amount
-            return 0
-        except Exception as e:
-            logger.error(f"error while getting discount rate {str(e)}")
-            return 0
-
-    def __bundle_type(self, code) -> Literal["COUNTRY", "CRUISE"]:
-        bundle_type = "COUNTRY"
-        bundle_tags = self.__bundle_tag_repo.list(where={"bundle_id": code})
-        for bundle_tag in bundle_tags:
-            tag = self.__tag_repo.get_first_by(where={"id": bundle_tag.tag_id})
-            if tag.tag_group_id == 3:
-                bundle_type = "CRUISE"
-                break
-        if bundle_type not in ("COUNTRY", "CRUISE"):
-            raise ValueError(f"Invalid bundle_type: {bundle_type}")
-        return bundle_type

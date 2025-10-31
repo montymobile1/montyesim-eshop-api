@@ -18,4 +18,4 @@ service = VoucherService()
              dependencies=[Depends(bearer_token), Depends(device_token)])
 async def assign(voucher_redeem_request: VoucherRequestRedeem, user: Annotated[UserModel, Depends(bearer_token)],
                  x_device_id: str = Header(None), x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))):
-    return service.redeem(voucher_redeem_request=voucher_redeem_request, user=user, x_currency=x_currency)
+    return await service.redeem(voucher_redeem_request=voucher_redeem_request, user=user, x_currency=x_currency)

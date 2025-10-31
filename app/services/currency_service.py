@@ -1,9 +1,6 @@
 import os
 from typing import List
 
-from loguru import logger
-
-from app.models.app import CurrencyModel
 from app.repo.currency_repo import CurrencyRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import CurrencyDto
@@ -26,18 +23,7 @@ class CurrencyService:
 
         return currency.rate
 
-    def convert(self, from_currency: str, to_currency: str, amount: float) -> float:
-        system_currency = os.getenv("SYSTEM_CURRENCY", "USD")
-        if from_currency == system_currency:
-            rate = self.get_rate_by_currency(to_currency)
-            logger.info(f"Converting from {from_currency} to {to_currency} amount: {amount} with rate * {rate}")
-            return amount * rate
-        else:
-            rate = self.get_rate_by_currency(from_currency)
-            logger.info(f"Converting from {from_currency} to {to_currency} amount: {amount} with rate / {rate}")
-            return amount / rate
-
-    def get_currency_rate(self, from_currency: str, to_currency: str) -> float:
+    def get_currency_rate(self, from_currency: str, to_currency: str):
         currency = self.__currency_repo.get_first_by(
             where={"name": to_currency, "default_currency": from_currency})
         if not currency:
@@ -45,12 +31,8 @@ class CurrencyService:
         return currency.rate
 
     def get_all_currency(self) -> Response[List[CurrencyDto]]:
-        currency_list: List[CurrencyModel] = self.__currency_repo.list(where={"default_currency": "USD"})
+        currency_list = self.__currency_repo.list(where={"default_currency": "USD"})
         currency_dto = []
-        added = []
         for currency in currency_list:
-            if f"{currency.default_currency}-{currency.name}" in added:
-                continue
-            added.append(f"{currency.default_currency}-{currency.name}")
             currency_dto.append(DtoMapper.to_currency_dto(currency))
         return ResponseHelper.success_data_response(currency_dto, len(currency_list))

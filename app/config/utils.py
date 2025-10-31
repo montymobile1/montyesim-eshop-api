@@ -1,9 +1,6 @@
 import os
-from datetime import datetime
-from decimal import Decimal, ROUND_HALF_UP, ROUND_DOWN, ROUND_UP
 
 import stripe
-from dateutil import parser as dateutil_parser
 from loguru import logger
 from stripe import PaymentIntent, Charge
 
@@ -11,15 +8,27 @@ from app.config.config import STRIPE_SECRET_KEY
 from app.config.constants import ErrorMessages
 from app.config.db import ConfigKeysEnum
 from app.exceptions import CustomException
+from app.models.app import AppConfigModel
 from app.models.user import UserOrderModel
+from app.repo.config_repo import ConfigRepo
 from app.schemas.bundle import PaymentDetailsDTO
 
 stripe.api_key = STRIPE_SECRET_KEY
 
 
+def get_config(key: ConfigKeysEnum | str, default_value: str | int | float | None = None) -> str | None:
+    config_repo = ConfigRepo()
+    val: AppConfigModel = config_repo.get_first_by(where={"key": key.value})
+    if val is None:
+        os_val = os.getenv(str(key.value), default_value)
+        if os_val:
+            config_repo.create({"key": key.value, "value": os_val})
+        return os_val
+    return val.value
+
+
 def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
-                          metadata: dict, rate: float, currency: str = os.getenv("DEFAULT_CURRENCY"),
-                          ip_address: str = None) -> tuple[
+                          metadata: dict, ip_address: str = None) -> tuple[
     PaymentIntent, stripe.tax.Calculation | None]:
     tax = None
     try:
@@ -29,14 +38,9 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
         else:
             customer = customers.get("data")[0]
         order_amount = user_bundle_order.modified_amount if user_bundle_order.modified_amount else user_bundle_order.amount
-        # Use Decimal to avoid float precision issues: order_amount is in cents
-        rate_dec = Decimal(str(rate))
-        order_amount_cents = Decimal(str(order_amount))
-        # compute target currency smallest unit (cents) and round to whole cents
-        order_amount = int((order_amount_cents * rate_dec).quantize(Decimal('1'), rounding=ROUND_HALF_UP))
         if os.getenv("STRIPE_AUTOMATIC_TAX", "false").lower() in ("true", "1", "yes"):
             logger.info(f"Automatic tax calculation enabled, calculating tax for amount {order_amount}")
-            tax = calculate_tax(currency=currency, amount=order_amount,
+            tax = calculate_tax(currency=user_bundle_order.currency, amount=order_amount,
                                 tax_code=get_config(ConfigKeysEnum.STRIPE_TAX_CODE, "txcd_10103101"),
                                 tax_behavior=get_config(ConfigKeysEnum.STRIPE_TAX_BEHAVIOR, "exclusive"),
                                 request_ip=ip_address,
@@ -53,7 +57,7 @@ def create_payment_intent(user_bundle_order: UserOrderModel, user_email: str,
                     f"applying tax calculation: {tax.id} for order {user_bundle_order.id} with amount {order_amount}")
         payment_intent = stripe.PaymentIntent.create(
             amount=int(order_amount),
-            currency=currency,
+            currency=user_bundle_order.currency,
             payment_method_types=["card"],
             description=f"Bundle order ({user_bundle_order.order_type}) for bundle {user_bundle_order.bundle_id}",
             metadata=metadata,
@@ -93,7 +97,6 @@ def calculate_tax(currency: str, amount: float, reference: str, tax_code: str,
 def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, metadata: dict,
                                 ip_address: str = None) -> tuple[PaymentIntent, stripe.tax.Calculation | None]:
     try:
-        tax = None
         logger.info("Creating payment intent for wallet top-up")
         customers = stripe.Customer.list(email=user_email)
         if not customers:
@@ -120,10 +123,11 @@ def create_wallet_top_up_intent(user_email: str, amount: float, currency: str, m
             amount=amount,
             currency=currency,
             payment_method_types=["card"],
-            description=f"Top-up for user {user_email} for amount {amount / 100:.2f} {currency}",
+            description=f"Topup for user {user_email} for amount {amount} {currency}",
             metadata=metadata,
             customer=customer.id
         )
+        logger.debug(f"Payment intent:  {payment_intent}")
         return payment_intent, tax
 
     except stripe.error.StripeError as e:
@@ -172,31 +176,3 @@ def stripe_get_payment_details(intent_code) -> PaymentDetailsDTO | None:
         "display_brand": card_brand,
         "country": charge.payment_method_details.card.get("country"),
     })
-
-
-def parse_iso_datetime(datetime_str: str):
-    """Parse ISO8601 datetime strings robustly.
-
-    Returns a datetime.datetime on success or None on failure.
-    Handles fractional seconds and timezone offsets via dateutil.isoparse with a
-    fallback to datetime.fromisoformat.
-    """
-    if not datetime_str:
-        return None
-    try:
-        return dateutil_parser.isoparse(datetime_str)
-    except Exception:
-        try:
-            return datetime.fromisoformat(datetime_str)
-        except Exception:
-            return None
-
-
-def truncate_two_decimals_decimal(value: float) -> Decimal:
-    d = Decimal(str(value))
-    return d.quantize(Decimal('0.00'), rounding=ROUND_DOWN)
-
-
-def truncate_two_decimals_decimal_rounded(value: float) -> float:
-    d = Decimal(str(value))
-    return float(d.quantize(Decimal('0.00'), rounding=ROUND_UP))

@@ -10,10 +10,8 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class BaseRepository(Generic[T]):
-    # Static class variable to hold the singleton supabase client
 
     def __init__(self, table_name: DatabaseTables, model: Type[T]):
-
         self.client = supabase_client()
         self.table = self.client.table(table_name)
         self.model = model
@@ -48,7 +46,7 @@ class BaseRepository(Generic[T]):
         except Exception as e:
             raise DatabaseException(str(e))
 
-    def select_procedure(self, where: dict = (), function_name: str = '') -> List[T]:
+    def select_procedure(self, where: dict = (),function_name : str='') -> List[T]:
         try:
             response = self.client.rpc(function_name, params=where).execute()
             return [self.model(**item) for item in response.data] if response.data else []
@@ -81,8 +79,7 @@ class BaseRepository(Generic[T]):
         except Exception as e:
             raise DatabaseException(str(e))
 
-    def list_in(self, where: dict, filter: dict = (), limit: int = 1000, offset: int = 0, order_by: str = None,
-                desc=False) -> List[T]:
+    def list_in(self, where: dict,filter:dict= (), limit: int = 1000, offset: int = 0, order_by: str = None, desc=False) -> List[T]:
         try:
             query = self.table.select("*")
             for key, value in where.items():

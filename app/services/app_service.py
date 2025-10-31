@@ -8,7 +8,7 @@ from loguru import logger
 
 from app.config.config import esim_hub_service_instance, send_email
 from app.config.constants import ErrorMessages
-from app.config.db import ConfigKeysEnum
+from app.config.db import ConfigKeysEnum, PaymentTypeEnum
 from app.exceptions import CustomException
 from app.models.app import DeviceModel
 from app.models.user import UserModel
@@ -85,36 +85,27 @@ class AppService:
         return ResponseHelper.success_response()
 
     async def delete_device(self, delete_device_request: DeleteDeviceRequest) -> Response:
-        logger.info(f"deleting device {delete_device_request=}")
+        logger.info(f"deleting device {delete_device_request.device_id}")
         return ResponseHelper.success_response()
 
     async def faq(self, accepted_language: str) -> Response[List[FaqResponse]]:
-        try:
-            results = await self.__esim_hub_service.get_content_tags(tag="FAQ", lang_code=accepted_language)
-            faqs = []
-            for item in results:
-                if len(item.children) == 0:
-                    continue
-                faqs.append(
-                    FaqResponse(
-                        question=item.contentDetails[0].name,
-                        answer=item.children[0].contentDetails[0].name
-                    )
+        results = await self.__esim_hub_service.get_content_tags(tag="FAQ", lang_code=accepted_language)
+        faqs = []
+        for item in results:
+            if len(item.children) == 0:
+                continue
+            faqs.append(
+                FaqResponse(
+                    question=item.contentDetails[0].name,
+                    answer=item.children[0].contentDetails[0].name
                 )
-            faqs.reverse()
-            return ResponseHelper.success_data_response(faqs, len(faqs))
-        except Exception as e:
-            logger.error(f"Error fetching FAQ content: {e}")
-            return ResponseHelper.success_data_response([], 0)
+            )
+        faqs.reverse()
+        return ResponseHelper.success_data_response(faqs, len(faqs))
 
     async def about_us(self, accepted_language: str) -> Response[PageContentResponse]:
-        try:
-            response = await self.__esim_hub_service.get_content_tag("ABOUT_US", accepted_language)
-            return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
-        except Exception as e:
-            logger.error(f"Error fetching About Us content: {e}")
-            return ResponseHelper.success_data_response(
-                PageContentResponse(page_title="", page_content="", page_intro=""), 1)
+        response = await self.__esim_hub_service.get_content_tag("ABOUT_US", accepted_language)
+        return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
 
     async def contact_us(self, contact_us_request: ContactUsRequest):
         response = self.__contact_us_repo.create({
@@ -135,22 +126,12 @@ class AppService:
         return ResponseHelper.success_response()
 
     async def terms_and_conditions(self, accepted_language) -> Response[PageContentResponse]:
-        try:
-            response = await self.__esim_hub_service.get_content_tag("TERM_CONDITION", accepted_language)
-            return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
-        except Exception as e:
-            logger.error(f"Error fetching Terms and Conditions content: {e}")
-            return ResponseHelper.success_data_response(
-                PageContentResponse(page_title="", page_content="", page_intro=""), 1)
+        response = await self.__esim_hub_service.get_content_tag("TERM_CONDITION", accepted_language)
+        return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
 
     async def privacy_policy(self, accepted_language: str) -> Response[PageContentResponse]:
-        try:
-            response = await self.__esim_hub_service.get_content_tag("PRIVACY_POLICY", accepted_language)
-            return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
-        except Exception as e:
-            logger.error(f"Error fetching Privacy Policy content: {e}")
-            return ResponseHelper.success_data_response(
-                PageContentResponse(page_title="", page_content="", page_intro=""), 1)
+        response = await self.__esim_hub_service.get_content_tag("PRIVACY_POLICY", accepted_language)
+        return ResponseHelper.success_data_response(DtoMapper.to_page_content_response(response), 1)
 
     async def user_guide(self):
         return ResponseHelper.success_response()
@@ -189,8 +170,8 @@ class AppService:
             logger.error(f"Failed to fetch location for IP {ip}: {response.status_code} {response.text}")
         return None
 
-    def banners(self, locale: str = "en", x_platform: str = "web") -> Response[List[BannerResponse]]:
+    def banners(self, x_currency: str, locale: str = "en", x_platform: str = "web") -> Response[List[BannerResponse]]:
         banners = self.__banner_repo.list(where={"platform": x_platform})
-        logger.info(f"banners {banners=} {locale=}")
+        logger.info(banners)
         response = [BannerResponse(**banner.model_dump()) for banner in banners]
         return ResponseHelper.success_data_response(response, len(banners))

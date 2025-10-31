@@ -47,18 +47,12 @@ class SyncService:
         logger.info("Syncing bundles finished")
 
     async def sync_bundle(self, bundle: BundleDTO):
-        countries = bundle.countries
-        regions = bundle.bundle_region
         try:
+            countries = bundle.countries
             await self.__sync_country_tags(countries)
-        except Exception as e:
-            logger.error(f"Error while syncing country tags: {e}")
-        try:
+            regions = bundle.bundle_region
             regions = list(filter(lambda r: r.region_code != "GLOBAL", regions))
             await self.__sync_region_tags(regions)
-        except Exception as e:
-            logger.error(f"Error while syncing region tags: {e}")
-        try:
             if not self.__bundle_repo.get_by_id(bundle.bundle_code):
                 await self.__handle_create_bundle(bundle=bundle, countries=countries, regions=regions)
             else:
@@ -71,7 +65,7 @@ class SyncService:
         await self.delete_bundle(bundle_id=bundle.bundle_code)
         await self.sync_bundle(bundle=bundle)
 
-    def update_sync_version(self):
+    async def update_sync_version(self):
         new_key = uuid.uuid4().hex
         old_config = self.__config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
         if not old_config:

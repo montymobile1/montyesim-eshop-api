@@ -30,6 +30,7 @@ class AssignRequest(BaseModel):
     promo_code: Optional[str]
     affiliate_code: Optional[str]
     payment_type: Optional[PaymentTypeEnum] = PaymentTypeEnum.CARD
+    promo_code: Optional[str]
 
 
 class VerifyOtpRequestDto(BaseModel):
@@ -71,7 +72,6 @@ class PaymentIntentResponse(BaseModel):
     tax_price_display: Optional[str] = "0.00"
     subtotal_price_display: Optional[str] = "0.00"
     has_tax: Optional[bool] = False
-    otp_expiration: Optional[int] = None
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
