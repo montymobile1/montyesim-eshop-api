@@ -5,6 +5,7 @@ import httpx
 from loguru import logger
 
 from app.config.api import EsimHubEndpoint
+from app.config.helper import get_config
 from app.exceptions import EsimHubException
 from app.models.user import UsersCopyModel
 from app.schemas.app import ExchangeRate
@@ -365,7 +366,7 @@ class EsimHubService:
     async def get_exchange_rates(self, currency_codes: List[str]) -> List[ExchangeRate]:
         params = {
             "CurrencyCodes": currency_codes,
-            "ResellerGuid": os.getenv("RESELLER_ID", ""),
+            "ResellerGuid": get_config("RESELLER_ID", ""),
         }
         try:
             response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_EXCHANGE_RATE, params=params)

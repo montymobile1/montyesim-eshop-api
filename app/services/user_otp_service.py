@@ -1,7 +1,7 @@
 from app.config.config import supabase_client
 from app.config.constants import ErrorMessages
 from app.config.db import DatabaseTables, ConfigKeysEnum
-from app.config.utils import get_config
+from app.config.helper import get_config
 from app.exceptions import CustomException
 from app.models.app import UserOtpModel
 from app.repo.user_otp_repo import UserOtpRepo

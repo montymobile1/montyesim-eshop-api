@@ -17,6 +17,7 @@ from app.config.notification_types import send_consumption_80_bundle_notificatio
     send_wallet_top_up_failed_notification
 from app.config.push_notification_manager import fcm_service
 from app.config.utils import parse_iso_datetime, truncate_two_decimals_decimal_rounded
+from app.config.helper import get_config
 from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel, UserProfileBundleModel, \
     UserProfileModel
 from app.repo import UserOrderRepo, UserProfileRepo, UserRepo, UserProfileBundleRepo
@@ -160,7 +161,7 @@ class CallbackService:
         reseller_id = json_request["resellerId"]
         rate = float(json_request["newRate"])
         logger.info(f"receiving exchange rate update request {json_request}")
-        if reseller_id and reseller_id != os.getenv("RESELLER_ID"):
+        if reseller_id and reseller_id != get_config("RESELLER_ID"):
             logger.info(f"ignoring exchange rate update request for reseller {reseller_id}")
             return ResponseHelper.success_response()
         if system_currency_code != "USD":
@@ -218,7 +219,7 @@ class CallbackService:
     async def __run_one_sync_internal(self, bundle_id: str, operation: str, reseller_id: str = None):
         """Internal method that actually performs tkhe sync work - called by queue processor"""
         try:
-            if reseller_id and reseller_id == os.getenv("RESELLER_ID"):
+            if reseller_id and reseller_id == get_config("RESELLER_ID"):
                 if operation == "delete":
                     logger.info(f"deleting bundle {bundle_id} for reseller {reseller_id}")
                     await self.__sync_service.delete_bundle(bundle_id=bundle_id)
