@@ -198,7 +198,7 @@ class DtoMapper:
         if searched_countries_array and len(searched_countries_array) > 0:
             first_country = searched_countries_array[0]
             display_title = first_country.country_name
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(getattr(first_country.iso3_code, 'country_name', 'generic')).lower()}.png"
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(first_country.iso3_code).lower()}.png"
 
         elif bundle_category.type.lower() == "region" and searched_region:
             display_title = searched_region.region_name
@@ -209,7 +209,7 @@ class DtoMapper:
         elif bundle_data.countries and len(bundle_data.countries) > 0:
             country = bundle_data.countries[0]
             display_title = country.country
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(getattr(country.iso3_code, 'country_name', 'generic')).lower()}.png"
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(country.iso3_code).lower()}.png"
         if bundle_data.label is not None and bundle_data.label != "":
             display_title = bundle_data.label
 

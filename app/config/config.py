@@ -57,7 +57,10 @@ def validate_required_env_vars():
 validate_required_env_vars()
 
 
-def supabase_client() -> Client:
+def supabase_client(url: str = None, key: str = None) -> Client:
+    if url and key:
+        return create_client(url, key,
+                             options=SyncClientOptions(auto_refresh_token=False))
     return create_client(SUPABASE_URL, SUPABASE_KEY,
                          options=SyncClientOptions(auto_refresh_token=False))
 
