@@ -9,7 +9,8 @@ from loguru import logger
 from app.config.config import authenticate, supabase_client, dcb_service_instance
 from app.config.constants import ErrorMessages
 from app.config.db import ConfigKeysEnum
-from app.config.utils import get_config, truncate_two_decimals_decimal
+from app.config.helper import get_config
+from app.config.utils import truncate_two_decimals_decimal
 from app.exceptions import CustomException, BadRequestException
 from app.models.user import UserModel, UsersCopyModel
 from app.repo.device_repo import DeviceRepo

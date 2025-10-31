@@ -6,7 +6,7 @@ from loguru import logger
 
 from app.config.config import esim_hub_service_instance
 from app.config.db import ConfigKeysEnum
-from app.config.utils import get_config
+from app.config.helper import get_config
 from app.schemas.home import HomeResponseDto, BundleDTO
 from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService

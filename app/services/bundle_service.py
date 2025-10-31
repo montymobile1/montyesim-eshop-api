@@ -10,7 +10,8 @@ from app.config.config import esim_hub_service_instance, send_email, generate_qr
 from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum, PromotionRuleAction, ConfigKeysEnum
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
-from app.config.utils import get_config, truncate_two_decimals_decimal
+from app.config.helper import get_config
+from app.config.utils import truncate_two_decimals_decimal
 from app.exceptions import BadRequestException
 from app.models.app import BundleModel
 from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel, UserProfileBundleModel
@@ -315,8 +316,8 @@ class BundleService:
                      user_order: UserOrderModel):
         try:
             qr = generate_qr_code(f"LPA:1${user_profile.smdp_address}${user_profile.activation_code}")
-            msisdn = os.getenv("WHATSAPP_NUMBER")
-            if msisdn:
+            msisdn = get_config("WHATSAPP_NUMBER", "")
+            if msisdn and msisdn != "":
                 msisdn = msisdn.replace("+", "").replace("-", "").replace(" ", "")
             currency = user.metadata.get("currency", os.getenv("SYSTEM_CURRENCY", "USD"))
             rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=currency)
@@ -334,7 +335,7 @@ class BundleService:
                 "activation_code": user_profile.activation_code,
                 "msisdn": msisdn,
                 "user": email,
-                "base_url": os.getenv("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
+                "base_url": get_config("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
             }
             language = lower(user.metadata.get("language", "en"))
             try:
