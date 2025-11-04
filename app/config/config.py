@@ -78,6 +78,9 @@ def dcb_service_instance() -> DCBService:
     if provider == "MONTY":
         from app.services.integration.monty_dcb import MontyDCBService
         return MontyDCBService(base_url=os.getenv("DCB_SEND_OTP_URL", ""))
+    elif provider == "DCB_HUB":
+        from app.services.integration.hub_dcb_service import HubDcbService
+        return HubDcbService()
     return DCBService(send_otp_url=os.getenv("DCB_SEND_OTP_URL", ""), verify_otp_url="", api_key="", charge_url="")
 
 

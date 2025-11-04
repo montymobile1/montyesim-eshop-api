@@ -23,3 +23,12 @@ class DCBService:
 
     def get_send_otp_url(self) -> str:
         return self.__send_otp_url
+
+    def get_api_key(self):
+        return self.__api_key
+
+    def get_charge_url(self):
+        return self.__charge_url
+
+    def get_verify_otp_url(self):
+        return self.__verify_otp_url
