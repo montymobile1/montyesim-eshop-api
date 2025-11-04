@@ -327,9 +327,11 @@ class UserBundleService:
         logger.info(f"receiving verification otp request {request}")
         user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=request.order_id)
         if not user_order:
-            raise BadRequestException("Order not found")
+            raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND,
+                                  details=ErrorMessages.ORDER_NOT_FOUND)
         if user_order.otp != request.otp:
-            raise BadRequestException("Invalid OTP")
+            raise CustomException(code=404, name=ErrorMessages.OTP_INVALID,
+                                  details=ErrorMessages.OTP_INVALID)
 
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
         response = self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=user_order.amount)
@@ -337,6 +339,15 @@ class UserBundleService:
         return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
                                                       payment_status=payment_status,
                                                       payment_type=PaymentTypeEnum.DCB)
+
+    async def resend_order_otp(self, user: UserModel, order_id: str) -> Response[None]:
+        order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
+        if not order:
+            raise BadRequestException(f"Order {order_id} not found")
+        otp = generate_otp()
+        self.__user_order_repo.update_by(where={"id": order.id}, data={"otp": otp})
+        await self.__dcb_service.send_otp(msisdn=user.msisdn, otp=order.otp)
+        return ResponseHelper.success_response()
 
     async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,
                                       rule_id: str,

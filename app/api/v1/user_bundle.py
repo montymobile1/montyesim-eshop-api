@@ -146,3 +146,9 @@ async def get_order_history_by_id(user: Annotated[UserModel, Depends(bearer_toke
                                   x_device_id: str = Header(None)) -> Response[
     UserOrderHistoryResponse]:
     return await service.get_order_history_by_id(order_id=order_id, user_id=user.id, x_currency=x_currency)
+
+
+@router.post("/bundle/resend_order_otp/{order_id}", response_model=Response,
+             dependencies=[Depends(bearer_token), Depends(device_token)])
+async def resend_order_otp(order_id: str, user: Annotated[UserModel, Depends(bearer_token)]):
+    return await service.resend_order_otp(user=user, order_id=order_id)
