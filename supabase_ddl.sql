@@ -2824,8 +2824,6 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 
-alter table promotion_rule
-add column id_text text generated always as (id::text) stored;
 
 
 CREATE OR REPLACE FUNCTION get_referral_transactions_with_count(
