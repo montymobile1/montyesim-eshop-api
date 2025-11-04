@@ -144,6 +144,7 @@ class UserBundleService:
             "currency": os.getenv("DEFAULT_CURRENCY"),
             "bundle_data": bundle.model_dump_json(),
             "searched_countries": None,
+            "payment_type": assign_top_up_request.payment_type
         })
 
         payment_type = assign_top_up_request.payment_type
@@ -336,6 +337,11 @@ class UserBundleService:
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
         response = self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=user_order.amount)
         payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
+        if user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
+            return await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
+                                                             payment_status=payment_status,
+                                                             payment_type=PaymentTypeEnum.DCB,
+                                                             iccid=request.iccid)
         return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
                                                       payment_status=payment_status,
                                                       payment_type=PaymentTypeEnum.DCB)

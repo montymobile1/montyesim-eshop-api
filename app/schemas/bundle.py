@@ -35,6 +35,7 @@ class AssignRequest(BaseModel):
 class VerifyOtpRequestDto(BaseModel):
     otp: str
     order_id: str
+    iccid: Optional[str] = None
 
 
 class AssignTopUpRequest(BaseModel):
