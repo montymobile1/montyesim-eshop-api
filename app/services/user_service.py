@@ -1,6 +1,6 @@
 import asyncio
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List
 
@@ -356,7 +356,9 @@ class UserBundleService:
         if not order:
             raise BadRequestException(f"Order {order_id} not found")
         otp = generate_otp()
-        self.__user_order_repo.update_by(where={"id": order.id}, data={"otp": otp})
+        expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
+        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
+        self.__user_order_repo.update_by(where={"id": order.id}, data={"otp": otp, "otp_expired_at": expire_at})
         await self.__dcb_service.send_otp(msisdn=user.msisdn, otp=order.otp)
         return ResponseHelper.success_response()
 
@@ -510,4 +512,3 @@ class UserBundleService:
         )
 
         return len(resp.data) > 0
-
