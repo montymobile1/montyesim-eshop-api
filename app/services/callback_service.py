@@ -2,7 +2,6 @@ import asyncio
 import json
 import os
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Dict, Optional
 
 import stripe
@@ -381,7 +380,7 @@ class CallbackService:
         user_wallet = self.__user_wallet_service.get_user_wallet_by_id(user_wallet_id)
         try:
             if event_type == "payment_intent.succeeded":
-                amount = float(Decimal(order.amount) / Decimal(100))
+                amount = float(order.amount)
                 logger.info(f"updating user wallet: {user_wallet} with new {amount=}")
 
                 def task():
