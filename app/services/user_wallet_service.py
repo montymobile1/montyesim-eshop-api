@@ -47,9 +47,9 @@ class UserWalletService:
         wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"user_id": user_id})
         if not wallet:
             return None
-        rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
-                                                         to_currency=currency_code)
-        wallet.amount = wallet.amount * rate
+        wallet.amount = self.__currency_service.convert(from_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
+                                                        to_currency=currency_code,
+                                                        amount=wallet.amount)
         return DtoMapper.to_user_wallet_response(wallet)
 
     def get_user_wallet(self, user_id) -> UserWalletModel:
