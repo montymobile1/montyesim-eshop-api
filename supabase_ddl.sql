@@ -364,7 +364,7 @@ create table user_order
             references auth.users(id),
     esim_order_id       varchar,
     bundle_id           varchar,
-    amount              decimal                               not null,
+    amount              numeric(20,12)                               not null,
     currency            varchar                               not null,
     order_type          varchar     default 'assign'::character varying  not null,
     payment_status      varchar     default 'pending'::character varying not null,
@@ -582,7 +582,7 @@ create table user_wallet
     user_id uuid                           not null
         references auth.users(id)
         on delete cascade,
-    amount  real default 0
+    amount  numeric(20,12) default 0
         constraint user_wallet_amount_check
             check (amount >= (0):: double precision
 ) ,
