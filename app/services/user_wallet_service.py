@@ -115,7 +115,7 @@ class UserWalletService:
                                                            to_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
                                                            amount=top_up_request.amount)
 
-        if order_amount <= 50:
+        if order_amount <= 0.5:
             raise CustomException(code=400, name=ErrorMessages.INVALID_TOP_UP_AMOUNT,
                                   details="Top up amount must be greater than 0.5")
         order = self.__user_order_repo.create(data={
