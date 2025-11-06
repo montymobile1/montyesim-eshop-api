@@ -10,11 +10,12 @@ from app.services.integration.dcb_service import DCBService
 class HubDcbService(DCBService):
 
     def __init__(self):
-        base_url = get_config("DCB_HUB_BASE_URL", "")
+        send_otp_url = get_config("DCB_HUB_SEND_SMS_URL", "")
         charge_url = get_config("DCB_HUB_CHARGE_URL", "")
         verify_otp_url = get_config("DCB_HUB_VERIFY_OTP_URL", "")
         api_key = get_config("DCB_HUB_API_KEY", "")
-        super().__init__(send_otp_url=base_url, charge_url=charge_url, verify_otp_url=verify_otp_url, api_key=api_key)
+        super().__init__(send_otp_url=send_otp_url, charge_url=charge_url, verify_otp_url=verify_otp_url,
+                         api_key=api_key)
 
     async def send_otp(self, msisdn: str, otp: str) -> bool:
         url = self.get_send_otp_url()

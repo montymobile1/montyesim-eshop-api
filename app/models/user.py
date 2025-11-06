@@ -29,7 +29,7 @@ class UserOrderModel(BaseModel):
     esim_order_id: Optional[str] = None
     bundle_id: Optional[str] = None
     order_type: UserOrderType = UserOrderType.ASSIGN
-    amount: int
+    amount: float
     currency: str
     payment_intent_code: Optional[str] = None
     payment_status: Optional[str] = OrderStatusEnum.PENDING
@@ -45,6 +45,7 @@ class UserOrderModel(BaseModel):
     modified_amount: Optional[float] = 0
     otp: Optional[str] = None
     payment_type: Optional[PaymentTypeEnum] = PaymentTypeEnum.CARD
+    otp_expired_at: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 

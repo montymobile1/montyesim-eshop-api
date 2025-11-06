@@ -57,8 +57,8 @@ class UserWalletService:
         return wallet
 
     def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp", order_currency: str = None) -> \
-    Response[
-        UserWalletResponse]:
+            Response[
+                UserWalletResponse]:
         try:
             user: UsersCopyModel = self.__user_repo.get_first_by(where={"id": user_id})
             transaction_currency = user.metadata.get("currency", os.getenv("SYSTEM_CURRENCY", "USD"))
@@ -111,9 +111,9 @@ class UserWalletService:
 
         order_amount = int(amount * 100)
         if x_currency != user_wallet.currency:
-            rate = self.__currency_service.get_currency_rate(from_currency=x_currency,
-                                                             to_currency=os.getenv("SYSTEM_CURRENCY", "USD"))
-            order_amount = int((amount * rate) * 100)
+            order_amount = self.__currency_service.convert(from_currency=x_currency,
+                                                           to_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
+                                                           amount=top_up_request.amount) * 100
 
         if order_amount <= 50:
             raise CustomException(code=400, name=ErrorMessages.INVALID_TOP_UP_AMOUNT,

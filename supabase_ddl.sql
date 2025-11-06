@@ -364,7 +364,7 @@ create table user_order
             references auth.users(id),
     esim_order_id       varchar,
     bundle_id           varchar,
-    amount              integer                               not null,
+    amount              decimal                               not null,
     currency            varchar                               not null,
     order_type          varchar     default 'assign'::character varying  not null,
     payment_status      varchar     default 'pending'::character varying not null,
@@ -381,9 +381,10 @@ create table user_order
     promo_code          varchar(50) default NULL::character varying
         references promotion (code),
     referral_code       varchar(50) default NULL::character varying,
-    modified_amount     real,
+    modified_amount     decimal,
     otp                 varchar,
-    payment_type        varchar(100) default null
+    payment_type        varchar(100) default null,
+    otp_expired_at      timestamp default null
 );
 
 alter table user_order
