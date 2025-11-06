@@ -1,4 +1,5 @@
 import os
+from decimal import Decimal
 from typing import List
 
 from loguru import logger
@@ -31,11 +32,13 @@ class CurrencyService:
         if from_currency == system_currency:
             rate = self.get_rate_by_currency(to_currency)
             logger.info(f"Converting from {from_currency} to {to_currency} amount: {amount} with rate * {rate}")
-            return amount * rate
+            val = Decimal(amount * rate)
+            return float(val)
         else:
             rate = self.get_rate_by_currency(from_currency)
             logger.info(f"Converting from {from_currency} to {to_currency} amount: {amount} with rate / {rate}")
-            return amount / rate
+            val = Decimal(amount / rate)
+            return float(val)
 
     def get_currency_rate(self, from_currency: str, to_currency: str) -> float:
         currency = self.__currency_repo.get_first_by(

@@ -1,5 +1,6 @@
 import os
 import threading
+from decimal import Decimal
 from typing import List
 
 from fastapi import Request
@@ -113,7 +114,8 @@ class UserWalletService:
         if x_currency != user_wallet.currency:
             order_amount = self.__currency_service.convert(from_currency=x_currency,
                                                            to_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
-                                                           amount=top_up_request.amount) * 100
+                                                           amount=top_up_request.amount)
+            order_amount = float(Decimal(order_amount) * Decimal(100.0))
 
         if order_amount <= 50:
             raise CustomException(code=400, name=ErrorMessages.INVALID_TOP_UP_AMOUNT,
