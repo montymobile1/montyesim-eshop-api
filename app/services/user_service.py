@@ -334,7 +334,7 @@ class UserBundleService:
             raise CustomException(code=404, name=ErrorMessages.OTP_INVALID,
                                   details=ErrorMessages.OTP_INVALID)
 
-        if self.__is_order_otp_expired(user_order.id):
+        if self.__is_order_otp_expired(order_id=user_order.id):
             raise CustomException(code=400, name=ErrorMessages.OTP_EXPIRED,
                                   details=ErrorMessages.OTP_EXPIRED)
 
