@@ -351,7 +351,7 @@ class UserBundleService:
                                                       payment_status=payment_status,
                                                       payment_type=PaymentTypeEnum.DCB)
 
-    async def d_order_otp(self, user: UserModel, order_id: str) -> Response[None]:
+    async def resend_order_otp(self, user: UserModel, order_id: str) -> Response[None]:
         order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
         if not order:
             raise BadRequestException(f"Order {order_id} not found")
