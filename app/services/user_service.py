@@ -75,6 +75,7 @@ class UserBundleService:
             "anonymous_user_id": user.anonymous_user_id,
             "promo_code": assign_request.promo_code or None,
             "payment_type": assign_request.payment_type,
+            "otp_expired_at": int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME)),
         }
         if assign_request.promo_code and self.__promotion_service.is_referral_code(assign_request.promo_code):
             data.setdefault("referral_code", assign_request.promo_code)
