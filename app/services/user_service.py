@@ -339,7 +339,7 @@ class UserBundleService:
                                   details=ErrorMessages.OTP_EXPIRED)
 
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
-        response = self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=user_order.amount)
+        response = await self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=user_order.amount)
         payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
 
         if user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
@@ -403,7 +403,8 @@ class UserBundleService:
 
         try:
             otp = generate_otp()
-            self.__user_order_repo.update_by(where={"id": user_order.id}, data={"otp": otp,"otp_expired_at": expire_at})
+            self.__user_order_repo.update_by(where={"id": user_order.id},
+                                             data={"otp": otp, "otp_expired_at": expire_at})
             msisdn = user.msisdn
             logger.info(f"requesting new otp for msisdn: {msisdn}")
             await self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
