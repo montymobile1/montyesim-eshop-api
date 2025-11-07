@@ -75,7 +75,6 @@ class UserBundleService:
             "anonymous_user_id": user.anonymous_user_id,
             "promo_code": assign_request.promo_code or None,
             "payment_type": assign_request.payment_type,
-            "otp_expired_at": int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME)),
         }
         if assign_request.promo_code and self.__promotion_service.is_referral_code(assign_request.promo_code):
             data.setdefault("referral_code", assign_request.promo_code)
@@ -352,7 +351,7 @@ class UserBundleService:
                                                       payment_status=payment_status,
                                                       payment_type=PaymentTypeEnum.DCB)
 
-    async def resend_order_otp(self, user: UserModel, order_id: str) -> Response[None]:
+    async def d_order_otp(self, user: UserModel, order_id: str) -> Response[None]:
         order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
         if not order:
             raise BadRequestException(f"Order {order_id} not found")
@@ -399,9 +398,12 @@ class UserBundleService:
     async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO) -> Response[
         PaymentIntentResponse]:
         logger.info(f"handle_dcb_payment request {user=} {bundle=} {user_order=}")
+        expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
+        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
+
         try:
             otp = generate_otp()
-            self.__user_order_repo.update_by(where={"id": user_order.id}, data={"otp": otp})
+            self.__user_order_repo.update_by(where={"id": user_order.id}, data={"otp": otp,"otp_expired_at": expire_at})
             msisdn = user.msisdn
             logger.info(f"requesting new otp for msisdn: {msisdn}")
             await self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
