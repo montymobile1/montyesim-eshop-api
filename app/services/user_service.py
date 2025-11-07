@@ -398,9 +398,12 @@ class UserBundleService:
     async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO) -> Response[
         PaymentIntentResponse]:
         logger.info(f"handle_dcb_payment request {user=} {bundle=} {user_order=}")
+        expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
+        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
+
         try:
             otp = generate_otp()
-            self.__user_order_repo.update_by(where={"id": user_order.id}, data={"otp": otp})
+            self.__user_order_repo.update_by(where={"id": user_order.id}, data={"otp": otp,"otp_expired_at": expire_at})
             msisdn = user.msisdn
             logger.info(f"requesting new otp for msisdn: {msisdn}")
             await self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
