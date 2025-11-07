@@ -74,7 +74,7 @@ def esim_hub_service_instance():
 
 
 def dcb_service_instance() -> DCBService:
-    provider = os.getenv("DEFAULT_DCB_PROVIDER", "NONE").upper()
+    provider = get_config("DEFAULT_DCB_PROVIDER", "NONE").upper()
     if provider == "MONTY":
         from app.services.integration.monty_dcb import MontyDCBService
         return MontyDCBService(base_url=os.getenv("DCB_SEND_OTP_URL", ""))
