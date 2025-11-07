@@ -10,11 +10,12 @@ from app.services.integration.dcb_service import DCBService
 class HubDcbService(DCBService):
 
     def __init__(self):
-        base_url = get_config("DCB_HUB_BASE_URL", "")
+        send_otp_url = get_config("DCB_HUB_SEND_SMS_URL", "")
         charge_url = get_config("DCB_HUB_CHARGE_URL", "")
         verify_otp_url = get_config("DCB_HUB_VERIFY_OTP_URL", "")
         api_key = get_config("DCB_HUB_API_KEY", "")
-        super().__init__(send_otp_url=base_url, charge_url=charge_url, verify_otp_url=verify_otp_url, api_key=api_key)
+        super().__init__(send_otp_url=send_otp_url, charge_url=charge_url, verify_otp_url=verify_otp_url,
+                         api_key=api_key)
 
     async def send_otp(self, msisdn: str, otp: str) -> bool:
         url = self.get_send_otp_url()
@@ -31,7 +32,7 @@ class HubDcbService(DCBService):
                 headers = {
                     "Content-Type": "application/json",
                     "Accept": "application/json",
-                    "api-key": self.get_api_key(),
+                    "Api-Key": self.get_api_key(),
                     "Tenant": os.getenv("ESIM_HUB_TENANT_KEY")
                 }
                 response = client.request(method="POST",
@@ -40,7 +41,7 @@ class HubDcbService(DCBService):
                                           json=body,
                                           timeout=120)
                 json_response = response.json()
-                if json_response.get("status") == "success":
+                if json_response.get("message") == "Success":
                     return True
                 else:
                     logger.error(f"[DCB_HUB] Failed to send OTP: {json_response}")
@@ -52,18 +53,26 @@ class HubDcbService(DCBService):
     async def deduct_balance(self, msisdn: str, amount: float) -> bool:
         url = self.get_charge_url()
         logger.info(f"[DCB_HUB] deducting balance for  {msisdn=}")
+        rate = float(get_config("DCB_HUB_CURRENCY_RATE", 1))
+        amount = rate * amount
         try:
             with httpx.Client() as client:
                 body = {
-                    "msisdn": msisdn,
-                    "amount": amount,
-                    "currency": "XOF",
-                    "description": "eSIM Purchase"
+                    "SerialNo": "DCB_20251730223057",
+                    "Msisdn": msisdn.replace("+", ""),
+                    "ChargeSeq": "DCB",
+                    "ChargeCode": "CC_OTC",
+                    "Amount": amount,
+                    "CurrencyId": 1098,
+                    "TaxCode": "C_TAX_CODE",
+                    "TaxAmount": float(get_config("DCB_HUB_TAX_AMOUNT", 0)),
+                    "BusinessType": "CO019"
                 }
                 headers = {
                     "Content-Type": "application/json",
                     "Accept": "application/json",
-                    "api-key": self.get_api_key()
+                    "Api-Key": self.get_api_key(),
+                    "Tenant": os.getenv("ESIM_HUB_TENANT_KEY")
                 }
                 response = client.request(method="POST",
                                           url=url,
@@ -71,7 +80,7 @@ class HubDcbService(DCBService):
                                           json=body,
                                           timeout=120)
                 json_response = response.json()
-                if json_response.get("status") == "success":
+                if json_response.get("message") == "Success":
                     return True
                 else:
                     logger.error(f"[DCB_HUB] Failed to deduct balance: {json_response}")

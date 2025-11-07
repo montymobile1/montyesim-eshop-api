@@ -72,7 +72,7 @@ class AuthService:
             )
             wallet = await self.__user_wallet_service.create_wallet(user_wallet_request_dto)
             if wallet:
-                wallet.balance = float(truncate_two_decimals_decimal(wallet.balance))
+                wallet.balance = float(wallet.balance)
                 return wallet
             else:
                 return None

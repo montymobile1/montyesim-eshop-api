@@ -47,9 +47,9 @@ class UserWalletService:
         wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"user_id": user_id})
         if not wallet:
             return None
-        rate = self.__currency_service.get_currency_rate(from_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
-                                                         to_currency=currency_code)
-        wallet.amount = wallet.amount * rate
+        wallet.amount = self.__currency_service.convert(from_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
+                                                        to_currency=currency_code,
+                                                        amount=wallet.amount)
         return DtoMapper.to_user_wallet_response(wallet)
 
     def get_user_wallet(self, user_id) -> UserWalletModel:
@@ -57,8 +57,8 @@ class UserWalletService:
         return wallet
 
     def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp", order_currency: str = None) -> \
-    Response[
-        UserWalletResponse]:
+            Response[
+                UserWalletResponse]:
         try:
             user: UsersCopyModel = self.__user_repo.get_first_by(where={"id": user_id})
             transaction_currency = user.metadata.get("currency", os.getenv("SYSTEM_CURRENCY", "USD"))
@@ -109,13 +109,13 @@ class UserWalletService:
         if not user_wallet:
             user_wallet = self.__create_wallet(user_id=user.user_id, amount=0)
 
-        order_amount = int(amount * 100)
+        order_amount = amount
         if x_currency != user_wallet.currency:
-            rate = self.__currency_service.get_currency_rate(from_currency=x_currency,
-                                                             to_currency=os.getenv("SYSTEM_CURRENCY", "USD"))
-            order_amount = int((amount * rate) * 100)
+            order_amount = self.__currency_service.convert(from_currency=x_currency,
+                                                           to_currency=os.getenv("SYSTEM_CURRENCY", "USD"),
+                                                           amount=top_up_request.amount)
 
-        if order_amount <= 50:
+        if order_amount <= 0.5:
             raise CustomException(code=400, name=ErrorMessages.INVALID_TOP_UP_AMOUNT,
                                   details="Top up amount must be greater than 0.5")
         order = self.__user_order_repo.create(data={

@@ -1,6 +1,6 @@
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List
 
@@ -9,7 +9,7 @@ import stripe
 from fastapi import Request
 from loguru import logger
 
-from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance
+from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance, supabase_client
 from app.config.constants import ErrorMessages, PaymentStatusEnum, UserWalletTransactionSource
 from app.config.db import DatabaseTables, PaymentTypeEnum, ConfigKeysEnum
 from app.config.helper import get_config
@@ -334,9 +334,14 @@ class UserBundleService:
             raise CustomException(code=404, name=ErrorMessages.OTP_INVALID,
                                   details=ErrorMessages.OTP_INVALID)
 
+        if self.__is_order_otp_expired(order_id=user_order.id):
+            raise CustomException(code=400, name=ErrorMessages.OTP_EXPIRED,
+                                  details=ErrorMessages.OTP_EXPIRED)
+
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
         response = self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=user_order.amount)
         payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
+
         if user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
             return await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
                                                              payment_status=payment_status,
@@ -351,7 +356,9 @@ class UserBundleService:
         if not order:
             raise BadRequestException(f"Order {order_id} not found")
         otp = generate_otp()
-        self.__user_order_repo.update_by(where={"id": order.id}, data={"otp": otp})
+        expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
+        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
+        self.__user_order_repo.update_by(where={"id": order.id}, data={"otp": otp, "otp_expired_at": expire_at})
         await self.__dcb_service.send_otp(msisdn=user.msisdn, otp=order.otp)
         return ResponseHelper.success_response()
 
@@ -391,9 +398,12 @@ class UserBundleService:
     async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO) -> Response[
         PaymentIntentResponse]:
         logger.info(f"handle_dcb_payment request {user=} {bundle=} {user_order=}")
+        expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
+        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
+
         try:
             otp = generate_otp()
-            self.__user_order_repo.update_by(where={"id": user_order.id}, data={"otp": otp})
+            self.__user_order_repo.update_by(where={"id": user_order.id}, data={"otp": otp,"otp_expired_at": expire_at})
             msisdn = user.msisdn
             logger.info(f"requesting new otp for msisdn: {msisdn}")
             await self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
@@ -489,3 +499,19 @@ class UserBundleService:
             logger.info(f"Successfully updated order {order_id} in background")
         except Exception as e:
             logger.error(f"Error updating order {order_id} in background: {str(e)}")
+
+    def __is_order_otp_expired(self, order_id: str) -> bool:
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        resp = (
+            supabase_client()
+            .table("user_order")
+            .select("id")
+            .eq("id", order_id)
+            .lt("otp_expired_at", now)  # otp_expired_at < now
+            .execute()
+        )
+
+        return len(resp.data) > 0

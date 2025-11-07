@@ -12,12 +12,12 @@ from soupsieve.util import lower
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email, get_email_template
 from app.config.constants import PaymentIntentEvents, UserWalletTransactionSource
 from app.config.db import PaymentTypeEnum
+from app.config.helper import get_config
 from app.config.notification_types import send_consumption_80_bundle_notification, \
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
 from app.config.push_notification_manager import fcm_service
 from app.config.utils import parse_iso_datetime, truncate_two_decimals_decimal_rounded
-from app.config.helper import get_config
 from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel, UserProfileBundleModel, \
     UserProfileModel
 from app.repo import UserOrderRepo, UserProfileRepo, UserRepo, UserProfileBundleRepo
@@ -380,7 +380,7 @@ class CallbackService:
         user_wallet = self.__user_wallet_service.get_user_wallet_by_id(user_wallet_id)
         try:
             if event_type == "payment_intent.succeeded":
-                amount = (order.amount / 100)
+                amount = float(order.amount)
                 logger.info(f"updating user wallet: {user_wallet} with new {amount=}")
 
                 def task():
