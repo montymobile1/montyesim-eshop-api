@@ -60,6 +60,7 @@ class HubDcbService(DCBService):
                 body = {
                     "SerialNo": "DCB_20251730223057",
                     "Msisdn": msisdn.replace("+", ""),
+                    "MsisdnExtension": get_config("DCB_HUB_MSISDN_EXTENSION", ""),
                     "ChargeSeq": "DCB",
                     "ChargeCode": "CC_OTC",
                     "Amount": amount,
