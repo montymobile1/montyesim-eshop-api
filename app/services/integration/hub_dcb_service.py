@@ -14,6 +14,7 @@ class HubDcbService(DCBService):
         charge_url = get_config("DCB_HUB_CHARGE_URL", "")
         verify_otp_url = get_config("DCB_HUB_VERIFY_OTP_URL", "")
         api_key = get_config("DCB_HUB_API_KEY", "")
+        self.__source_msisdn = get_config("DCB_HUB_SOURCE_MSISDN", "")
         super().__init__(send_otp_url=send_otp_url, charge_url=charge_url, verify_otp_url=verify_otp_url,
                          api_key=api_key)
 
@@ -23,8 +24,8 @@ class HubDcbService(DCBService):
         try:
             with httpx.Client() as client:
                 body = {
-                    "sourceMsisdn": "Chinguitel",
-                    "destinationMsisdn": msisdn,
+                    "sourceMsisdn": self.__source_msisdn,
+                    "destinationMsisdn": msisdn.replace("+", ""),
                     "message": f"Your OTP code is {otp}",
                     "smsType": "NORMAL",
                     "deliveryReceipt": False
@@ -40,12 +41,18 @@ class HubDcbService(DCBService):
                                           headers=headers,
                                           json=body,
                                           timeout=120)
-                json_response = response.json()
-                if json_response.get("message") == "Success":
-                    return True
-                else:
-                    logger.error(f"[DCB_HUB] Failed to send OTP: {json_response}")
+                try:
+                    json_response = response.json()
+                    if json_response.get("message") == "Success":
+                        return True
+                    else:
+                        logger.error(f"[DCB_HUB] Failed to send OTP: {json_response}")
+                        return False
+                except Exception as e:
+                    logger.error(f"[DCB_HUB] Invalid response while sending OTP: {response.status_code}, error: {e}")
                     return False
+
+
         except Exception as e:
             logger.error(f"Error sending OTP to {msisdn}: {e}")
             return False
