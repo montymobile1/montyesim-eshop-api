@@ -57,7 +57,7 @@ class HubDcbService(DCBService):
             logger.error(f"Error sending OTP to {msisdn}: {e}")
             return False
 
-    async def deduct_balance(self, msisdn: str, amount: float) -> bool:
+    async def deduct_balance(self, msisdn: str, amount: float, order_id: str) -> bool:
         url = self.get_charge_url()
         logger.info(f"[DCB_HUB] deducting balance for  {msisdn=}")
         rate = float(get_config("DCB_HUB_CURRENCY_RATE", 1))
@@ -65,7 +65,7 @@ class HubDcbService(DCBService):
         try:
             with httpx.Client() as client:
                 body = {
-                    "SerialNo": "DCB_20251730223057",
+                    "SerialNo": order_id,
                     "Msisdn": msisdn.replace("+", ""),
                     "MsisdnExtension": get_config("DCB_HUB_MSISDN_EXTENSION", ""),
                     "ChargeSeq": "DCB",
@@ -87,11 +87,15 @@ class HubDcbService(DCBService):
                                           headers=headers,
                                           json=body,
                                           timeout=120)
-                json_response = response.json()
-                if json_response.get("message") == "Success":
-                    return True
-                else:
-                    logger.error(f"[DCB_HUB] Failed to deduct balance: {json_response}")
+                try:
+                    json_response = response.json()
+                    if json_response.get("message") == "Success":
+                        return True
+                    else:
+                        logger.error(f"[DCB_HUB] Failed to deduct balance: {json_response}")
+                        return False
+                except Exception as e:
+                    logger.error(f"[DCB_HUB] Invalid response while deducting balance: {response.status_code}, error: {e}")
                     return False
         except Exception as e:
             logger.error(f"Error deducting balance for {msisdn}: {e}")

@@ -339,7 +339,8 @@ class UserBundleService:
                                   details=ErrorMessages.OTP_EXPIRED)
 
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
-        response = await self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=user_order.amount)
+        response = await self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=user_order.amount,
+                                                           order_id=user_order.id)
         payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
 
         if user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
