@@ -54,7 +54,7 @@ class HubDcbService(DCBService):
 
 
         except Exception as e:
-            logger.error(f"Error sending OTP to {msisdn}: {e}")
+            logger.error(f"[DCB_HUB] Error sending OTP to {msisdn}: {e}")
             return False
 
     async def deduct_balance(self, msisdn: str, amount: float, order_id: str) -> bool:
@@ -69,12 +69,12 @@ class HubDcbService(DCBService):
                     "Msisdn": msisdn.replace("+", ""),
                     "MsisdnExtension": get_config("DCB_HUB_MSISDN_EXTENSION", ""),
                     "ChargeSeq": "DCB",
-                    "ChargeCode": "CC_OTC",
+                    "ChargeCode": get_config("DCB_HUB_CHARGE_CODE", "CC_OTC"),
                     "Amount": amount,
-                    "CurrencyId": 1098,
-                    "TaxCode": "C_TAX_CODE",
+                    "CurrencyId": int(get_config("DCB_HUB_CURRENCY_ID", "1098")),
+                    "TaxCode": get_config("DCB_HUB_TAX_CODE", "C_TAX_CODE"),
                     "TaxAmount": float(get_config("DCB_HUB_TAX_AMOUNT", 0)),
-                    "BusinessType": "CO019"
+                    "BusinessType": get_config("DCB_HUB_BUSINESS_TYPE", "CO019")
                 }
                 headers = {
                     "Content-Type": "application/json",
@@ -95,8 +95,9 @@ class HubDcbService(DCBService):
                         logger.error(f"[DCB_HUB] Failed to deduct balance: {json_response}")
                         return False
                 except Exception as e:
-                    logger.error(f"[DCB_HUB] Invalid response while deducting balance: {response.status_code}, error: {e}")
+                    logger.error(
+                        f"[DCB_HUB] Invalid response while deducting balance: {response.status_code}, error: {e}")
                     return False
         except Exception as e:
-            logger.error(f"Error deducting balance for {msisdn}: {e}")
+            logger.error(f"[DCB_HUB] Error deducting balance for {msisdn}: {e}")
             return False
