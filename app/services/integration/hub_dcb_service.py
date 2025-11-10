@@ -60,8 +60,7 @@ class HubDcbService(DCBService):
     async def deduct_balance(self, msisdn: str, amount: float, order_id: str) -> bool:
         url = self.get_charge_url()
         logger.info(f"[DCB_HUB] deducting balance for  {msisdn=}")
-        rate = float(get_config("DCB_HUB_CURRENCY_RATE", 1))
-        amount = rate * amount
+
         try:
             with httpx.Client() as client:
                 body = {
