@@ -86,6 +86,8 @@ class HubDcbService(DCBService):
                                           headers=headers,
                                           json=body,
                                           timeout=120)
+
+                logger.info(f"HUB Deduct Request :  {body}")
                 try:
                     json_response = response.json()
                     if json_response.get("message") == "Success":
