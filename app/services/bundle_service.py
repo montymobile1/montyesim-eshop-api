@@ -8,9 +8,9 @@ from soupsieve.util import lower
 
 from app.config.config import esim_hub_service_instance, send_email, generate_qr_code, get_email_template
 from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum, PromotionRuleAction, ConfigKeysEnum
+from app.config.helper import get_config
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
-from app.config.helper import get_config
 from app.config.utils import truncate_two_decimals_decimal
 from app.exceptions import BadRequestException
 from app.models.app import BundleModel
@@ -166,7 +166,7 @@ class BundleService:
                                                                            "locale_param": locale})
                     for country_tag in country_tags:
                         country_tag.data["country"] = country_tag.name
-                    countries = [tag.data for tag in country_tags]
+                    countries = [CountryDTO.model_validate(tag.data) for tag in country_tags]
                     bundle_dto.countries = countries
 
                 bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency, rate))
