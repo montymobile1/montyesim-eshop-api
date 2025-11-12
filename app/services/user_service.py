@@ -356,7 +356,7 @@ class UserBundleService:
         if not response:
             self.__user_order_repo.update_by(where={"id": user_order.id},
                                              data={"payment_status": OrderStatusEnum.FAILURE})
-            return ResponseHelper.success_data_response(False, 0)
+            raise CustomException(code=400, name=ErrorMessages.PAYMENT_FAILED, details=ErrorMessages.PAYMENT_FAILED)
 
         payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
 
