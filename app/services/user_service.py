@@ -345,13 +345,18 @@ class UserBundleService:
         converted_units = self.__currency_service.convert(from_currency="USD", to_currency=default_currency,
                                                           amount=usd_amount_units)
 
-        converted_amount_cents = int(Decimal(str(converted_units)) * Decimal("100"))
+        converted_amount_cents = int(Decimal(str(converted_units)) * Decimal("100000"))
         logger.info(
             f"DCB deduct: order_id={user_order.id} usd_units={usd_amount_units} "
             f"converted={converted_units} {default_currency} smallest_units={converted_amount_cents}")
 
         response = await self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=converted_amount_cents,
                                                            order_id=user_order.id)
+
+        if not response:
+            self.__user_order_repo.update_by(where={"id": user_order.id},
+                                             data={"payment_status": OrderStatusEnum.FAILURE})
+            return ResponseHelper.success_data_response(False, 0)
 
         payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
 
