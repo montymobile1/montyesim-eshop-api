@@ -72,7 +72,7 @@ class HubDcbService(DCBService):
                     "Amount": amount,
                     "CurrencyId": int(get_config("DCB_HUB_CURRENCY_ID", "1098")),
                     "TaxCode": get_config("DCB_HUB_TAX_CODE", "C_TAX_CODE"),
-                    "TaxAmount": float(get_config("DCB_HUB_TAX_AMOUNT", 0)),
+                    "TaxAmount": int(get_config("DCB_HUB_TAX_AMOUNT", 0)),
                     "BusinessType": get_config("DCB_HUB_BUSINESS_TYPE", "CO019")
                 }
                 headers = {
