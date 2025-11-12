@@ -327,7 +327,7 @@ class BundleService:
             data = {
                 "bundle_name": bundle.bundle_name,
                 "gprs_limit_display": bundle.gprs_limit_display,
-                "price": f"{truncate_two_decimals_decimal(user_order.modified_amount * rate)} {currency.upper()}",
+                "price": f"{truncate_two_decimals_decimal(user_order.modified_amount / 100 * rate)} {currency.upper()}",
                 "coverage": coverage,
                 "validity": bundle.validity_display,
                 "iccid": user_profile.iccid,
