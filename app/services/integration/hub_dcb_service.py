@@ -1,4 +1,5 @@
 import os
+from decimal import Decimal
 
 import httpx
 from loguru import logger
@@ -59,7 +60,10 @@ class HubDcbService(DCBService):
 
     async def deduct_balance(self, msisdn: str, amount: float, order_id: str) -> bool:
         url = self.get_charge_url()
-        logger.info(f"[DCB_HUB] deducting balance for  {msisdn=}")
+        conversion_rate = get_config("DCB_HUB_CONVERSION_RATE", "1.0")
+        converted_amount_cents = int(Decimal(str(amount)) * Decimal(conversion_rate))
+        logger.info(
+            f"[DCB_HUB] deducting balance for  {msisdn=} with amount={converted_amount_cents} cents for {order_id=} via {url=}")
 
         try:
             with httpx.Client() as client:
@@ -69,7 +73,7 @@ class HubDcbService(DCBService):
                     "MsisdnExtension": get_config("DCB_HUB_MSISDN_EXTENSION", ""),
                     "ChargeSeq": "DCB",
                     "ChargeCode": get_config("DCB_HUB_CHARGE_CODE", "CC_OTC"),
-                    "Amount": amount,
+                    "Amount": converted_amount_cents,
                     "CurrencyId": int(get_config("DCB_HUB_CURRENCY_ID", "1098")),
                     "TaxCode": get_config("DCB_HUB_TAX_CODE", "C_TAX_CODE"),
                     "TaxAmount": int(get_config("DCB_HUB_TAX_AMOUNT", 0)),
