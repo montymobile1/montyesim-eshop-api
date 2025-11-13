@@ -341,7 +341,8 @@ class UserBundleService:
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
 
         default_currency = os.getenv("DEFAULT_CURRENCY", "USD")
-        usd_amount_units = (user_order.amount or 0) / 100
+        usd_amount_units = ((
+                                user_order.modified_amount if user_order.modified_amount else user_order.amount) or 0) / 100
         converted_units = self.__currency_service.convert(from_currency="USD", to_currency=default_currency,
                                                           amount=usd_amount_units)
 
