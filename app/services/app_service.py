@@ -9,6 +9,7 @@ from loguru import logger
 from app.config.config import esim_hub_service_instance, send_email
 from app.config.constants import ErrorMessages
 from app.config.db import ConfigKeysEnum
+from app.config.helper import get_config
 from app.exceptions import CustomException
 from app.models.app import DeviceModel
 from app.models.user import UserModel
@@ -129,7 +130,7 @@ class AppService:
             <p><b>Content</b>: {contact_us_request.content}</p>
         """
         try:
-            send_email(subject="New Email Received", html_content=content, recipients=os.getenv("SUPPORT_EMAIL"))
+            send_email(subject="New Email Received", html_content=content, recipients=get_config("SUPPORT_EMAIL"))
         except Exception as e:
             logger.error(f"Error sending email: {e}")
         return ResponseHelper.success_response()
