@@ -17,8 +17,8 @@ class DCBService:
         logger.info(f"[DCB] verifying OTP to DCB  {msisdn=}")
         return True
 
-    async def deduct_balance(self, msisdn: str, amount: float) -> bool:
-        logger.info(f"[DCB] deduct balance for  {msisdn=} with {amount=}")
+    async def deduct_balance(self, msisdn: str, amount: float, order_id: str) -> bool:
+        logger.info(f"[DCB] deduct balance for  {msisdn=} with {amount=} for {order_id=}")
         return True
 
     def get_send_otp_url(self) -> str:

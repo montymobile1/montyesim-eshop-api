@@ -339,7 +339,21 @@ class UserBundleService:
                                   details=ErrorMessages.OTP_EXPIRED)
 
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
-        response = await self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=user_order.amount)
+
+        default_currency = os.getenv("DEFAULT_CURRENCY", "USD")
+        usd_amount_units = ((
+                                user_order.modified_amount if user_order.modified_amount else user_order.amount) or 0) / 100
+        converted_units = self.__currency_service.convert(from_currency="USD", to_currency=default_currency,
+                                                          amount=usd_amount_units)
+
+        response = await self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=converted_units,
+                                                           order_id=user_order.id)
+
+        if not response:
+            self.__user_order_repo.update_by(where={"id": user_order.id},
+                                             data={"payment_status": OrderStatusEnum.FAILURE})
+            raise CustomException(code=400, name=ErrorMessages.PAYMENT_FAILED, details=ErrorMessages.PAYMENT_FAILED)
+
         payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
 
         if user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
