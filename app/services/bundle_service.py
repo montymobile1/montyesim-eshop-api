@@ -314,7 +314,7 @@ class BundleService:
             msisdn = get_config("WHATSAPP_NUMBER", "")
             if msisdn and msisdn != "":
                 msisdn = msisdn.replace("+", "").replace("-", "").replace(" ", "")
-            currency = user.metadata.get("currency", os.getenv("SYSTEM_CURRENCY", "USD"))
+            currency = user.metadata.get("currency", os.getenv("DEFAULT_CURRENCY", "USD"))
             rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=currency)
             coverage = self.__get_coverage(user_profile=user_profile, bundle=bundle)
             display_email = user.metadata.get("display_email", None)
@@ -379,6 +379,11 @@ class BundleService:
         return filtered_bundles
 
     def __get_coverage(self, user_profile: UserProfileModel, bundle: BundleDTO):
+
+        bundle_type = self.__bundle_type(code=bundle.bundle_code)
+        if bundle_type == "CRUISE":
+            return "Cruise"
+
         try:
             searched_countries = RelatedSearchRequestDto.model_validate_json(user_profile.searched_countries)
         except Exception as e:
@@ -392,7 +397,7 @@ class BundleService:
             coverage = bundle_countries[0].country_code if bundle_countries else "No coverage"
 
         if searched_countries:
-            if searched_countries.countries:
+            if searched_countries.countries and len(searched_countries.countries) > 0:
                 coverage = f"{searched_countries.countries[0].country_name} {more_countries}"
             if searched_countries.region:
                 coverage = searched_countries.region.region_name
