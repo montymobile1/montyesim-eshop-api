@@ -3073,3 +3073,31 @@ BEGIN
         ADD CONSTRAINT unique_bundle_tag UNIQUE (bundle_id, tag_id);
     END IF;
 END $$;
+
+
+CREATE OR REPLACE FUNCTION public.get_bundles_for_tag(p_tag_id uuid)
+    RETURNS TABLE
+            (
+                id          uuid,
+                data        jsonb,
+                is_active   bool,
+                created_at  timestamp,
+                updated_at  timestamp,
+                bundle_name text
+            )
+    language plpgsql
+as
+$$
+BEGIN
+    RETURN QUERY
+        SELECT b.id,
+               b.data,
+               b.is_active,
+               b.created_at,
+               b.updated_at,
+               b.bundle_name
+        FROM bundle b
+                 INNER JOIN bundle_tag bt ON bt.bundle_id = b.id
+        WHERE bt.tag_id = p_tag_id;
+END;
+$$;

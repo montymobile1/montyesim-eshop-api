@@ -14,6 +14,7 @@ from starlette.responses import JSONResponse
 from app.api.v1 import router
 from app.exceptions import CustomException
 from app.schemas.response import ResponseHelper
+from app.i18n import translate, get_locale, set_locale
 from app.services.scheduler_service import SchedulerService
 
 
@@ -33,15 +34,6 @@ esim_app = FastAPI(lifespan=lifespan, title="eSIM Reseller Backend Open Source",
 
 logger.add("esim_opensource.log", rotation="10 MB", level="INFO", compression="zip")
 logger.info("Application started")
-
-
-def load_messages(lang) -> dict:
-    ROOT_PATH = os.path.abspath(os.curdir)
-    path = f"{ROOT_PATH}/locales/{lang}.json"
-    if not os.path.exists(path):
-        path = f"{ROOT_PATH}/locales/en.json"
-    with open(path, "r") as f:
-        return json.load(f)
 
 
 @esim_app.exception_handler(Exception)
@@ -76,10 +68,8 @@ async def custom_unauthorized_handler(request: Request, exc: HTTPException):
 async def global_exception_handler(request: Request, exc: CustomException):
     logger.error(f"CustomException: {exc} {request.url.path}")
     try:
-        lang_header = request.headers.get('accept-language', 'en')
-        lang = lang_header.split('-')[0].lower()
-        messages = load_messages(lang)
-        title = messages.get(exc.name, exc.name)
+        # middleware already sets the locale for this request; use translate() to fetch message
+        title = translate(exc.name)
         response_data = ResponseHelper.error_response(status_code=exc.code, title=title,
                                                       error=title, developer_message=exc.details)
         return JSONResponse(
@@ -121,9 +111,8 @@ def handle_validations(request: Request, exc):
         field_location = " → ".join(map(str, error["loc"]))
         formatted_errors.append(f"{field_location}: {error['msg']}")
         title = error["msg"].split(",")[1].strip() if len(error["msg"].split(",")) > 1 else error["msg"]
-    lang = request.headers.get('accept-language', 'en').split('-')[0].lower()
-    messages = load_messages(lang)
-    title = messages.get(title, title)
+    # translate title using the current request locale
+    title = translate(title)
     error = f"Validation error: {', '.join(formatted_errors)}"
     response_data = ResponseHelper.error_response(status_code=422, error=error, title=title,
                                                   developer_message=error)
@@ -135,6 +124,12 @@ def handle_validations(request: Request, exc):
 
 @esim_app.middleware("http")
 async def add_cors_headers(request, call_next):
+    # set locale for this request so anywhere in request handling can use app.i18n.translate()
+    try:
+        lang_header = request.headers.get('accept-language', 'en')
+        set_locale(lang_header)
+    except Exception:
+        set_locale('en')
     response = await call_next(request)
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "*"

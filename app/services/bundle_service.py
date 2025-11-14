@@ -144,12 +144,7 @@ class BundleService:
         if len(searched_regions) == 0:
             raise BadRequestException("Region Not Found")
 
-        bundle_tags = self.__bundle_tag_repo.list(where={"tag_id": searched_regions[0].guid})
-
-        is_active = True
-        bundles_model = self.__bundle_repo.list_in(where={"is_active": is_active},
-                                                   filter={"id": [item.bundle_id for item in bundle_tags]},
-                                                   order_by="data->price")
+        bundles_model = self.__bundle_repo.get_bundles_by_tag(tag_id=searched_regions[0].guid)
 
         bundles: List[BundleDTO] = []
 
