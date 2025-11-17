@@ -15,8 +15,11 @@ def _load_locale_file(lang: str) -> Dict[str, str]:
     Falls back to English if the file doesn't exist or can't be parsed.
     """
     root = os.path.abspath(os.curdir)
-    root_path = os.getenv("LOCALES_DIR", root)
-    path = os.path.join(root_path, "locales", f"{lang}.json")
+    root_path = os.getenv("LOCALES_DIR", None)
+    if root_path:
+        path = os.path.join(root_path, f"{lang}.json")
+    else:
+        path = os.path.join(root, "locales", f"{lang}.json")
     if not os.path.exists(path):
         path = os.path.join(root, "locales", "en.json")
     try:
