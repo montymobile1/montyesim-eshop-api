@@ -46,6 +46,7 @@ class UserOrderModel(BaseModel):
     otp: Optional[str] = None
     payment_type: Optional[PaymentTypeEnum] = PaymentTypeEnum.CARD
     otp_expired_at: Optional[str] = None
+    tax_amount: Optional[float] = 0.0
 
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
