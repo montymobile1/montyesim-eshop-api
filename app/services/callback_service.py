@@ -338,7 +338,7 @@ class CallbackService:
                 "bundle_name": bundle_name,
                 "montyesim_msisdn": msisdn,
                 "iccid": iccid,
-                "base_url": os.getenv("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
+                "base_url": get_config("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
             }
             language = lower(user.metadata.get("language", "en"))
             template = get_email_template(f"eighty_percent_email_template_{language}.htm")
@@ -361,7 +361,7 @@ class CallbackService:
                 "bundle_name": bundle_name,
                 "montyesim_msisdn": msisdn,
                 "iccid": iccid,
-                "base_url": os.getenv("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
+                "base_url": get_config("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
             }
             language = lower(user.metadata.get("language", "en"))
             template = get_email_template(f"expiry_email_template_{language}.htm")

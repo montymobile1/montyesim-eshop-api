@@ -175,7 +175,7 @@ class DtoMapper:
 
     @staticmethod
     def to_esim_bundle_response(user_profile: UserProfileModel, rate: float,
-                                x_currency: str) -> EsimBundleResponse | None:
+                                x_currency: str, tax: float = 0) -> EsimBundleResponse | None:
         profile_current_bundle: UserProfileBundleModel = DtoMapper.get_profile_current_bundle(user_profile)
         if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
             logger.warning(f"Bundle data missing for user profile {user_profile.id}")
@@ -221,7 +221,7 @@ class DtoMapper:
             order_status = "Active"
         else:
             order_status = "Expired"
-
+        amount = (bundle_data.original_price * rate) + ((tax / 100) * rate)
         data = {
             "is_topup_allowed": user_profile.allow_topup,
             "plan_started": profile_current_bundle.plan_started,
@@ -246,8 +246,8 @@ class DtoMapper:
             'count_countries': bundle_data.count_countries,
             "currency_code": bundle_data.currency_code,
             "gprs_limit_display": bundle_data.gprs_limit_display,
-            "price": round(bundle_data.original_price * rate, 2),
-            "price_display": f"{round(bundle_data.original_price * rate, 2)} {x_currency}",
+            "price": amount,
+            "price_display": f"{amount} {x_currency}",
             "unlimited": bundle_data.unlimited,
             "validity": bundle_data.validity,
             "validity_label": bundle_data.validity_label,

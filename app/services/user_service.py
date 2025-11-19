@@ -16,9 +16,9 @@ from app.config.helper import get_config
 from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, \
     truncate_two_decimals_decimal
 from app.exceptions import BadRequestException, CustomException
-from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel, UsersCopyModel, UserWalletModel
+from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel, UsersCopyModel, UserWalletModel, \
+    UserProfileModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
-from app.repo.bundle_repo import BundleRepo
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
     ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest, VerifyOtpRequestDto
@@ -39,7 +39,6 @@ class UserBundleService:
         self.__user_order_repo = UserOrderRepo()
         self.__user_profile_repo = UserProfileRepo()
         self.__user_profile_bundle_repo = UserProfileBundleRepo()
-        self.__bundle_repo = BundleRepo()
         self.__user_wallet_service = UserWalletService()
         self.__promotion_service = PromotionService()
         self.__bundle_service = BundleService()
@@ -166,13 +165,16 @@ class UserBundleService:
                                   details=f"Payment type {payment_type} is not supported")
 
     async def get_user_esims(self, user: UserModel, x_currency: str) -> Response[List[EsimBundleResponse]]:
-        user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
-                                                        where={"user_id": user.id})
+        user_profiles: List[UserProfileModel] = self.__user_profile_repo.select(
+            tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
+            where={"user_id": user.id})
         esim_bundle_response = []
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         for profile in user_profiles:
             try:
-                bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, x_currency=x_currency, rate=rate)
+                order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
+                bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, x_currency=x_currency, rate=rate,
+                                                           tax=order.tax_amount)
                 if bundle is not None:
                     esim_bundle_response.append(bundle)
             except Exception as e:
@@ -186,8 +188,11 @@ class UserBundleService:
         if len(user_profiles) == 0:
             raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
         rate = self.__currency_service.get_rate_by_currency(x_currency)
+        profile = user_profiles[0]
+        user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
         return ResponseHelper.success_data_response(
-            DtoMapper.to_esim_bundle_response(user_profiles[0], rate, x_currency), 0)
+            DtoMapper.to_esim_bundle_response(user_profile=profile, rate=rate, x_currency=x_currency,
+                                              tax=user_order.tax_amount), 0)
 
     async def consumption(self, user: UserModel, iccid: str) -> Response[ConsumptionResponse]:
         profile = self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
@@ -287,8 +292,11 @@ class UserBundleService:
             raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND,
                                   details=ErrorMessages.ORDER_NOT_FOUND)
         rate = self.__currency_service.get_rate_by_currency(x_currency)
+        profile = profiles[0]
+        user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
         return ResponseHelper.success_data_response(
-            DtoMapper.to_esim_bundle_response(user_profile=profiles[0], rate=rate, x_currency=x_currency), 0)
+            DtoMapper.to_esim_bundle_response(user_profile=profile, rate=rate, x_currency=x_currency,
+                                              tax=user_order.tax_amount), 0)
 
     async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str) -> Response[
         List[UserOrderHistoryResponse]]:
@@ -473,7 +481,7 @@ class UserBundleService:
                                                     ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id
         self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
-        tax_excl = round(float(getattr(tax, "tax_amount_exclusive", 0) / 100), 2)
+        tax_excl = float(getattr(tax, "tax_amount_exclusive", 0) / 100)
         ephemeral = create_payment_ephemeral(payment_intent.customer)
         response = PaymentIntentResponse(publishable_key=os.getenv("STRIPE_PUBLIC_KEY"),
                                          merchant_identifier=os.getenv("MERCHANT_ID"),
@@ -486,7 +494,7 @@ class UserBundleService:
                                          order_id=order.id,
                                          subtotal_price_display=f"{round(original_amount, 2)} {x_currency}",
                                          total_price_display=f"{round(payment_intent.amount / 100, 2)} {x_currency}",
-                                         tax_price_display=f"{tax_excl} {x_currency}",
+                                         tax_price_display=f"{round(tax_excl, 2)} {x_currency}",
                                          has_tax=tax_excl > 0
                                          )
         self.__user_order_repo.update(record_id=order.id, data={"tax_amount": tax_excl * 100})
