@@ -191,6 +191,8 @@ class UserBundleService:
 
     async def consumption(self, user: UserModel, iccid: str) -> Response[ConsumptionResponse]:
         profile = self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
+        if not profile:
+            raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
         consumption = await self.__esim_hub_service.get_bundle_consumption(profile.esim_hub_order_id)
         return ResponseHelper.success_data_response(consumption, 0)
 
