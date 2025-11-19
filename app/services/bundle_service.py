@@ -319,10 +319,12 @@ class BundleService:
             coverage = self.__get_coverage(user_profile=user_profile, bundle=bundle)
             display_email = user.metadata.get("display_email", None)
             email = user.metadata.get("email", user.email) if display_email is None else display_email
+            amount = user_order.modified_amount + user_order.tax_amount
+            amount = truncate_two_decimals_decimal(amount / 100 * rate)
             data = {
                 "bundle_name": bundle.bundle_name,
                 "gprs_limit_display": bundle.gprs_limit_display,
-                "price": f"{truncate_two_decimals_decimal(user_order.modified_amount / 100 * rate)} {currency.upper()}",
+                "price": f"{amount} {currency.upper()}",
                 "coverage": coverage,
                 "validity": bundle.validity_display,
                 "iccid": user_profile.iccid,

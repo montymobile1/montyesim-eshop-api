@@ -489,6 +489,7 @@ class UserBundleService:
                                          tax_price_display=f"{tax_excl} {x_currency}",
                                          has_tax=tax_excl > 0
                                          )
+        self.__user_order_repo.update(record_id=order.id, data={"tax_amount": tax_excl})
         return ResponseHelper.success_data_response(response, 0)
 
     def __check_if_user_eligible_for_referral(self, user: UserModel, promo_code: str):

@@ -392,7 +392,8 @@ class DtoMapper:
                               currency: str = None) -> UserOrderHistoryResponse:
         if currency == user_order.currency:
             rate = 1.0
-        amount = (user_order.modified_amount if user_order.modified_amount is not None else user_order.amount)
+        amount = (
+                     user_order.modified_amount if user_order.modified_amount is not None else user_order.amount) + user_order.tax_amount
         data = {
             "order_number": user_order.id,
             "order_status": user_order.payment_status,
