@@ -320,7 +320,7 @@ class BundleService:
             display_email = user.metadata.get("display_email", None)
             email = user.metadata.get("email", user.email) if display_email is None else display_email
             amount = user_order.modified_amount + user_order.tax_amount
-            amount = truncate_two_decimals_decimal(amount / 100 * rate)
+            amount = truncate_two_decimals_decimal((amount / 100) * rate)
             data = {
                 "bundle_name": bundle.bundle_name,
                 "gprs_limit_display": bundle.gprs_limit_display,
