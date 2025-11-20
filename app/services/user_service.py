@@ -178,7 +178,7 @@ class UserBundleService:
                 for history in bundle.transaction_history:
                     order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
                     amount = float(history.bundle.original_price * rate) + float((order.tax_amount / 100) * rate)
-                    history.bundle.price_display = f"{round(amount, 2)} {order.currency}"
+                    history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
                 if bundle is not None:
                     esim_bundle_response.append(bundle)
             except Exception as e:
@@ -194,9 +194,13 @@ class UserBundleService:
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         profile = user_profiles[0]
         user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
-        return ResponseHelper.success_data_response(
-            DtoMapper.to_esim_bundle_response(user_profile=profile, rate=rate, x_currency=x_currency,
-                                              tax=user_order.tax_amount), 0)
+        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, rate=rate, x_currency=x_currency,
+                                                   tax=user_order.tax_amount)
+        for history in bundle.transaction_history:
+            order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
+            amount = float(history.bundle.original_price * rate) + float((order.tax_amount / 100) * rate)
+            history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
+        return ResponseHelper.success_data_response(bundle, 0)
 
     async def consumption(self, user: UserModel, iccid: str) -> Response[ConsumptionResponse]:
         profile = self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
@@ -298,9 +302,13 @@ class UserBundleService:
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         profile = profiles[0]
         user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
-        return ResponseHelper.success_data_response(
-            DtoMapper.to_esim_bundle_response(user_profile=profile, rate=rate, x_currency=x_currency,
-                                              tax=user_order.tax_amount), 0)
+        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, rate=rate, x_currency=x_currency,
+                                                   tax=user_order.tax_amount)
+        for history in bundle.transaction_history:
+            order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
+            amount = float(history.bundle.original_price * rate) + float((order.tax_amount / 100) * rate)
+            history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
+        return ResponseHelper.success_data_response(bundle, 0)
 
     async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str) -> Response[
         List[UserOrderHistoryResponse]]:
