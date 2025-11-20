@@ -175,6 +175,10 @@ class UserBundleService:
                 order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
                 bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, x_currency=x_currency, rate=rate,
                                                            tax=order.tax_amount)
+                for history in bundle.transaction_history:
+                    order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
+                    amount = float(history.bundle.original_price * rate) + float((order.tax_amount / 100) * rate)
+                    history.bundle.price_display = f"{round(amount, 2)} {order.currency}"
                 if bundle is not None:
                     esim_bundle_response.append(bundle)
             except Exception as e:
