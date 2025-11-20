@@ -247,7 +247,7 @@ class DtoMapper:
             "currency_code": bundle_data.currency_code,
             "gprs_limit_display": bundle_data.gprs_limit_display,
             "price": amount,
-            "price_display": f"{amount} {x_currency}",
+            "price_display": f"{round(amount, 2)} {x_currency}",
             "unlimited": bundle_data.unlimited,
             "validity": bundle_data.validity,
             "validity_label": bundle_data.validity_label,
