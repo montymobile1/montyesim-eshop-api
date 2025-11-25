@@ -1,14 +1,13 @@
-from app.config.db import DatabaseTables
-from app.models.app import AppConfigModel
-from app.models.app import BannerModel
+from app.models.app_config import AppConfigModel
+from app.models.banner import BannerModel
 from app.repo.base_repo import BaseRepository
 
 
 class ConfigRepo(BaseRepository):
     def __init__(self):
-        super().__init__(DatabaseTables.TABLE_APP_CONFIG, AppConfigModel)
+        super().__init__(AppConfigModel)
 
 
 class BannerRepo(BaseRepository):
     def __init__(self):
-        super().__init__(DatabaseTables.TABLE_BANNER, BannerModel)
+        super().__init__(BannerModel)

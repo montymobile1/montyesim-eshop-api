@@ -4,8 +4,7 @@ from typing import Optional, List
 from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
 
 from app.config.constants import PaymentStatusEnum
-from app.config.db import PaymentTypeEnum
-from app.models.user import UserBundleType
+from app.config.db import PaymentTypeEnum, UserBundleType
 from app.schemas.home import BundleCategoryDTO, CountryDTO, BundleDTO
 
 

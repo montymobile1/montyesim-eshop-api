@@ -10,17 +10,19 @@ from loguru import logger
 
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email, get_email_template
 from app.config.constants import PaymentIntentEvents, UserWalletTransactionSource
+from app.config.db import OrderStatusEnum, UserOrderType
 from app.config.notification_types import send_consumption_80_bundle_notification, \
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
 from app.config.push_notification_manager import fcm_service
-from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel, UserProfileBundleModel, \
+from app.models import UsersCopyModel, UserProfileBundleModel, \
     UserProfileModel
 from app.repo import UserOrderRepo, UserProfileRepo, UserRepo, UserProfileBundleRepo
 from app.schemas.callback import ConsumptionLimitRequest
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
 from app.schemas.response import ResponseHelper
+from app.schemas.user_bundle import CallBackNotificationInfo
 from app.services.bundle_service import BundleService
 from app.services.promotion_service import PromotionService
 from app.services.sync_service import SyncService
@@ -48,12 +50,12 @@ class CallbackService:
             event_type = request.event_type
             iccid = request.iccid
 
-            user_profile_bundle: UserProfileBundleModel = self.__user_profile_bundle_repo.get_first_by(
+            user_profile_bundle: UserProfileBundleModel = await self.__user_profile_bundle_repo.get_first_by(
                 where={"iccid": iccid, "esim_hub_order_id": request.order_id})
             if not user_profile_bundle:
                 logger.warning(f"No user profile bundle found for iccid {iccid} and order_id {request.order_id}")
                 return
-            user_profile: UserProfileModel = self.__user_profile_repo.get_by_id(
+            user_profile: UserProfileModel = await self.__user_profile_repo.get_by_id(
                 record_id=user_profile_bundle.user_profile_id)
             bundles = []
             bundles.append(user_profile_bundle)
@@ -68,19 +70,19 @@ class CallbackService:
             primary_user_id = order_info.user_id
             if primary_user_id:
                 primary_user_metadata = {}
-                primary_user = self.__user_repo.get_by_id(
+                primary_user = await self.__user_repo.get_by_id(
                     record_id=primary_user_id)
                 if primary_user:
-                    primary_user_metadata = primary_user.metadata
+                    primary_user_metadata = primary_user.metadata_json
                 model = DtoMapper.to_order_notification_model(bundle=order_info, user_id=primary_user_id,
                                                               user_metadata=primary_user_metadata, iccid=iccid)
                 orders.append(model)
             shared_user_id = order_info.shared_user_id
             if shared_user_id:
                 shared_user_metadata = {}
-                shared_user = self.__user_repo.get_by_id(record_id=shared_user_id)
+                shared_user = await self.__user_repo.get_by_id(record_id=shared_user_id)
                 if shared_user:
-                    shared_user_metadata = shared_user.metadata
+                    shared_user_metadata = shared_user.metadata_json
                 model = DtoMapper.to_order_notification_model(order_info, shared_user_id, shared_user_metadata, iccid)
                 orders.append(model)
 
@@ -134,12 +136,12 @@ class CallbackService:
             return ResponseHelper.success_response()
         from app.repo.currency_repo import CurrencyRepo
         currency_repo = CurrencyRepo()
-        currency = currency_repo.get_first_by(where={"name": currency_code, "default_currency": "USD"})
+        currency = await currency_repo.get_first_by(where={"name": currency_code, "default_currency": "USD"})
         if not currency:
             logger.info(f"currency {currency_code} not found, creating new currency")
-            currency_repo.create({"name": currency_code, "default_currency": "USD", "rate": rate})
+            await currency_repo.create({"name": currency_code, "default_currency": "USD", "rate": rate})
             return ResponseHelper.success_response()
-        currency_repo.update_by(where={"name": currency_code, "default_currency": "USD"}, data={"rate": rate})
+        await currency_repo.update_by(where={"name": currency_code, "default_currency": "USD"}, data={"rate": rate})
         logger.info(f"updated exchange rate for {currency_code} to {rate}")
         return ResponseHelper.success_response()
 
@@ -223,11 +225,9 @@ class CallbackService:
         iccid = metadata.get("iccid", None)
         promo_code = metadata.get("promo_code", None)
         rule_id = metadata.get("rule_id", None)
-        amount = metadata.get("amount", None)
         tax_calculation = metadata.get("tax_calculation", None)
-        user_order = self.__user_order_repo.get_by_id(order_id)
+        user_order = await self.__user_order_repo.get_by_id(order_id)
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
-        user = self.__user_repo.get_by_id(user_id)
         payment_status = OrderStatusEnum.SUCCESS if event.get(
             "type") == "payment_intent.succeeded" else OrderStatusEnum.FAILURE
         if payment_status == OrderStatusEnum.FAILURE:
@@ -268,8 +268,8 @@ class CallbackService:
     async def __send_email_80_consumption(self, user: UsersCopyModel, bundle_name, iccid):
         try:
             msisdn = os.getenv("WHATSAPP_NUMBER").replace("+", "").replace("-", "").replace(" ", "")
-            display_email = user.metadata.get("display_email", None)
-            email = user.metadata.get("email", user.email) if display_email is None else display_email
+            display_email = user.metadata_json.get("display_email", None)
+            email = user.metadata_json.get("email", user.email) if display_email is None else display_email
 
             data = {
                 "user": email,
@@ -288,8 +288,8 @@ class CallbackService:
     async def __send_email_100_consumption(self, user: UsersCopyModel, bundle_name, iccid):
         try:
             msisdn = os.getenv("WHATSAPP_NUMBER").replace("+", "").replace("-", "").replace(" ", "")
-            display_email = user.metadata.get("display_email", None)
-            email = user.metadata.get("email", user.email) if display_email is None else display_email
+            display_email = user.metadata_json.get("display_email", None)
+            email = user.metadata_json.get("email", user.email) if display_email is None else display_email
 
             data = {
                 "user": email,
@@ -301,7 +301,7 @@ class CallbackService:
             template = get_email_template('expiry_email_template.htm')
             html_content = template.render(data=data)
             send_email(subject="100% Consumption", html_content=html_content,
-                       recipients=user.metadata.get("email", email))
+                       recipients=user.metadata_json.get("email", email))
         except Exception as e:
             logger.error(f"error while sending email {str(e)}")
 
@@ -310,20 +310,20 @@ class CallbackService:
         user_wallet_id = metadata.get("user_wallet_id")
         user_id = metadata.get("user_id")
         order_id = metadata.get("order_id")
-        order = self.__user_order_repo.get_by_id(order_id)
-        user_wallet = self.__user_wallet_service.get_user_wallet_by_id(user_wallet_id)
+        order = await self.__user_order_repo.get_by_id(order_id)
+        user_wallet = await self.__user_wallet_service.get_user_wallet_by_id(user_wallet_id)
         try:
             if event_type == "payment_intent.succeeded":
                 amount = (order.amount / 100)
                 logger.info(f"updating user wallet: {user_wallet} with new {amount=}")
                 await self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
                                                                         source=UserWalletTransactionSource.TOP_UP_WALLET)
-                self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.SUCCESS})
+                await self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.SUCCESS})
                 logger.info(
                     f"Top-Up for user {user_id} wallet {user_wallet} with amount {amount} {order.currency} succeeded")
                 return ResponseHelper.success_response()
             else:
-                self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.FAILURE})
+                await self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.FAILURE})
                 logger.info(
                     f"Payment Failed for Wallet Top-Up for user {user_id} with amount {order.amount} {order.currency}")
                 content = send_wallet_top_up_failed_notification()
@@ -335,7 +335,7 @@ class CallbackService:
             fcm_service.send_notification_to_user_from_template(content, user_id=user_id)
             return ResponseHelper.success_response()
 
-    async def __handle_event_for_order(self, order: UserOrderModel, iccid: str, event_type: str,
+    async def __handle_event_for_order(self, order: CallBackNotificationInfo, iccid: str, event_type: str,
                                        esim_order_id: str = None):
         try:
             if event_type in ["limit_80", "PLAN-80", "Eighty"]:
@@ -344,7 +344,7 @@ class CallbackService:
                     bundle_name=order.bundle_display_name,
                     iccid=iccid
                 )
-                user = self.__user_repo.get_by_id(record_id=order.user_id)
+                user = await self.__user_repo.get_by_id(record_id=order.user_id)
                 await self.__send_email_80_consumption(
                     user=user,
                     bundle_name=order.bundle_display_name,
@@ -356,7 +356,7 @@ class CallbackService:
                     bundle_name=order.bundle_display_name,
                     iccid=iccid
                 )
-                user = self.__user_repo.get_by_id(record_id=order.user_id)
+                user = await self.__user_repo.get_by_id(record_id=order.user_id)
                 await self.__send_email_100_consumption(
                     user=user,
                     bundle_name=order.bundle_display_name,

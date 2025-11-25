@@ -11,7 +11,7 @@ from app.config.config import supabase_client
 from app.config.constants import ErrorMessages
 from app.config.context import auth_user_context
 from app.exceptions import CustomException
-from app.models.user import UserModel
+from app.schemas.user import UserModel
 
 security = HTTPBearer()
 

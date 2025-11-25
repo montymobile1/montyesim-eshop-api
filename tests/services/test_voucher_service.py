@@ -3,7 +3,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.exceptions import CustomException
-from app.models.user import UserModel
+from app.schemas.user import UserModel
 from app.schemas.voucher import VoucherRequestRedeem
 from app.services.voucher_service import VoucherService
 

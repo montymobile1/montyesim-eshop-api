@@ -1,58 +1,25 @@
-from typing import Optional
-
-from pydantic import BaseModel, Field
-
-from app.config.db import PromotionStatusEnum
+from sqlalchemy import Column, String, Text, Boolean, Integer, DateTime, ForeignKey, func, REAL
+from sqlalchemy.dialects.postgresql import UUID
+from .base import Base
 
 
-class PromotionRuleActionModel(BaseModel):
-    id: int = Field(None, alias="id")
-    name: str = Field(None, alias="name")
+class PromotionModel(Base):
+    __tablename__ = "promotion"
 
+    id = Column(UUID(as_uuid=True), primary_key=True, server_default=func.gen_random_uuid(), nullable=False)
+    rule_id = Column(UUID(as_uuid=True), ForeignKey("promotion_rule.id"), nullable=False)
+    code = Column(String(50), unique=True, nullable=False)
+    bundle_code = Column(String(200), server_default=None)
+    type = Column(String(50), nullable=True)
+    amount = Column(REAL, server_default='0')
+    callback_url = Column(Text, nullable=True)
+    callback_headers = Column(Text, nullable=True)
+    valid_from = Column(DateTime(timezone=False), nullable=True)
+    valid_to = Column(DateTime(timezone=False), nullable=True)
+    is_active = Column(Boolean, server_default='true')
+    times_used = Column(Integer, server_default='0')
+    created_at = Column(DateTime(timezone=False), server_default=func.now())
+    name = Column(String, unique=True, nullable=True)
 
-class PromotionRuleEventModel(BaseModel):
-    id: int = Field(None, alias="id")
-    name: str = Field(None, alias="name")
-
-
-class PromotionRuleModel(BaseModel):
-    id: Optional[str] = Field(None, alias="id")
-    promotion_rule_action_id: int = Field(None, alias="promotion_rule_action_id")
-    promotion_rule_event_id: int = Field(None, alias="promotion_rule_event_id")
-    max_usage: int = Field(None, alias="max_usage")
-    beneficiary: int = Field(None, alias="beneficiary", description="who will benefit from the rule")
-    created_at: str = Field(None, alias="created_at")
-    promotion_rule_action: Optional[PromotionRuleActionModel] = Field(None, alias="promotion_rule_action")
-    promotion_rule_event: Optional[PromotionRuleEventModel] = Field(None, alias="promotion_rule_event")
-
-
-class PromotionModel(BaseModel):
-    id: Optional[str] = Field(None, alias="id")
-    rule_id: str = Field(None, alias="rule_id")
-    code: str = Field(None, alias="code")
-    bundle_code: Optional[str] = Field(None, alias="bundle_code")
-    type: str = Field(None, alias="type")
-    amount: float = Field(None, alias="amount")
-    name: Optional[str] = Field(None, alias="name")
-    callback_url: Optional[str] = Field(None, alias="callback_url")
-    callback_headers: Optional[str] = Field(None, alias="callback_headers")
-    valid_from: str = Field(None, alias="valid_from")
-    valid_to: str = Field(None, alias="valid_to")
-    is_active: bool = Field(None, alias="is_active")
-    times_used: int = Field(None, alias="times_used")
-    created_at: str = Field(None, alias="created_at")
-    promotion_rule: Optional[PromotionRuleModel] = Field(None, alias="promotion_rule")
-
-
-class PromotionUsageModel(BaseModel):
-    id: Optional[str] = Field(None, alias="id")
-    user_id: str = Field(None, alias="user_id")
-    promotion_code: Optional[str] = Field(None, alias="promotion_code")
-    referral_code: Optional[str] = Field(None, alias="referral_code")
-    amount: float = Field(None, alias="amount")
-    bundle_id: Optional[str] = Field(None, alias="bundle_id")
-    status: PromotionStatusEnum = Field(PromotionStatusEnum.PENDING, alias="status")
-    created_at: Optional[str] = Field(None, alias="created_at")
-    device_id: Optional[str] = Field(None, alias="device_id")
-    referred_to: Optional[str] = Field(None, alias="referred_to")
-    order_id: Optional[str] = Field(None, alias="order_id")
+    def __repr__(self):
+        return f"Promotion(id={self.id!r}, code={self.code!r})"

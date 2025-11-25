@@ -1,19 +1,20 @@
-from app.config.db import DatabaseTables
-from app.models.promotion import PromotionRuleModel, PromotionModel, PromotionUsageModel
+from app.models.promotion import PromotionModel
+from app.models.promotion_rule import PromotionRuleModel
+from app.models.promotion_usage import PromotionUsageModel
 from app.repo.base_repo import BaseRepository
 
 
 class PromotionRuleRepo(BaseRepository):
 
     def __init__(self):
-        super().__init__(DatabaseTables.TABLE_PROMOTION_RULE, PromotionRuleModel)
+        super().__init__(PromotionRuleModel)
 
 
 class PromotionRepo(BaseRepository):
     def __init__(self):
-        super().__init__(DatabaseTables.TABLE_PROMOTION, PromotionModel)
+        super().__init__(PromotionModel)
 
 
 class PromotionUsageRepo(BaseRepository):
     def __init__(self):
-        super().__init__(DatabaseTables.TABLE_PROMOTION_USAGE, PromotionUsageModel)
+        super().__init__(PromotionUsageModel)

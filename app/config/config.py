@@ -6,8 +6,6 @@ import qrcode
 from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, Template
 from loguru import logger
-from sqlalchemy import create_engine
-from sqlalchemy.orm import scoped_session, sessionmaker
 from supabase import create_client, Client
 from supabase.lib.client_options import SyncClientOptions
 
@@ -179,8 +177,3 @@ def get_email_template(template_name: str) -> Template | None:
     except Exception as e:
         logger.error(f"Error loading email template {template_name}: {str(e)}")
         return None
-
-
-DATABASE_URL = os.getenv("DATABASE_URL")
-engine = create_engine(DATABASE_URL, echo=True)
-SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))

@@ -40,7 +40,7 @@ class HomeService:
     async def home_v2(self, currency: str, locale: str) -> Response[HomeResponseDto]:
         from app.repo.config_repo import ConfigRepo
         config_repo = ConfigRepo()
-        bundle_key_config = config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
+        bundle_key_config = await config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
         bundle_key = bundle_key_config.value if bundle_key_config else "default"
         cache_key = f"home:{bundle_key}:{currency}:{locale}"
         cached_response = await self.__read_from_cache(cache_key)
@@ -49,7 +49,7 @@ class HomeService:
             return ResponseHelper.success_data_response(cached_response, 0)
         all_countries = await self.__get_countries_v2(locale)
         regions = await self.__get_regions_v2(locale)
-        rate = self.__currency_service.get_rate_by_currency(currency)
+        rate = await self.__currency_service.aget_rate_by_currency(currency)
         cruise_bundles = await self.__grouping_service.get_cruise_bundle(rate=rate, currency_name=currency,
                                                                          locale=locale)
         if len(cruise_bundles) > 0:
@@ -74,7 +74,7 @@ class HomeService:
         return ResponseHelper.success_data_response(home_dto, 0)
 
     async def get_cruise_bundles(self, currency: str, locale: str) -> Response[HomeResponseDto]:
-        rate = self.__currency_service.get_rate_by_currency(currency)
+        rate = await self.__currency_service.aget_rate_by_currency(currency)
         cruise_bundles = await self.__grouping_service.get_cruise_bundle(rate=rate, currency_name=currency,
                                                                          locale=locale)
         cruise_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
@@ -89,7 +89,7 @@ class HomeService:
     async def get_land_bundles(self, currency: str, locale: str) -> Response[HomeResponseDto]:
         all_countries = await self.__get_countries_v2(locale)
         regions = await self.__get_regions_v2(locale)
-        rate = self.__currency_service.get_rate_by_currency(currency)
+        rate = await self.__currency_service.aget_rate_by_currency(currency)
         all_global_bundles = await self.__grouping_service.get_global_bundle(rate=rate, currency_name=currency,
                                                                              locale=locale)
         all_global_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)

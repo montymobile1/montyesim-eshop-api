@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header
 
 from app.dependencies.security import bearer_token, device_token
-from app.models.user import UserModel
+from app.schemas.user import UserModel
 from app.schemas.response import Response
 from app.schemas.voucher import VoucherRequestRedeem
 from app.services.voucher_service import VoucherService

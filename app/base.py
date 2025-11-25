@@ -5,7 +5,7 @@ import os
 import pkgutil
 import importlib
 
-from app.models.declare_models.base import Base
+from app.models.base import Base
 
 # Import all modules under app.models.declare_models so mapped classes register
 package_dir = os.path.join(os.path.dirname(__file__), "models", "declare_models")

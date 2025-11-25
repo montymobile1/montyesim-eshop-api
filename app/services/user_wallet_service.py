@@ -11,11 +11,12 @@ from app.config.notification_types import send_wallet_top_up_succeeded_notificat
 from app.config.push_notification_manager import fcm_service
 from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral
 from app.exceptions import CustomException
-from app.models.user import UserWalletModel, UserModel, UserWalletTransactionModel
+from app.models import UserWalletModel, UserWalletTransactionModel
 from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo
 from app.schemas.bundle import PaymentIntentResponse
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import Response, ResponseHelper
+from app.schemas.user import UserModel
 from app.schemas.user_wallet import UserWalletRequestDto, TopUpWalletRequest
 from app.schemas.user_wallet import UserWalletResponse
 from app.services.currency_service import CurrencyService
@@ -29,19 +30,20 @@ class UserWalletService:
         self.__currency_service = CurrencyService()
 
     async def get_user_wallet_by_id(self, user_wallet_id: str) -> UserWalletResponse | None:
-        wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"id": user_wallet_id})
+        wallet: UserWalletModel = await self.__user_wallet_repo.get_first_by({"id": user_wallet_id})
         if not wallet:
             return None
         return DtoMapper.to_user_wallet_response(wallet)
 
     async def create_wallet(self, user_wallet_request_dto: UserWalletRequestDto) -> UserWalletResponse:
-        wallet = self.__create_wallet(user_id=user_wallet_request_dto.user_id, amount=user_wallet_request_dto.amount,
-                                      currency=user_wallet_request_dto.currency)
+        wallet = await self.__create_wallet(user_id=user_wallet_request_dto.user_id,
+                                            amount=user_wallet_request_dto.amount,
+                                            currency=user_wallet_request_dto.currency)
         return DtoMapper.to_user_wallet_response(wallet)
 
     async def get_user_wallet_by_user_id(self, user_id: str, currency_code: str = os.getenv(
         "DEFAULT_CURRENCY")) -> UserWalletResponse | None:
-        wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"user_id": user_id})
+        wallet: UserWalletModel = await self.__user_wallet_repo.get_first_by({"user_id": user_id})
         if not wallet:
             return None
         rate = self.__currency_service.get_currency_rate(from_currency=wallet.currency, to_currency=currency_code)
@@ -51,7 +53,7 @@ class UserWalletService:
     async def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp") -> Response[
         UserWalletResponse]:
         try:
-            user_wallet: UserWalletModel = self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
+            user_wallet: UserWalletModel = await self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
             if user_wallet is None:
                 raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
@@ -59,10 +61,10 @@ class UserWalletService:
             add_amount = float(amount)
             new_amount = current_amount + add_amount
             user_wallet.amount = new_amount
-            self.__user_wallet_repo.update_by(where={"user_id": user_id},
-                                              data=user_wallet.model_dump())
+            await self.__user_wallet_repo.update_by(where={"user_id": user_id},
+                                                    data=user_wallet)
 
-            self.__user_wallet_transaction_repo.create(data={
+            await self.__user_wallet_transaction_repo.create(data={
                 "wallet_id": user_wallet.id,
                 "amount": add_amount,
                 "source": source,
@@ -81,10 +83,10 @@ class UserWalletService:
     async def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UserModel, request: Request) -> Response[
         PaymentIntentResponse]:
         currency = os.getenv("DEFAULT_CURRENCY")
-        user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user.id})
+        user_wallet = await self.__user_wallet_repo.get_first_by(where={"user_id": user.id})
         if not user_wallet:
-            user_wallet = self.__create_wallet(user_id=user.user_id, amount=0, currency=currency)
-        order = self.__user_order_repo.create(data={
+            user_wallet = await self.__create_wallet(user_id=user.user_id, amount=0, currency=currency)
+        order = await self.__user_order_repo.create(data={
             "user_id": user.id,
             "bundle_id": None,
             "order_type": UserOrderType.WALLET_TOP_UP,
@@ -105,7 +107,7 @@ class UserWalletService:
                                                   }, ip_address=request.client.host)
 
         order.payment_intent_code = intent.id
-        self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
+        await self.__user_order_repo.update_by({"id": order.id}, data=order)
         ephemeral = create_payment_ephemeral(intent.customer)
         response = PaymentIntentResponse(publishable_key=os.getenv("STRIPE_PUBLIC_KEY"),
                                          merchant_identifier=os.getenv("MERCHANT_ID"),
@@ -123,16 +125,16 @@ class UserWalletService:
                                          )
         return ResponseHelper.success_data_response(response, 0)
 
-    def get_wallet_transactions(self, user_id: str) -> List[UserWalletTransactionModel]:
-        user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
+    async def get_wallet_transactions(self, user_id: str) -> List[UserWalletTransactionModel]:
+        user_wallet = await self.__user_wallet_repo.get_first_by(where={"user_id": user_id})
         if not user_wallet:
             return []
-        transactions = self.__user_wallet_transaction_repo.list(where={"wallet_id": user_wallet.id},
-                                                                order_by="created_at", desc=True)
+        transactions = await self.__user_wallet_transaction_repo.list(where={"wallet_id": user_wallet.id},
+                                                                      order_by="created_at", desc=True)
         return transactions
 
-    def __create_wallet(self, user_id: str, amount: float, currency: str):
-        wallet = self.__user_wallet_repo.create(data={
+    async def __create_wallet(self, user_id: str, amount: float, currency: str):
+        wallet = await self.__user_wallet_repo.create(data={
             "user_id": user_id,
             "amount": amount,
             "currency": currency

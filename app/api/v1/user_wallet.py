@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header,Request
 
 from app.dependencies.security import bearer_token, device_token
-from app.models.user import UserModel
+from app.schemas.user import UserModel
 from app.schemas.bundle import PaymentIntentResponse
 from app.schemas.response import Response, ResponseHelper
 from app.schemas.user_wallet import UserWalletResponse, TopUpWalletRequest

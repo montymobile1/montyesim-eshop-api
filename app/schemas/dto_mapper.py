@@ -9,11 +9,10 @@ from loguru import logger
 
 from app.config.context import currency_context
 from app.config.db import PaymentTypeEnum
-from app.models.app import CurrencyModel
+from app.models import UserProfileBundleModel, UserProfileModel, UserOrderModel, UserWalletModel
+from app.models.currency import CurrencyModel
 from app.models.notification import NotificationModel
-from app.models.promotion import PromotionUsageModel
-from app.models.user import UserProfileModel, UserProfileBundleModel, CallBackNotificationInfoModel, UserOrderModel, \
-    UserWalletModel
+from app.models.promotion_usage import PromotionUsageModel
 from app.schemas.app import UserNotificationResponse, PageContentResponse, ExchangeRate
 from app.schemas.auth import AuthResponseDTO, UserInfo
 from app.schemas.bundle import EsimBundleResponse, ConsumptionResponse, TransactionHistoryResponse, \
@@ -21,6 +20,7 @@ from app.schemas.bundle import EsimBundleResponse, ConsumptionResponse, Transact
 from app.schemas.esim_hub import ContentResponse
 from app.schemas.home import BundleDTO, BundleCategoryDTO, CountryDTO, RegionDTO, CurrencyDto
 from app.schemas.promotion import PromotionHistoryDto
+from app.schemas.user_bundle import CallBackNotificationInfo
 from app.schemas.user_wallet import UserWalletResponse
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
@@ -292,7 +292,7 @@ class DtoMapper:
 
     @staticmethod
     def to_order_notification_model(bundle: UserProfileModel, user_id: str,
-                                    user_metadata: dict, iccid: str) -> CallBackNotificationInfoModel:
+                                    user_metadata: dict, iccid: str) -> CallBackNotificationInfo:
         first_name = user_metadata.get("first_name", "")
         last_name = user_metadata.get("last_name", "")
         full_name = f"{first_name} {last_name}".strip()
@@ -305,7 +305,7 @@ class DtoMapper:
             bundle_display_name = bundle_data.bundle_data.get("display_title")
         bundle_display_name = bundle_display_name or "Bundle"
 
-        return CallBackNotificationInfoModel(
+        return CallBackNotificationInfo(
             user_id=user_id,
             user_display_name=user_display_name,
             bundle_display_name=bundle_display_name,

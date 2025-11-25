@@ -170,9 +170,9 @@ class EsimHubService:
             "Quantity": 1,
             "UniqueIdentifier": order_id,
             "ServiceTag": "ESIM",
-            "PhoneNumber": user.metadata.get("msisdn", ""),
-            "ClientName": user.metadata.get("first_name", "") + " " + user.metadata.get("last_name", ""),
-            "Email": user.metadata.get("display_email", ""),
+            "PhoneNumber": user.metadata_json.get("msisdn", ""),
+            "ClientName": user.metadata_json.get("first_name", "") + " " + user.metadata_json.get("last_name", ""),
+            "Email": user.metadata_json.get("display_email", ""),
             "PaymentMethod": payment_type,
 
         }
@@ -202,9 +202,9 @@ class EsimHubService:
             "OrderId": esim_hub_order_id,
             "UniqueIdentifier": order_id,
             "ServiceTag": "ESIM",
-            "PhoneNumber": user.metadata.get("msisdn", ""),
-            "ClientName": user.metadata.get("first_name", "") + " " + user.metadata.get("last_name", ""),
-            "Email": user.metadata.get("display_email", ""),
+            "PhoneNumber": user.metadata_json.get("msisdn", ""),
+            "ClientName": user.metadata_json.get("first_name", "") + " " + user.metadata_json.get("last_name", ""),
+            "Email": user.metadata_json.get("display_email", ""),
             "PaymentMethod": payment_type,
 
         }

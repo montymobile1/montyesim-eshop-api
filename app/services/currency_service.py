@@ -1,3 +1,4 @@
+import asyncio
 import os
 from typing import List
 
@@ -11,11 +12,11 @@ class CurrencyService:
     def __init__(self):
         self.__currency_repo = CurrencyRepo()
 
-    def get_rate_by_currency(self, currency_name: str) -> float:
+    async def aget_rate_by_currency(self, currency_name: str) -> float:
         if currency_name == os.getenv("SYSTEM_CURRENCY", "USD"):
             return 1.0
 
-        currency = self.__currency_repo.get_first_by(
+        currency = await self.__currency_repo.get_first_by(
             where={"name": currency_name, "default_currency": os.getenv("SYSTEM_CURRENCY", "USD")})
 
         if not currency:
@@ -23,15 +24,18 @@ class CurrencyService:
 
         return currency.rate
 
+    def get_rate_by_currency(self, currency_name: str) -> float:
+        return asyncio.run(self.aget_rate_by_currency(currency_name))
+
     def get_currency_rate(self, from_currency: str, to_currency: str):
-        currency = self.__currency_repo.get_first_by(
-            where={"name": to_currency, "default_currency": from_currency})
+        currency = asyncio.run(self.__currency_repo.get_first_by(
+            where={"name": to_currency, "default_currency": from_currency}))
         if not currency:
             return 1.0
         return currency.rate
 
     def get_all_currency(self) -> Response[List[CurrencyDto]]:
-        currency_list = self.__currency_repo.list(where={"default_currency": "USD"})
+        currency_list = asyncio.run(self.__currency_repo.list(where={"default_currency": "USD"}))
         currency_dto = []
         for currency in currency_list:
             currency_dto.append(DtoMapper.to_currency_dto(currency))

@@ -1,4 +1,4 @@
-from app.models.user import UserModel
+from app.schemas.user import UserModel
 from app.schemas.app import DeviceRequest
 from app.schemas.home import BundleDTO, CountryDTO, RegionDTO, BundleCategoryDTO
 

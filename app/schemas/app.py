@@ -1,9 +1,19 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
+from pydantic import BaseModel, EmailStr, field_validator, ConfigDict, Field
 
-from ..models.app import DeviceBase
+
+class DeviceBase(BaseModel):
+    fcm_token: Optional[str] = Field(None, alias="fcm_token")
+    manufacturer: Optional[str] = Field(None, alias="manufacturer")
+    device_model: Optional[str] = Field(None, alias="device_model")
+    os: Optional[str] = Field(None, alias="os")
+    os_version: Optional[str] = Field(None, alias="os_version")
+    app_version: Optional[str] = Field(None, alias="app_version")
+    ram_size: Optional[str] = Field(None, alias="ram_size")
+    screen_resolution: Optional[str] = Field(None, alias="screen_resolution")
+    is_rooted: Optional[bool] = Field(None, alias="is_rooted")
 
 
 class DeviceRequest(DeviceBase):

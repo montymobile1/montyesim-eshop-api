@@ -22,14 +22,14 @@ class SchedulerService:
 
     async def _async_scheduled_task(self):
         logger.info(f"Scheduled task executed at {time.strftime('%X')}")
-        currencies = self.__currency_repo.list(where={"default_currency": "USD"})
+        currencies = await self.__currency_repo.list(where={"default_currency": "USD"})
         if not currencies:
             return
         names = [currency.name for currency in currencies]
         rates = await self.__esim_hub_service.get_exchange_rates(currency_codes=names)
         logger.info(f"exchange from esim hub: {rates}")
         for rate in rates:
-            self.__currency_repo.update_by(
+            await self.__currency_repo.update_by(
                 {"name": rate.currency_code, "default_currency": "USD"},
                 data={'rate': rate.new_rate}
             )

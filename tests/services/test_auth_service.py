@@ -5,7 +5,7 @@ from starlette.requests import Request
 from starlette.types import Scope
 
 from app.exceptions import CustomException
-from app.models.user import UserModel, UsersCopyModel
+from app.schemas.user import UserModel, UsersCopyModel
 from app.schemas.auth import LoginRequest, UpdateUserInfoRequest, VerifyOtpRequest
 from app.schemas.response import ResponseHelper
 from app.services.auth_service import AuthService

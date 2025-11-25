@@ -9,7 +9,7 @@ from starlette.requests import Request
 from starlette.types import Scope
 
 from app.exceptions import CustomException
-from app.models.user import UserModel
+from app.schemas.user import UserModel
 from app.schemas.app import PageContentResponse, DeviceRequest, DeleteDeviceRequest, ContactUsRequest
 from app.schemas.esim_hub import ContentResponse
 from app.schemas.response import Response

@@ -6,7 +6,7 @@ from typing import List
 from loguru import logger
 
 from app.config.db import ConfigKeysEnum
-from app.models.app import TagModel, BundleModel, BundleTagModel
+from app.models import TagModel, BundleModel, BundleTagModel
 from app.repo.bundle_repo import BundleRepo
 from app.repo.bundle_tage_repo import BundleTagRepo
 from app.repo.config_repo import ConfigRepo
@@ -69,9 +69,9 @@ class SyncService:
         new_key = uuid.uuid4().hex
         old_config = self.__config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
         if not old_config:
-            self.__config_repo.create({"key": ConfigKeysEnum.APP_CACHE_KEY, "value": new_key})
+            await self.__config_repo.create({"key": ConfigKeysEnum.APP_CACHE_KEY, "value": new_key})
         else:
-            self.__config_repo.update_by(where={"key": ConfigKeysEnum.APP_CACHE_KEY}, data={"value": new_key})
+            await self.__config_repo.update_by(where={"key": ConfigKeysEnum.APP_CACHE_KEY}, data={"value": new_key})
 
     async def delete_bundle(self, bundle_id: str):
         try:
@@ -82,59 +82,51 @@ class SyncService:
 
     async def update_bundle_status(self, bundle_id: str, status: bool):
         try:
-            self.__bundle_repo.update(record_id=bundle_id, data={"is_active": status})
+            await self.__bundle_repo.update(record_id=bundle_id, data={"is_active": status})
         except Exception as e:
             logger.error(f"error while deactivating bundle {bundle_id=} {e}")
 
     async def __sync_country_tags(self, countries: List[CountryDTO]):
         for country in countries:
             if not self.__tag_repo.get_first_by({"id": country.id}):
-                self.__tag_repo.create(
+                await self.__tag_repo.create(
                     TagModel(name=country.country, icon=country.icon, tag_group_id=1, data=country.model_dump(),
-                             id=country.id).model_dump(
-                        exclude={"updated_at", "created_at"}))
+                             id=country.id))
 
     async def __sync_region_tags(self, regions: List[RegionDTO]):
         for region in regions:
             if region.region_code == "GLOBAL":
                 continue
             if not self.__tag_repo.get_first_by({"id": region.guid}):
-                self.__tag_repo.create(
+                await self.__tag_repo.create(
                     TagModel(name=region.region_name, icon=region.icon, tag_group_id=2, data=region.model_dump(),
-                             id=region.guid).model_dump(
-                        exclude={"updated_at", "created_at"}))
+                             id=region.guid))
 
     async def __handle_create_bundle(self, bundle: BundleDTO, countries: List[CountryDTO], regions: List[RegionDTO]):
-        self.__bundle_repo.create(BundleModel(id=bundle.bundle_code, is_active=True,
-                                              data=bundle.model_dump(
-                                                  exclude={"updated_at", "created_at", "id"})).model_dump(
-            exclude={"updated_at", "created_at"}))
+        await self.__bundle_repo.create(BundleModel(id=bundle.bundle_code, is_active=True,
+                                                    data=bundle.model_dump(
+                                                        exclude={"updated_at", "created_at", "id"})))
         for country in countries:
-            self.__bundle_tag_repo.create(
-                BundleTagModel(bundle_id=bundle.bundle_code, tag_id=country.id, id=None).model_dump(
-                    exclude={"updated_at", "created_at", "id"}))
+            await self.__bundle_tag_repo.create(
+                BundleTagModel(bundle_id=bundle.bundle_code, tag_id=country.id))
         for region in regions:
-            tag = self.__tag_repo.get_first_by({"name": region.region_name})
-            self.__bundle_tag_repo.create(
-                BundleTagModel(bundle_id=bundle.bundle_code, tag_id=tag.id, id=None).model_dump(
-                    exclude={"updated_at", "created_at", "id"}))
+            tag = await self.__tag_repo.get_first_by({"name": region.region_name})
+            await self.__bundle_tag_repo.create(
+                BundleTagModel(bundle_id=bundle.bundle_code, tag_id=tag.id))
             logger.debug("adding region for bundle {}".format(bundle.bundle_code))
 
     async def __handle_update_bundle(self, bundle: BundleDTO, countries: List[CountryDTO], regions: List[RegionDTO]):
         logger.info(f"bundle already added, updating it {bundle.bundle_code}")
-        self.__bundle_repo.update(record_id=bundle.bundle_code,
-                                  data=BundleModel(id=bundle.bundle_code, is_active=True,
-                                                   data=bundle.model_dump()).model_dump(
-                                      exclude={"updated_at", "created_at", "id"}))
+        await self.__bundle_repo.update(record_id=bundle.bundle_code,
+                                        data=BundleModel(id=bundle.bundle_code, is_active=True,
+                                                         data=bundle.model_dump()))
         for country in countries:
-            if not self.__bundle_tag_repo.get_first_by({"bundle_id": bundle.bundle_code, "tag_id": country.id}):
-                self.__bundle_tag_repo.create(
-                    BundleTagModel(bundle_id=bundle.bundle_code, tag_id=country.id, id=None).model_dump(
-                        exclude={"updated_at", "created_at", "id"}))
+            if not await self.__bundle_tag_repo.get_first_by({"bundle_id": bundle.bundle_code, "tag_id": country.id}):
+                await self.__bundle_tag_repo.create(
+                    BundleTagModel(bundle_id=bundle.bundle_code, tag_id=country.id))
         for region in regions:
-            if not self.__bundle_tag_repo.get_first_by(
+            if not await self.__bundle_tag_repo.get_first_by(
                     {"bundle_id": bundle.bundle_code, "tag_id": region.guid}):
-                self.__bundle_tag_repo.create(
-                    BundleTagModel(bundle_id=bundle.bundle_code, tag_id=region.guid, id=None).model_dump(
-                        exclude={"updated_at", "created_at", "id"}))
+                await self.__bundle_tag_repo.create(
+                    BundleTagModel(bundle_id=bundle.bundle_code, tag_id=region.guid))
                 logger.debug("updating region for bundle {}".format(bundle.bundle_code))

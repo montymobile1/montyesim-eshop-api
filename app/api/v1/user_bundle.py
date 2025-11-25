@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.params import Query
 
 from app.dependencies.security import bearer_token, device_token, bearer_token_anonymous
-from app.models.user import UserModel
+from app.schemas.user import UserModel
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
     ConsumptionResponse, UserOrderHistoryResponse, VerifyOtpRequestDto

@@ -4,10 +4,10 @@ from typing import Annotated, List
 from fastapi import APIRouter, Header, Depends
 
 from app.dependencies.security import bearer_token, device_token
-from app.models.user import UserModel
 from app.schemas.home import BundleDTO
 from app.schemas.promotion import PromotionValidationRequest, PromotionHistoryDto
 from app.schemas.response import Response
+from app.schemas.user import UserModel
 from app.services.promotion_service import PromotionService
 
 router = APIRouter()
@@ -33,6 +33,6 @@ async def check_promotion_validation(user: Annotated[UserModel, Depends(bearer_t
 
 
 @router.get("/referral-info", response_model=Response, dependencies=[Depends(device_token)])
-def get_referral_info(accept_language: str = Header("en"),
-                      x_currency: str = Header("x-currency")) -> Response:
-    return promotion_service.referral_info(x_currency=x_currency, locale=accept_language)
+async def get_referral_info(accept_language: str = Header("en"),
+                            x_currency: str = Header("x-currency")) -> Response:
+    return await promotion_service.referral_info(x_currency=x_currency, locale=accept_language)

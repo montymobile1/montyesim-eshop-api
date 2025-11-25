@@ -1,3 +1,4 @@
+import asyncio
 import os
 
 import stripe
@@ -8,8 +9,8 @@ from app.config.config import STRIPE_SECRET_KEY
 from app.config.constants import ErrorMessages
 from app.config.db import ConfigKeysEnum
 from app.exceptions import CustomException
-from app.models.app import AppConfigModel
-from app.models.user import UserOrderModel
+from app.models import AppConfigModel
+from app.models import UserOrderModel
 from app.repo.config_repo import ConfigRepo
 from app.schemas.bundle import PaymentDetailsDTO
 
@@ -18,11 +19,11 @@ stripe.api_key = STRIPE_SECRET_KEY
 
 def get_config(key: ConfigKeysEnum | str, default_value: str | int | float | None = None) -> str | None:
     config_repo = ConfigRepo()
-    val: AppConfigModel = config_repo.get_first_by(where={"key": key.value})
+    val: AppConfigModel = asyncio.run(config_repo.get_first_by(where={"key": key.value}))
     if val is None:
         os_val = os.getenv(str(key.value), default_value)
         if os_val:
-            config_repo.create({"key": key.value, "value": os_val})
+            asyncio.run(config_repo.create({"key": key.value, "value": os_val}))
         return os_val
     return val.value
 

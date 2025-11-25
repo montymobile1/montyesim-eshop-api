@@ -4,11 +4,11 @@ from typing import Annotated, List
 from fastapi import APIRouter, Depends, Header, Request
 
 from app.dependencies.security import bearer_token, device_token, get_user_from_token, platform_header
-from app.models.user import UserModel
 from app.schemas.app import DeviceRequest, ContactUsRequest, DeleteDeviceRequest, FaqResponse, PageContentResponse, \
     GlobalConfiguration, BannerResponse
 from app.schemas.home import CurrencyDto
 from app.schemas.response import Response
+from app.schemas.user import UserModel
 from app.services.app_service import AppService
 from app.services.currency_service import CurrencyService
 
@@ -75,8 +75,8 @@ async def configurations(accept_language: str = Header("en")):
 
 
 @router.get("/banners", response_model=Response[List[BannerResponse]],
-            dependencies=[Depends(device_token),Depends(platform_header)])
-def banners(accept_language: str = Header("en"), x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
-            x_platform: str = Header("web"),
-            x_device_id: str = Header(None)):
-    return service.banners(x_currency=x_currency, locale=accept_language, x_platform=x_platform)
+            dependencies=[Depends(device_token), Depends(platform_header)])
+async def banners(accept_language: str = Header("en"), x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
+                  x_platform: str = Header("web"),
+                  x_device_id: str = Header(None)):
+    return await service.banners(x_currency=x_currency, locale=accept_language, x_platform=x_platform)

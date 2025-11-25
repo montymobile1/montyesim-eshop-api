@@ -4,7 +4,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, Request
 
 from app.dependencies.security import refresh_token, bearer_token, device_token
-from app.models.user import UserModel
+from app.schemas.user import UserModel
 from app.schemas.auth import LoginRequest, VerifyOtpRequest, AuthResponseDTO, UpdateUserInfoRequest
 from app.schemas.response import Response
 from app.services.auth_service import AuthService

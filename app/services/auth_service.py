@@ -9,12 +9,12 @@ from loguru import logger
 from app.config.config import authenticate, supabase_client, dcb_service_instance
 from app.config.constants import ErrorMessages
 from app.exceptions import CustomException, BadRequestException
-from app.models.user import UserModel
 from app.repo.device_repo import DeviceRepo
 from app.repo.user_order_repo import UserRepo
 from app.schemas.auth import LoginRequest, VerifyOtpRequest, UpdateUserInfoRequest, AuthResponseDTO
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import ResponseHelper, Response
+from app.schemas.user import UserModel
 from app.schemas.user_wallet import UserWalletRequestDto, UserWalletResponse
 from app.services.user_otp_service import UserOtpService
 from app.services.user_wallet_service import UserWalletService
@@ -33,9 +33,9 @@ class AuthService:
         try:
 
             if login_request.phone:
-                return self.__handle_phone_login(login_request=login_request)
+                return await self.__handle_phone_login(login_request=login_request)
             elif login_request.email:
-                return self.__handle_email_login(login_request=login_request)
+                return await self.__handle_email_login(login_request=login_request)
             else:
                 raise BadRequestException("Email or Phone are required.")
 
@@ -45,7 +45,7 @@ class AuthService:
 
     async def temporary_login(self, login_request, x_device_id) -> Response[AuthResponseDTO]:
         try:
-            user = self.__user_repo.get_first_by(where={"email": login_request.email})
+            user = await self.__user_repo.get_first_by(where={"email": login_request.email})
             response = supabase_client().auth.sign_in_anonymously(
                 {
                     "options": {
@@ -164,14 +164,15 @@ class AuthService:
             logger.error(f"exception on refresh token: {e}")
             raise CustomException(code=401, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
-    def __generate_referral_code(self):
+    async def __generate_referral_code(self):
         code = uuid.uuid4().hex[:8].upper()
-        while self.__user_repo.get_first_by(where={}, filters={"metadata ->> 'referral_code' ": code}) is not None:
+        while await self.__user_repo.get_first_by(where={},
+                                                  filters={"metadata ->> 'referral_code' ": code}) is not None:
             code = uuid.uuid4().hex[:8].upper()
         return code
 
-    def __handle_email_login(self, login_request: LoginRequest) -> Response[None]:
-        user_exists: UserModel = self.__user_repo.get_first_by(
+    async def __handle_email_login(self, login_request: LoginRequest) -> Response[None]:
+        user_exists: UserModel = await self.__user_repo.get_first_by(
             where={"email": login_request.email})
         if login_request.email == "test.apple@example.com":
             if not user_exists:
@@ -181,13 +182,13 @@ class AuthService:
                 })
             return ResponseHelper.success_response()
 
-        referral_code = self.__generate_referral_code()
+        referral_code = await self.__generate_referral_code()
         logger.info(f"login request received: {login_request}")
         if user_exists:
             authenticate(email=str(login_request.email), referral_code=referral_code)
             return ResponseHelper.success_response()
         else:
-            user = self.__user_repo.get_first_by(where={"email": login_request.email}, filters={
+            user = await self.__user_repo.get_first_by(where={"email": login_request.email}, filters={
                 "metadata->>email": login_request.email})
             if user:
                 supabase_client().auth.admin.update_user_by_id(uid=user["id"], attributes={
@@ -196,11 +197,10 @@ class AuthService:
             authenticate(email=str(login_request.email), referral_code=referral_code)
             return ResponseHelper.success_response()
 
-    def __handle_phone_login(self, login_request: LoginRequest) -> Response[None]:
-        # user_email = f"{login_request.phone}_esim@gmail.com"
+    async def __handle_phone_login(self, login_request: LoginRequest) -> Response[None]:
         user_email = login_request.email if login_request.email else f"{login_request.phone}_user@esim.com"
-        user_exists: UserModel = self.__user_repo.get_first_by(where={"email": user_email})
-        otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=user_email)
+        user_exists: UserModel = await self.__user_repo.get_first_by(where={"email": user_email})
+        otp = await self.__user_otp_service.generate_otp(mobile=login_request.phone, email=user_email)
         if user_exists:
             logger.info(f"generating new otp for user: {user_email}")
             supabase_client().auth.admin.update_user_by_id(uid=user_exists.id, attributes={
@@ -254,13 +254,13 @@ class AuthService:
     async def __handle_phone_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
         logger.info(f"verify_otp phone request received: {verify_otp_request}")
-        user = self.__user_repo.get_first_by(filters={"metadata ->> msisdn ": verify_otp_request.phone}, where={})
+        user = await self.__user_repo.get_first_by(filters={"metadata ->> msisdn ": verify_otp_request.phone}, where={})
         if not user:
             raise CustomException(code=400, name=ErrorMessages.USER_NOT_FOUND,
                                   details=f"User {verify_otp_request.phone} not found")
         user_email = user.email
-        self.__user_otp_service.verify_otp(otp=verify_otp_request.verification_pin,
-                                                         mobile=verify_otp_request.phone, email=user_email)
+        await self.__user_otp_service.verify_otp(otp=verify_otp_request.verification_pin,
+                                           mobile=verify_otp_request.phone, email=user_email)
 
         response = supabase_client().auth.sign_in_with_password({
             "email": user_email,
