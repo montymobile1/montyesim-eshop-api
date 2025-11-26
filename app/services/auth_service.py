@@ -273,7 +273,7 @@ class AuthService:
                     "data": {
                         "otp": otp,
                         "msisdn": login_request.phone,
-                        "referral_code": self.__generate_referral_code(),
+                        "referral_code": await self.__generate_referral_code(),
                         "login_type": "phone",
                         "should_notify": False,
                         "display_email": user_email,
