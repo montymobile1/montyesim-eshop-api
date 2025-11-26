@@ -22,7 +22,8 @@ class UserOrderModel(Base):
     callback_time = Column(DateTime(timezone=False), nullable=True)
     bundle_data = Column(String, nullable=True)
     searched_countries = Column(String, nullable=True)
-    anonymous_user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id"), server_default=func.auth.uid())
+    anonymous_user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id"), server_default=func.auth.uid(),
+                               nullable=True)
     payment_intent_code = Column(String, nullable=True)
     promo_code = Column(String(50), ForeignKey("promotion.code"), server_default=None)
     referral_code = Column(String(50), server_default=None)

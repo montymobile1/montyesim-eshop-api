@@ -162,7 +162,7 @@ class AuthService:
             if getattr(update_request, 'currency', None) is not None:
                 user_metadata['currency'] = update_request.currency
             if user_metadata.get("referral_code", None) is None:
-                referral_code = self.__generate_referral_code()
+                referral_code = await self.__generate_referral_code()
                 user_metadata['referral_code'] = referral_code
             login_type = user_metadata.get("login_type", login_type)
             if login_type == "phone":
