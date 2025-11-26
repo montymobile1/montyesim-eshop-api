@@ -65,7 +65,7 @@ class FCMService:
         :param user_id: User ID.
         :return: List of FCM tokens.
         """
-        devices = self.__device_repo.list(where={"user_id": user_id, "is_logged_in": True})
+        devices = self.__device_repo.slist(where={"user_id": user_id, "is_logged_in": True})
         return [device.fcm_token for device in devices if device.fcm_token is not None]
 
     def get_device_fcm_token(self, device_id: str) -> List[str]:
@@ -74,11 +74,11 @@ class FCMService:
         :param device_id: Device Id
         :return: List of FCM tokens.
         """
-        devices = self.__device_repo.list(where={"device_id": device_id})
+        devices = self.__device_repo.slist(where={"device_id": device_id})
         return [device.fcm_token for device in devices if device.fcm_token is not None]
 
     def get_device_user_id(self, device_id: str) -> str:
-        devices = self.__device_repo.list(where={"device_id": device_id, "is_logged_in": True})
+        devices = self.__device_repo.slist(where={"device_id": device_id, "is_logged_in": True})
         if len(devices) > 0:
             return devices[0].user_id
         return ""
@@ -92,14 +92,14 @@ class FCMService:
 
         if notification.is_silent:
             return self.send_data_message_to_user(user_id, notification.data)
-        notification_data = NotificationModel.model_validate({
+        notification_data = {
             "user_id": user_id,
             "title": notification.title,
             "content": notification.message,
             "status": False,
             "data": json.dumps(notification.data),
             "image_url": ""
-        }).model_dump(exclude={"id", "created_at", "updated_at"})
+        }
         self.__notification_repo.create(notification_data)
 
         return self.send_notification_to_user(user_id, notification.title, notification.message, None,
@@ -116,14 +116,14 @@ class FCMService:
         if notification.is_silent:
             return self.send_data_message_to_device(device_id, notification.data)
 
-        notification_data = NotificationModel.model_validate({
+        notification_data = {
             "user_id": self.get_device_user_id(device_id),
             "title": notification.title,
             "content": notification.message,
             "status": False,
             "data": json.dumps(notification.data),
             "image_url": ""
-        }).model_dump(exclude={"id", "created_at", "updated_at"})
+        }
         self.__notification_repo.create(notification_data)
 
         return self.send_notification_to_device(device_id, notification.title, notification.message, None,

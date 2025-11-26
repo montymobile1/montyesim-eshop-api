@@ -221,7 +221,7 @@ class DtoMapper:
             order_status = "Active"
         else:
             order_status = "Expired"
-        amount = (bundle_data.original_price * rate) + ((tax / 100) * rate)
+        amount = (float(bundle_data.original_price) * rate) + ((tax / 100) * rate)
         data = {
             "is_topup_allowed": user_profile.allow_topup,
             "plan_started": profile_current_bundle.plan_started,

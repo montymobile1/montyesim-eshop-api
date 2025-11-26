@@ -354,6 +354,60 @@ class BaseRepository(Generic[T]):
             except SQLAlchemyError as e:
                 raise DatabaseException(str(e))
 
+    def slist(self, where: dict = None, filters: dict = None, limit: int = 50, offset: int = 0,
+                   order_by: str = None, desc: bool = False) -> List[T]:
+        """
+        List records with optional WHERE conditions and/or raw SQL filters.
+
+        Args:
+            where: Dictionary of field:value pairs for exact matches
+            filters: Dictionary of raw SQL conditions for complex queries like JSONB operators
+            limit: Maximum number of records to return
+            offset: Number of records to skip
+            order_by: Field name to order by (e.g., "created_at")
+            desc: If True, order descending; if False, order ascending
+
+        Returns:
+            List of model instances
+
+        Example:
+            # Order by created_at descending
+            items = await repo.list(
+                where={"wallet_id": wallet_id},
+                order_by="created_at",
+                desc=True
+            )
+        """
+        with self.get_sync_session() as session:
+            try:
+                stmt = select(self.model)
+
+                # Apply WHERE conditions
+                if where:
+                    for key, value in where.items():
+                        stmt = stmt.where(getattr(self.model, key) == value)
+
+                # Apply raw SQL filters
+                if filters:
+                    for condition, value in filters.items():
+                        table_name = self.model.__tablename__
+                        param_name = f"filter_{abs(hash(condition))}"
+                        full_condition = f"{table_name}.{condition.strip()} = :{param_name}"
+                        stmt = stmt.where(text(full_condition)).params(**{param_name: value})
+
+                # Apply ordering
+                if order_by:
+                    column = getattr(self.model, order_by)
+                    stmt = stmt.order_by(column.desc() if desc else column)
+
+                # Apply pagination
+                stmt = stmt.limit(limit).offset(offset)
+
+                result = session.execute(stmt)
+                return list(result.scalars())
+            except SQLAlchemyError as e:
+                raise DatabaseException(str(e))
+
     async def list_with_relations(self, where: dict = None, filters: dict = None, limit: int = 50,
                                   offset: int = 0, order_by: str = None, desc: bool = False,
                                   relations: List[str] = None) -> List[T]:
