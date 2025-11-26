@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 from typing import List, Literal
 
 from loguru import logger
@@ -135,7 +135,7 @@ class BundleService:
                                                                              bundle_type=bundle_type)
 
         user_order.payment_status = payment_status
-        user_order.payment_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+        user_order.payment_time = datetime.now(tz=dt_timezone.utc).replace(tzinfo=None)
         user_order.order_status = OrderStatusEnum.SUCCESS
         if esim_hub_order is None:
             user_order.order_status = OrderStatusEnum.FAILURE
@@ -319,7 +319,8 @@ class BundleService:
             return "Cruise"
 
         try:
-            searched_countries = RelatedSearchRequestDto.model_validate_json(user_profile.searched_countries)
+            if user_profile.searched_countries is not None:
+                searched_countries = RelatedSearchRequestDto.model_validate_json(user_profile.searched_countries)
         except Exception as e:
             logger.error(f"error while validating searched_countries {str(e)}")
             searched_countries = None

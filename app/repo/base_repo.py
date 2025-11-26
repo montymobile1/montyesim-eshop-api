@@ -145,6 +145,15 @@ class BaseRepository(Generic[T]):
             except SQLAlchemyError as e:
                 raise DatabaseException(str(e))
 
+    def sget_by_id(self, record_id: Any) -> Optional[T]:
+        with self.get_sync_session() as session:
+            try:
+                stmt = select(self.model).where(self.model.id == record_id)
+                result = session.execute(stmt)
+                return result.scalars().first()
+            except SQLAlchemyError as e:
+                raise DatabaseException(str(e))
+
     async def get_by_id_with_relations(self, record_id: Any, relations: List[str]) -> Optional[T]:
         """
         Get a record by ID with specified relationships eagerly loaded.

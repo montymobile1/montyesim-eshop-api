@@ -1,9 +1,7 @@
 import asyncio
 import json
 import os
-import threading
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Dict, Optional
 
 import stripe
@@ -13,9 +11,9 @@ from soupsieve.util import lower
 
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email, get_email_template
 from app.config.constants import PaymentIntentEvents, UserWalletTransactionSource
+from app.config.db import OrderStatusEnum, UserOrderType
 from app.config.db import PaymentTypeEnum
 from app.config.helper import get_config
-from app.config.db import OrderStatusEnum, UserOrderType
 from app.config.notification_types import send_consumption_80_bundle_notification, \
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
@@ -149,7 +147,12 @@ class CallbackService:
         except Exception as e:
             logger.error(e)
             raise HTTPException(status_code=400, detail="Invalid payload")
-        await self.__handle_payment_webhook_data(payload_json)
+
+        def task():
+            return self.__handle_payment_webhook_data(event=payload_json)
+
+        self.__task_executor.add_task(task)
+        return ResponseHelper.success_response()
 
     def handle_sync_all_bundles(self, page_index=1):
         def task():
@@ -288,7 +291,7 @@ class CallbackService:
         promo_code = metadata.get("promo_code", None)
         rule_id = metadata.get("rule_id", None)
         tax_calculation = metadata.get("tax_calculation", None)
-        user_order = asyncio.run(self.__user_order_repo.get_by_id(order_id))
+        user_order = self.__user_order_repo.sget_by_id(order_id)
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
         payment_status = OrderStatusEnum.SUCCESS if event.get(
             "type") == "payment_intent.succeeded" else OrderStatusEnum.FAILURE
@@ -389,8 +392,8 @@ class CallbackService:
 
                 def task():
                     asyncio.run(self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
-                                                                      source=UserWalletTransactionSource.TOP_UP_WALLET,
-                                                                      order_currency="USD"))
+                                                                                  source=UserWalletTransactionSource.TOP_UP_WALLET,
+                                                                                  order_currency="USD"))
                     return
 
                 self.__task_executor.add_task(task)
@@ -454,7 +457,7 @@ class CallbackService:
                     validity_date=date_only_str
                 )
                 await self.__update_bundle_plan_started(iccid=iccid, esim_hub_order_id=esim_order_id,
-                                                  plan_started=True)
+                                                        plan_started=True)
             else:
                 logger.warning(f"Unsupported event type for plan status callback: {event_type}")
                 return
@@ -469,9 +472,9 @@ class CallbackService:
     async def __update_bundle_expired(self, iccid: str, esim_hub_order_id: str, bundle_expired: bool):
         logger.info(f"Updating bundle {esim_hub_order_id} {iccid} bundle_expired to {bundle_expired}")
         await self.__user_profile_bundle_repo.update_by(where={"esim_hub_order_id": esim_hub_order_id, "iccid": iccid},
-                                                  data={"bundle_expired": bundle_expired})
+                                                        data={"bundle_expired": bundle_expired})
 
     async def __update_bundle_plan_started(self, iccid: str, esim_hub_order_id: str, plan_started: bool):
         logger.info(f"Updating bundle {esim_hub_order_id} {iccid} plan_started to {plan_started}")
         await self.__user_profile_bundle_repo.update_by(where={"esim_hub_order_id": esim_hub_order_id, "iccid": iccid},
-                                                  data={"plan_started": plan_started})
+                                                        data={"plan_started": plan_started})
