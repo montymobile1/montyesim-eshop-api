@@ -1,6 +1,7 @@
 from sqlalchemy import create_engine
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import NullPool
 
 from .settings import DATABASE_URL
 
@@ -8,8 +9,9 @@ async_engine = create_async_engine(
     DATABASE_URL,
     echo=False,  # set True if you want verbose SQL logs
     pool_pre_ping=True,  # keeps connections healthy
+    poolclass=NullPool,  # Use NullPool to avoid connection pool issues with multiple event loops
 )
-SessionLocal = async_sessionmaker(bind=async_engine, autoflush=False, autocommit=False)
+SessionLocal = async_sessionmaker(bind=async_engine, autoflush=False, autocommit=False, expire_on_commit=False)
 
 # Convert async URL to sync URL for synchronous operations
 SYNC_DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgresql+psycopg2://")

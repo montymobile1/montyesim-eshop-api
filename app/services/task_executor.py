@@ -76,14 +76,14 @@ class TaskExecutor:
         """Execute a single task in a worker thread"""
         try:
             logger.info(f"Executing task: {task}")
-            # Execute the task (assuming it's a callable with no arguments)
-            # If your tasks need arguments, you can modify this to handle them
             if callable(task):
                 task()
             else:
                 logger.error(f"Task is not callable: {task}")
         except Exception as e:
             logger.error(f"Error executing task {task}: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
 
     def add_task(self, task: Callable[..., Any]) -> bool:
         """Add a task to the execution queue"""
