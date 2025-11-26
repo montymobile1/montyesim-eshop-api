@@ -71,7 +71,7 @@ async def configurations(accept_language: str = Header("en")):
 
 @router.get("/currency", response_model=Response[List[CurrencyDto]], dependencies=[Depends(device_token)])
 async def configurations(accept_language: str = Header("en")):
-    return currency_service.get_all_currency()
+    return await currency_service.get_all_currency()
 
 
 @router.get("/banners", response_model=Response[List[BannerResponse]],

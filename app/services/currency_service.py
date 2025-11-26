@@ -1,4 +1,3 @@
-import asyncio
 import os
 from decimal import Decimal
 from typing import List
@@ -66,8 +65,8 @@ class CurrencyService:
             return 1.0
         return currency.rate
 
-    def get_all_currency(self) -> Response[List[CurrencyDto]]:
-        currency_list = asyncio.run(self.__currency_repo.list(where={"default_currency": "USD"}))
+    async def get_all_currency(self) -> Response[List[CurrencyDto]]:
+        currency_list = await self.__currency_repo.list(where={"default_currency": "USD"})
         currency_dto = []
         for currency in currency_list:
             currency_dto.append(DtoMapper.to_currency_dto(currency))
