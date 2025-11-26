@@ -111,7 +111,7 @@ class UserBundleService:
             await self.__bundle_service.buy_bundle(user_order=order, bundle=bundle, user_id=user.id,
                                                    payment_status=OrderStatusEnum.SUCCESS, rule_id=rule_id
                                                    , payment_type=payment_type)
-            response = PaymentIntentResponse(order_id=order.id, payment_status=PaymentStatusEnum.COMPLETED)
+            response = PaymentIntentResponse(order_id=str(order.id), payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
 
         if payment_type == PaymentTypeEnum.WALLET:
@@ -427,7 +427,7 @@ class UserBundleService:
                                                           payment_status=OrderStatusEnum.SUCCESS,
                                                           payment_type=PaymentTypeEnum.WALLET,
                                                           iccid=iccid)
-            response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
+            response = PaymentIntentResponse(order_id=str(user_order.id), payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
@@ -446,7 +446,7 @@ class UserBundleService:
             msisdn = user.msisdn
             logger.info(f"requesting new otp for msisdn: {msisdn}")
             await self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
-            response = PaymentIntentResponse(order_id=user_order.id,
+            response = PaymentIntentResponse(order_id=str(user_order.id),
                                              payment_status=PaymentStatusEnum.PENDING_VERIFICATION)
             response.otp_expiration = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
             return ResponseHelper.success_data_response(response, 0)
@@ -505,7 +505,7 @@ class UserBundleService:
                                          test_env=not payment_intent.livemode,
                                          merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
                                          billing_country_code="GB",
-                                         order_id=order.id,
+                                         order_id=str(order.id),
                                          subtotal_price_display=f"{round(original_amount, 2)} {x_currency}",
                                          total_price_display=f"{round(payment_intent.amount / 100, 2)} {x_currency}",
                                          tax_price_display=f"{round(tax_excl, 2)} {x_currency}",

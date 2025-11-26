@@ -150,7 +150,7 @@ class UserWalletService:
                                          test_env=not intent.livemode,
                                          merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
                                          billing_country_code="GB",
-                                         order_id=order.id,
+                                         order_id=str(order.id),
                                          total_price_display=f"{top_up_request.amount:.2f} {x_currency}",
                                          subtotal_price_display=f"{intent.amount / 100:.2f} {x_currency}",
                                          tax_price_display=f"{tax_excl} {x_currency}",
