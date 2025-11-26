@@ -314,7 +314,7 @@ class AuthService:
     async def __handle_phone_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
         logger.info(f"verify_otp phone request received: {verify_otp_request}")
-        user = await self.__user_repo.get_first_by(filters={"metadata ->> msisdn ": verify_otp_request.phone}, where={})
+        user = await self.__user_repo.get_first_by(filters={"metadata ->> 'msisdn' ": verify_otp_request.phone}, where={})
         if not user:
             raise CustomException(code=400, name=ErrorMessages.USER_NOT_FOUND,
                                   details=f"User {verify_otp_request.phone} not found")
