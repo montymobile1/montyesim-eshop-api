@@ -224,7 +224,7 @@ class AuthService:
             return ResponseHelper.success_response()
         else:
             user = await self.__user_repo.get_first_by(where={"email": login_request.email}, filters={
-                "metadata->>email": login_request.email})
+                "metadata->>'email'": login_request.email})
             if user:
                 supabase_client().auth.admin.update_user_by_id(uid=user["id"], attributes={
                     "email": login_request.email,
@@ -243,7 +243,7 @@ class AuthService:
     async def __handle_phone_login(self, login_request: LoginRequest, language: str = "en") -> Response:
         old_user = await self.__user_repo.get_first_by(where={},
                                                        filters={
-                                                           "metadata->>msisdn": login_request.phone})
+                                                           "metadata->>'msisdn'": login_request.phone})
         if old_user:
             login_request.email = old_user.email
         otp_expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
