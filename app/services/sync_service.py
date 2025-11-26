@@ -1,10 +1,10 @@
 import math
-import os
 import uuid
 from typing import List
 
 from loguru import logger
 
+from app.config.config import esim_hub_service_instance
 from app.config.db import ConfigKeysEnum
 from app.models import TagModel, BundleModel, BundleTagModel
 from app.repo.bundle_repo import BundleRepo
@@ -12,17 +12,12 @@ from app.repo.bundle_tage_repo import BundleTagRepo
 from app.repo.config_repo import ConfigRepo
 from app.repo.tag_repo import TagRepo
 from app.schemas.home import CountryDTO, RegionDTO, BundleDTO
-from app.services.integration.esim_hub_service import EsimHubService
 
 
 class SyncService:
 
     def __init__(self):
-        self.__esim_hub_service = EsimHubService(
-            base_url=os.getenv("ESIM_HUB_BASE_URL"),
-            api_key=os.getenv("ESIM_HUB_API_KEY"),
-            tenant_key=os.getenv("ESIM_HUB_TENANT_KEY"),
-        )
+        self.__esim_hub_service = esim_hub_service_instance()
         self.__bundle_repo = BundleRepo()
         self.__tag_repo = TagRepo()
         self.__bundle_tag_repo = BundleTagRepo()

@@ -6,15 +6,16 @@ import qrcode
 from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, Template
 from loguru import logger
+from pydantic import EmailStr
 from supabase import create_client, Client
 from supabase.lib.client_options import SyncClientOptions
 
+from app.config.helper import get_config
 from app.services.integration.dcb_service import DCBService
 from app.services.integration.esim_hub_service import EsimHubService
 
 ROOT_PATH = os.path.abspath(os.curdir)
 env = os.getenv("ENVIRONMENT")
-print("ENVIRONMENT", env)
 if not env:
     load_dotenv(f"{ROOT_PATH}/.env")
 else:
@@ -51,13 +52,16 @@ def validate_required_env_vars():
     if missing_vars:
         error_msg = f"Missing required environment variables: {', '.join(missing_vars)}"
         logger.error(error_msg)
-        # raise EnvironmentError(error_msg)
+        raise EnvironmentError(error_msg)
 
 
 validate_required_env_vars()
 
 
-def supabase_client() -> Client:
+def supabase_client(url: str = None, key: str = None) -> Client:
+    if url and key:
+        return create_client(url, key,
+                             options=SyncClientOptions(auto_refresh_token=False))
     return create_client(SUPABASE_URL, SUPABASE_KEY,
                          options=SyncClientOptions(auto_refresh_token=False))
 
@@ -65,22 +69,26 @@ def supabase_client() -> Client:
 def esim_hub_service_instance():
     return EsimHubService(
         base_url=os.getenv("ESIM_HUB_BASE_URL"),
-        api_key=os.getenv("ESIM_HUB_API_KEY"),
+        api_key=get_config("ESIM_HUB_API_KEY"),
         tenant_key=os.getenv("ESIM_HUB_TENANT_KEY"))
 
 
-def dcb_service_instance():
-    return DCBService(send_otp_url="", verify_otp_url="", api_key="", charge_url="")
+def dcb_service_instance() -> DCBService:
+    provider = get_config("DEFAULT_DCB_PROVIDER", "NONE").upper()
+    if provider == "MONTY":
+        from app.services.integration.monty_dcb import MontyDCBService
+        return MontyDCBService(base_url=os.getenv("DCB_SEND_OTP_URL", ""))
+    elif provider == "DCB_HUB":
+        from app.services.integration.hub_dcb_service import HubDcbService
+        return HubDcbService()
+    return DCBService(send_otp_url=os.getenv("DCB_SEND_OTP_URL", ""), verify_otp_url="", api_key="", charge_url="")
 
 
-def authenticate(email: str, referral_code: str):
+def authenticate(email: str | EmailStr, data: dict):
     return supabase_client().auth.sign_in_with_otp(credentials={
         "email": email,
         "options": {
-            "data": {
-                "referral_code": referral_code,
-                "display_name": email,
-            }
+            "data": data
         }
     })
 
@@ -113,8 +121,8 @@ def send_email(subject: str, html_content: str, recipients: str, attachment: Byt
         # Create message
         msg = MIMEMultipart('mixed')  # Use 'mixed' for attachments
         msg['Subject'] = subject
-        sender_email = os.getenv("SMTP_SENDER", "noreply@esim.com")
-        sender_name = os.getenv("SMTP_SENDER_NAME", "Esim Support")
+        sender_email = get_config("SMTP_SENDER", "noreply@esim.com")
+        sender_name = get_config("SMTP_SENDER_NAME", "Esim Support")
         msg['From'] = formataddr((sender_name, sender_email))
         msg['To'] = recipients
         msg['Date'] = formatdate(localtime=True)

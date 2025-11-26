@@ -1,6 +1,6 @@
 import asyncio
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List
 
@@ -9,14 +9,15 @@ import stripe
 from fastapi import Request
 from loguru import logger
 
-from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance
+from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance, supabase_client
 from app.config.constants import ErrorMessages, PaymentStatusEnum, UserWalletTransactionSource
-from app.config.db import DatabaseTables, PaymentTypeEnum, OrderStatusEnum, UserOrderType
-from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details
+from app.config.db import DatabaseTables, PaymentTypeEnum, OrderStatusEnum, UserOrderType, ConfigKeysEnum
+from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, get_config
 from app.exceptions import BadRequestException, CustomException
+from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel, UsersCopyModel, UserWalletModel, \
+    UserProfileModel
 from app.models import UserOrderModel, UsersCopyModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
-from app.repo.bundle_repo import BundleRepo
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
     ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest, VerifyOtpRequestDto
@@ -57,9 +58,8 @@ class UserBundleService:
             if not check_bundle_available:
                 raise CustomException(code=400, name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
                                       details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
-        rate = await self.__currency_service.aget_rate_by_currency(x_currency)
-        modified_amount = bundle.price
-        amount = bundle.price
+        modified_amount = bundle.original_price
+        amount = bundle.original_price
         rule_id = "0"
 
         data = {
@@ -68,21 +68,21 @@ class UserBundleService:
             "order_type": UserOrderType.ASSIGN,
             "amount": int(round(amount * 100)),
             "modified_amount": int(round(modified_amount * 100)),
-            "currency": os.getenv("DEFAULT_CURRENCY"),
+            "currency": "USD",
             "bundle_data": bundle.model_dump_json(),
             "searched_countries": assign_request.related_search.model_dump_json(),
             "anonymous_user_id": user.anonymous_user_id,
             "promo_code": assign_request.promo_code or None,
             "payment_type": assign_request.payment_type,
         }
-        if assign_request.promo_code and self.__promotion_service.is_referral_code(assign_request.promo_code):
+        if assign_request.promo_code and await self.__promotion_service.is_referral_code(assign_request.promo_code):
             data.setdefault("referral_code", assign_request.promo_code)
             data.pop("promo_code")
 
         order = await self.__user_order_repo.create(data)
 
         if assign_request.promo_code:
-            if self.__promotion_service.is_referral_code(assign_request.promo_code):
+            if await self.__promotion_service.is_referral_code(assign_request.promo_code):
                 await self.__check_if_user_eligible_for_referral(user=user, promo_code=assign_request.promo_code)
             validation_response = await self.__promotion_service.validate_promo_code(code=assign_request.promo_code,
                                                                                      user_id=user.id, bundle=bundle,
@@ -92,35 +92,38 @@ class UserBundleService:
                                                                                      order_id=order.id)
             logger.info(f"applying promo code {assign_request.promo_code} with {validation_response.message}")
             bundle = validation_response.bundle
-            modified_amount = bundle.original_price * rate
+            modified_amount = bundle.original_price
             rule_id = validation_response.rule_id
+            order.modified_amount = round(modified_amount * 100, 2)
+            order.bundle_data = bundle.model_dump_json()
             logger.info(f"scheduling background update for order {order.id}")
             # Create background task for order update
             asyncio.create_task(
                 self.__update_order_with_delay(
                     order_id=order.id,
-                    bundle=bundle,
-                    rate=rate
+                    bundle=bundle
                 )
             )
 
         payment_type = assign_request.payment_type
 
         if modified_amount == 0:
+            await self.__user_order_repo.update_by({"id": order.id}, data={"modified_amount": 0})
             await self.__bundle_service.buy_bundle(user_order=order, bundle=bundle, user_id=user.id,
-                                                   payment_status=OrderStatusEnum.SUCCESS,
-                                                   promo_code=assign_request.promo_code, rule_id=rule_id)
+                                                   payment_status=OrderStatusEnum.SUCCESS, rule_id=rule_id
+                                                   , payment_type=payment_type)
             response = PaymentIntentResponse(order_id=order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
 
         if payment_type == PaymentTypeEnum.WALLET:
-            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order)
+            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order, rule_id=rule_id,
+                                                      modified_amount=modified_amount)
         elif payment_type == PaymentTypeEnum.DCB:
             return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.CARD:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
-                                                    assign_request=assign_request, rule_id=rule_id,
-                                                    modified_amount=modified_amount, request=request)
+                                                    assign_request=assign_request, rule_id=rule_id, request=request,
+                                                    x_currency=x_currency)
         else:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
@@ -128,43 +131,53 @@ class UserBundleService:
     async def assign_top_up(self, user: UserModel, assign_top_up_request: AssignTopUpRequest, device_id: str,
                             request: Request, x_currency: str, locale: str) -> Response:
         bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_top_up_request.bundle_code,
-                                                                 currency_name=x_currency, locale=locale)
+                                                           currency_name=x_currency, locale=locale)
         bundle = bundle_response.data
 
         order = await self.__user_order_repo.create({
             "user_id": user.id,
             "bundle_id": assign_top_up_request.bundle_code,
             "order_type": UserOrderType.BUNDLE_TOP_UP,
-            "amount": round(bundle.price * 100),
+            "amount": round(bundle.original_price * 100),
+            "modified_amount": round(bundle.original_price * 100),
             "currency": os.getenv("DEFAULT_CURRENCY"),
             "bundle_data": bundle.model_dump_json(),
             "searched_countries": None,
+            "payment_type": assign_top_up_request.payment_type
         })
 
         payment_type = assign_top_up_request.payment_type
 
         if payment_type == PaymentTypeEnum.WALLET:
             return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order,
-                                                      iccid=assign_top_up_request.iccid)
+                                                      iccid=assign_top_up_request.iccid,
+                                                      modified_amount=bundle.original_price,
+                                                      rule_id="")
         elif payment_type == PaymentTypeEnum.DCB:
             return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.CARD:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
-                                                    assign_request=None, rule_id="0",
-                                                    modified_amount=bundle.price, request=request,
-                                                    iccid=assign_top_up_request.iccid)
+                                                    assign_request=None, rule_id="0", request=request,
+                                                    iccid=assign_top_up_request.iccid,
+                                                    x_currency=x_currency)
         else:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
 
     async def get_user_esims(self, user: UserModel, x_currency: str) -> Response[List[EsimBundleResponse]]:
-        user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
+        user_profiles = await self.__user_profile_repo.list_with_relations(relations=[DatabaseTables.TABLE_USER_PROFILE_BUNDLE],
                                                         where={"user_id": user.id})
         esim_bundle_response = []
-        rate = await self.__currency_service.aget_rate_by_currency(x_currency)
+        rate = self.__currency_service.get_rate_by_currency(x_currency)
         for profile in user_profiles:
             try:
-                bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, x_currency=x_currency, rate=rate)
+                order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
+                bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, x_currency=x_currency, rate=rate,
+                                                           tax=order.tax_amount)
+                for history in bundle.transaction_history:
+                    order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=history.user_order_id)
+                    amount = float(history.bundle.original_price * rate) + float((order.tax_amount / 100) * rate)
+                    history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
                 if bundle is not None:
                     esim_bundle_response.append(bundle)
             except Exception as e:
@@ -178,11 +191,20 @@ class UserBundleService:
         if len(user_profiles) == 0:
             raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
         rate = await self.__currency_service.aget_rate_by_currency(x_currency)
-        return ResponseHelper.success_data_response(
-            DtoMapper.to_esim_bundle_response(user_profiles[0], rate, x_currency), 0)
+        profile = user_profiles[0]
+        user_order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
+        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, rate=rate, x_currency=x_currency,
+                                                   tax=user_order.tax_amount)
+        for history in bundle.transaction_history:
+            order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=history.user_order_id)
+            amount = float(history.bundle.original_price * rate) + float((order.tax_amount / 100) * rate)
+            history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
+        return ResponseHelper.success_data_response(bundle, 0)
 
     async def consumption(self, user: UserModel, iccid: str) -> Response[ConsumptionResponse]:
         profile = await self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
+        if not profile:
+            raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
         consumption = await self.__esim_hub_service.get_bundle_consumption(profile.esim_hub_order_id)
         return ResponseHelper.success_data_response(consumption, 0)
 
@@ -200,13 +222,13 @@ class UserBundleService:
         return ResponseHelper.success_response()
 
     async def bundle_exists(self, user_id: str, bundle_id: str) -> Response[bool]:
-        orders = await self.__user_order_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE: "*"}, where={
+        orders = await self.__user_order_repo.list_with_relations(relations=[DatabaseTables.TABLE_USER_PROFILE], where={
             "user_id": user_id,
             "bundle_id": bundle_id,
             "payment_status": "success",
             "order_status": "success",
             f"{DatabaseTables.TABLE_USER_PROFILE}.allow_topup": True
-        }, as_model=False)
+        })
         if len(orders) == 0:
             return ResponseHelper.success_data_response(False, 0)
         if any(len(item.get("user_profile", [])) > 0 for item in orders):
@@ -253,8 +275,8 @@ class UserBundleService:
         for bundle in bundles:
             if await self.__bundle_service.bundle_exists(bundle.bundle_code):
                 local_bundle = await self.__bundle_service.get_bundle(bundle_id=bundle.bundle_code,
-                                                                      currency_name=currency_code,
-                                                                      locale=accept_language)
+                                                                currency_name=currency_code,
+                                                                locale=accept_language)
                 logger.debug(f"local bundle {local_bundle.data}")
                 all_bundles.append(local_bundle.data)
 
@@ -277,8 +299,15 @@ class UserBundleService:
             raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND,
                                   details=ErrorMessages.ORDER_NOT_FOUND)
         rate = await self.__currency_service.aget_rate_by_currency(x_currency)
-        return ResponseHelper.success_data_response(
-            DtoMapper.to_esim_bundle_response(user_profile=profiles[0], rate=rate, x_currency=x_currency), 0)
+        profile = profiles[0]
+        user_order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
+        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, rate=rate, x_currency=x_currency,
+                                                   tax=user_order.tax_amount)
+        for history in bundle.transaction_history:
+            order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=history.user_order_id)
+            amount = float(history.bundle.original_price * rate) + float((order.tax_amount / 100) * rate)
+            history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
+        return ResponseHelper.success_data_response(bundle, 0)
 
     async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str) -> Response[
         List[UserOrderHistoryResponse]]:
@@ -319,32 +348,80 @@ class UserBundleService:
         logger.info(f"receiving verification otp request {request}")
         user_order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=request.order_id)
         if not user_order:
-            raise BadRequestException("Order not found")
+            raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND,
+                                  details=ErrorMessages.ORDER_NOT_FOUND)
         if user_order.otp != request.otp:
-            raise BadRequestException("Invalid OTP")
+            raise CustomException(code=404, name=ErrorMessages.OTP_INVALID,
+                                  details=ErrorMessages.OTP_INVALID)
+
+        if await self.__is_order_otp_expired(order_id=user_order.id):
+            raise CustomException(code=400, name=ErrorMessages.OTP_EXPIRED,
+                                  details=ErrorMessages.OTP_EXPIRED)
 
         bundle = BundleDTO.model_validate_json(user_order.bundle_data)
-        response = await self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=user_order.amount)
+
+        default_currency = os.getenv("DEFAULT_CURRENCY", "USD")
+        usd_amount_units = ((
+                                user_order.modified_amount if user_order.modified_amount else user_order.amount) or 0) / 100
+        converted_units = self.__currency_service.convert(from_currency="USD", to_currency=default_currency,
+                                                          amount=usd_amount_units)
+
+        response = await self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=converted_units,
+                                                           order_id=user_order.id)
+
+        if not response:
+            await self.__user_order_repo.update_by(where={"id": user_order.id},
+                                             data={"payment_status": OrderStatusEnum.FAILURE})
+            raise CustomException(code=400, name=ErrorMessages.PAYMENT_FAILED, details=ErrorMessages.PAYMENT_FAILED)
+
         payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
+
+        if user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
+            return await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
+                                                             payment_status=payment_status,
+                                                             payment_type=PaymentTypeEnum.DCB,
+                                                             iccid=request.iccid)
         return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                      payment_status=payment_status)
+                                                      payment_status=payment_status,
+                                                      payment_type=PaymentTypeEnum.DCB)
+
+    async def resend_order_otp(self, user: UserModel, order_id: str) -> Response[None]:
+        order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
+        if not order:
+            raise BadRequestException(f"Order {order_id} not found")
+        otp = generate_otp()
+        expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
+        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
+        await self.__user_order_repo.update_by(where={"id": order.id}, data={"otp": otp, "otp_expired_at": expire_at})
+        await self.__dcb_service.send_otp(msisdn=user.msisdn, otp=order.otp)
+        return ResponseHelper.success_response()
 
     async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,
+                                      rule_id: str,
+                                      modified_amount: float,
                                       iccid: str = None) -> Response[
         PaymentIntentResponse]:
-        wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user.id)
-        if wallet.balance < bundle.price:
-            raise BadRequestException("You don't have enough funds to pay")
+        wallet: UserWalletModel = self.__user_wallet_service.get_user_wallet(user_id=user.id)
+        rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=wallet.currency)
+        bundle_price = float(truncate_two_decimals_decimal(modified_amount * rate))
+        logger.info(f"wallet balance and bundle price: {wallet.amount=} {bundle_price=}")
+        if wallet.amount < bundle_price:
+            raise CustomException(code=400, name=ErrorMessages.INSUFFICIENT_WALLET_BALANCE,
+                                  details="Insufficient wallet balance, please top up your wallet")
         try:
-            await self.__user_wallet_service.add_wallet_transaction(amount=(bundle.price * -1), user_id=user.id,
-                                                                    source=UserWalletTransactionSource.PURCHASE_BUNDLE)
+            await self.__user_wallet_service.add_wallet_transaction(amount=(bundle_price * -1),
+                                                              user_id=user.id,
+                                                              source=UserWalletTransactionSource.PURCHASE_BUNDLE,
+                                                              order_currency="USD")
             if user_order.order_type == UserOrderType.ASSIGN:
                 await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
                                                        payment_status=OrderStatusEnum.SUCCESS,
-                                                       payment_type=PaymentTypeEnum.WALLET)
+                                                       payment_type=PaymentTypeEnum.WALLET,
+                                                       rule_id=rule_id)
             elif user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
                 await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
                                                           payment_status=OrderStatusEnum.SUCCESS,
+                                                          payment_type=PaymentTypeEnum.WALLET,
                                                           iccid=iccid)
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
@@ -355,24 +432,45 @@ class UserBundleService:
     async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO) -> Response[
         PaymentIntentResponse]:
         logger.info(f"handle_dcb_payment request {user=} {bundle=} {user_order=}")
+        expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
+        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
+
         try:
             otp = generate_otp()
-            await self.__user_order_repo.update_by(where={"id": user_order.id}, data={"otp": otp})
+            await self.__user_order_repo.update_by(where={"id": user_order.id},
+                                             data={"otp": otp, "otp_expired_at": expire_at})
             msisdn = user.msisdn
             logger.info(f"requesting new otp for msisdn: {msisdn}")
             await self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
-            response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
+            response = PaymentIntentResponse(order_id=user_order.id,
+                                             payment_status=PaymentStatusEnum.PENDING_VERIFICATION)
+            response.otp_expiration = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
                                   details=f"Error while creating order: {e}")
 
     async def __handle_card_payment(self, user: UserModel, order: UserOrderModel, device_id: str,
-                                    assign_request: AssignRequest | None, rule_id: str, modified_amount: float,
-                                    request: Request, iccid: str = None) -> Response:
-        amount = Decimal(str(modified_amount))
-        minor_units = (amount * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-        minor_units = int(minor_units)
+                                    assign_request: AssignRequest | None, rule_id: str,
+                                    request: Request, iccid: str = None,
+                                    x_currency: str = os.getenv("DEFAULT_CURRENCY")) -> Response:
+        # Use Decimal throughout to avoid float rounding issues
+        raw_rate = self.__currency_service.get_currency_rate("USD", to_currency=x_currency)
+        rate = Decimal(str(raw_rate))
+
+        # order.modified_amount may sometimes be a float (see background update), so convert via str to Decimal
+        order_amount_value = order.modified_amount if order.modified_amount is not None else order.amount
+        # represent amount in cents as Decimal (may include fractional cents in some edge cases earlier)
+        order_amount_cents = Decimal(str(order_amount_value))
+
+        # Calculate amounts using Decimal and quantize appropriately
+        # original_amount is the display amount in the target currency (x_currency)
+        original_amount = (order_amount_cents / Decimal('100') * rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+        # stripe expects integer smallest-units (cents). Compute target cents and round half up to whole cents.
+        target_cents = (order_amount_cents * rate).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+        stripe_amount = int(target_cents)
+
         metadata = {
             "order_id": order.id,
             "user_id": order.user_id,
@@ -382,15 +480,18 @@ class UserBundleService:
             "env": os.environ.get("ENVIRONMENT", "DEV"),
             "promo_code": assign_request.promo_code if assign_request else None,
             "rule_id": rule_id,
-            "amount": minor_units
+            "amount": stripe_amount
         }
         if order.order_type == UserOrderType.BUNDLE_TOP_UP and iccid:
             metadata["iccid"] = iccid
         payment_intent, tax = create_payment_intent(user_bundle_order=order, user_email=user.email,
                                                     metadata=metadata,
+                                                    rate=raw_rate,
+                                                    currency=x_currency,
                                                     ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id
-        await self.__user_order_repo.update_by({"id": order.id}, data=order)
+        self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
+        tax_excl = float(getattr(tax, "tax_amount_exclusive", 0) / 100)
         ephemeral = create_payment_ephemeral(payment_intent.customer)
         response = PaymentIntentResponse(publishable_key=os.getenv("STRIPE_PUBLIC_KEY"),
                                          merchant_identifier=os.getenv("MERCHANT_ID"),
@@ -401,11 +502,14 @@ class UserBundleService:
                                          merchant_display_name=os.getenv("MERCHANT_DISPLAY_NAME"),
                                          billing_country_code="GB",
                                          order_id=order.id,
-                                         subtotal_price_display=f"{minor_units / 100} {order.currency}",
-                                         total_price_display=f"{payment_intent.amount / 100} {order.currency}",
-                                         tax_price_display=f"{round(tax.amount_total if tax else 0, 2)} {order.currency}",
-                                         has_tax=tax is not None and tax.amount_total > 0
+                                         subtotal_price_display=f"{round(original_amount, 2)} {x_currency}",
+                                         total_price_display=f"{round(payment_intent.amount / 100, 2)} {x_currency}",
+                                         tax_price_display=f"{round(tax_excl, 2)} {x_currency}",
+                                         has_tax=tax_excl > 0
                                          )
+
+        usd_tax = self.__currency_service.convert(x_currency, order.currency, tax_excl)
+        await self.__user_order_repo.update(record_id=order.id, data={"tax_amount": usd_tax * 100})
         return ResponseHelper.success_data_response(response, 0)
 
     async def __check_if_user_eligible_for_referral(self, user: UserModel, promo_code: str):
@@ -414,16 +518,16 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.USER_HAS_PREVIOUS_ESIM,
                                   details="User already purchased esim before, cannot use referral code")
         user_model: UsersCopyModel = await self.__user_repo.get_by_id(user.id)
-        if user_model.metadata_json["referral_code"] and user_model.metadata["referral_code"] == promo_code:
+        if user_model.metadata_json["referral_code"] and user_model.metadata_json["referral_code"] == promo_code:
             raise CustomException(code=400, name=ErrorMessages.OWN_REFERRAL_CODE_CANNOT_BE_USED,
                                   details="Own Referral Code Can not be used")
 
-    async def __update_order_with_delay(self, order_id: str, bundle: BundleDTO, rate: float):
+    async def __update_order_with_delay(self, order_id: str, bundle: BundleDTO):
         """Background task to update order with delay"""
-        await asyncio.sleep(5)
+        await asyncio.sleep(3)
         try:
-            modified_amount = bundle.original_price * rate
-            amount = bundle.original_price * rate
+            modified_amount = bundle.original_price
+            amount = bundle.original_price
             logger.info(f"Updating order {order_id} with delayed background task at {datetime.now()}")
             await self.__user_order_repo.update_by(where={"id": order_id}, data={
                 "amount": int(round(amount * 100)),
@@ -433,3 +537,19 @@ class UserBundleService:
             logger.info(f"Successfully updated order {order_id} in background")
         except Exception as e:
             logger.error(f"Error updating order {order_id} in background: {str(e)}")
+
+    def __is_order_otp_expired(self, order_id: str) -> bool:
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        resp = (
+            supabase_client()
+            .table("user_order")
+            .select("id")
+            .eq("id", order_id)
+            .lt("otp_expired_at", now)  # otp_expired_at < now
+            .execute()
+        )
+
+        return len(resp.data) > 0

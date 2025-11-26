@@ -1,6 +1,9 @@
 import asyncio
 import os
+from decimal import Decimal
 from typing import List
+
+from loguru import logger
 
 from app.repo.currency_repo import CurrencyRepo
 from app.schemas.dto_mapper import DtoMapper
@@ -26,6 +29,19 @@ class CurrencyService:
 
     def get_rate_by_currency(self, currency_name: str) -> float:
         return asyncio.run(self.aget_rate_by_currency(currency_name))
+
+    def convert(self, from_currency: str, to_currency: str, amount: float) -> float:
+        system_currency = os.getenv("SYSTEM_CURRENCY", "USD")
+        if from_currency == system_currency:
+            rate = self.get_rate_by_currency(to_currency)
+            logger.info(f"Converting from {from_currency} to {to_currency} amount: {amount} with rate * {rate}")
+            val = Decimal(amount) * Decimal(rate)
+            return float(val)
+        else:
+            rate = self.get_rate_by_currency(from_currency)
+            logger.info(f"Converting from {from_currency} to {to_currency} amount: {amount} with rate / {rate}")
+            val = Decimal(amount) / Decimal(rate)
+            return float(val)
 
     def get_currency_rate(self, from_currency: str, to_currency: str):
         currency = asyncio.run(self.__currency_repo.get_first_by(

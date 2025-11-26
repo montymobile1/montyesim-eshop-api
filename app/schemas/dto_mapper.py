@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from math import ceil
 from typing import List
 
@@ -8,10 +8,10 @@ from gotrue import AuthResponse
 from loguru import logger
 
 from app.config.context import currency_context
-from app.config.db import PaymentTypeEnum
-from app.models import UserProfileBundleModel, UserProfileModel, UserOrderModel, UserWalletModel
 from app.models.currency import CurrencyModel
 from app.models.notification import NotificationModel
+from app.models.user import UserProfileModel, UserProfileBundleModel, CallBackNotificationInfoModel, UserOrderModel, \
+    UserWalletModel
 from app.models.promotion_usage import PromotionUsageModel
 from app.schemas.app import UserNotificationResponse, PageContentResponse, ExchangeRate
 from app.schemas.auth import AuthResponseDTO, UserInfo
@@ -176,7 +176,7 @@ class DtoMapper:
 
     @staticmethod
     def to_esim_bundle_response(user_profile: UserProfileModel, rate: float,
-                                x_currency: str) -> EsimBundleResponse | None:
+                                x_currency: str, tax: float = 0) -> EsimBundleResponse | None:
         profile_current_bundle: UserProfileBundleModel = DtoMapper.get_profile_current_bundle(user_profile)
         if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
             logger.warning(f"Bundle data missing for user profile {user_profile.id}")
@@ -199,7 +199,7 @@ class DtoMapper:
         if searched_countries_array and len(searched_countries_array) > 0:
             first_country = searched_countries_array[0]
             display_title = first_country.country_name
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(getattr(first_country.iso3_code, 'country_name', 'generic')).lower()}.png"
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(first_country.iso3_code).lower()}.png"
 
         elif bundle_category.type.lower() == "region" and searched_region:
             display_title = searched_region.region_name
@@ -210,18 +210,26 @@ class DtoMapper:
         elif bundle_data.countries and len(bundle_data.countries) > 0:
             country = bundle_data.countries[0]
             display_title = country.country
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(getattr(country.iso3_code, 'country_name', 'generic')).lower()}.png"
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(country.iso3_code).lower()}.png"
         if bundle_data.label is not None and bundle_data.label != "":
             display_title = bundle_data.label
 
         countries_sorted = DtoMapper.move_matching_countries_to_top(bundle_data.countries, searched_countries_array)
+
+        if not profile_current_bundle.plan_started:
+            order_status = "Inactive"
+        elif not profile_current_bundle.bundle_expired:
+            order_status = "Active"
+        else:
+            order_status = "Expired"
+        amount = (bundle_data.original_price * rate) + ((tax / 100) * rate)
         data = {
             "is_topup_allowed": user_profile.allow_topup,
             "plan_started": profile_current_bundle.plan_started,
             "bundle_expired": profile_current_bundle.bundle_expired,
             "label_name": user_profile.label or None,
             "order_number": user_profile.user_order_id,
-            "order_status": "Active" if not profile_current_bundle.bundle_expired else "Expired",
+            "order_status": order_status,
             "searched_countries": [],
             "qr_code_value": f"LPA:1${user_profile.smdp_address}${user_profile.activation_code}",
             'activation_code': user_profile.activation_code,
@@ -239,8 +247,8 @@ class DtoMapper:
             'count_countries': bundle_data.count_countries,
             "currency_code": bundle_data.currency_code,
             "gprs_limit_display": bundle_data.gprs_limit_display,
-            "price": round(bundle_data.original_price * rate, 2),
-            "price_display": f"{round(bundle_data.original_price * rate, 2)} {x_currency}",
+            "price": amount,
+            "price_display": f"{round(amount, 2)} {x_currency}",
             "unlimited": bundle_data.unlimited,
             "validity": bundle_data.validity,
             "validity_label": bundle_data.validity_label,
@@ -292,25 +300,86 @@ class DtoMapper:
 
     @staticmethod
     def to_order_notification_model(bundle: UserProfileModel, user_id: str,
-                                    user_metadata: dict, iccid: str) -> CallBackNotificationInfo:
+                                    user_metadata: dict, iccid: str) -> CallBackNotificationInfoModel:
+        # Extract user display name
         first_name = user_metadata.get("first_name", "")
         last_name = user_metadata.get("last_name", "")
         full_name = f"{first_name} {last_name}".strip()
         user_display_name = full_name or user_metadata.get("email") or "User"
+
+        # Figure out bundle display name and DTO from bundles list (can contain BundleDTO or UserProfileBundleModel)
         bundle_display_name = bundle.label
+        bundle_dto: BundleDTO | None = None
+        if getattr(bundle, 'bundles', None):
+            first = bundle.bundles[0]
+            try:
+                if isinstance(first, BundleDTO):
+                    bundle_dto = first
+                elif hasattr(first, 'bundle_data') and first.bundle_data:
+                    bundle_dto = BundleDTO.model_validate(first.bundle_data)
+            except Exception as e:
+                logger.debug(f"Failed to coerce first bundle to BundleDTO: {e}")
 
-        bundle_data = bundle.bundles[0]
-
-        if not bundle_display_name and bundle and bundle_data.bundle_data:
-            bundle_display_name = bundle_data.bundle_data.get("display_title")
+        # Derive bundle display name from DTO if not explicitly labeled
+        if not bundle_display_name and bundle_dto:
+            bundle_display_name = getattr(bundle_dto, 'display_title', None)
         bundle_display_name = bundle_display_name or "Bundle"
+
+        # Determine bundle expiration in days from validity_display when available
+        bundle_expiration_days = 0
+        if bundle_dto and getattr(bundle_dto, 'validity_display', None):
+            parts = str(bundle_dto.validity_display).split()
+            if parts:
+                try:
+                    amount = int(parts[0])
+                    unit = parts[1].lower() if len(parts) > 1 else "day"
+                    if unit.startswith("day"):
+                        multiplier = 1
+                    elif unit.startswith("week"):
+                        multiplier = 7
+                    elif unit.startswith("month"):
+                        multiplier = 30
+                    elif unit.startswith("year"):
+                        multiplier = 365
+                    else:
+                        multiplier = 0
+                    bundle_expiration_days = amount * multiplier
+                except Exception as e:
+                    logger.debug(f"Unable to parse validity_display '{bundle_dto.validity_display}': {e}")
+
+        # Compute validity datetime safely (created_at can be string)
+        validity_str = None
+        created_at_str = getattr(bundle, 'created_at', None)
+        created_at_dt = None
+        if isinstance(created_at_str, str) and created_at_str:
+            # Normalize Z to +00:00 for fromisoformat compatibility
+            normalized = created_at_str.replace('Z', '+00:00') if created_at_str.endswith('Z') else created_at_str
+            try:
+                created_at_dt = datetime.fromisoformat(normalized)
+            except Exception:
+                created_at_dt = None
+        if created_at_dt is None:
+            try:
+                created_at_dt = datetime.now(tz=timezone.utc)
+            except Exception:
+                created_at_dt = datetime.now()
+
+        try:
+            validity_dt = created_at_dt + timedelta(days=bundle_expiration_days)
+            validity_str = validity_dt.isoformat()
+        except Exception as e:
+            logger.debug(f"Failed computing validity from created_at + delta: {e}")
+
+        # Fallback to bundle.validity string if computation failed
+        if not validity_str and getattr(bundle, 'validity', None):
+            validity_str = bundle.validity
 
         return CallBackNotificationInfo(
             user_id=user_id,
             user_display_name=user_display_name,
             bundle_display_name=bundle_display_name,
             iccid=bundle.iccid,
-            validity=bundle.validity,
+            validity=validity_str or "",
             label=bundle.label,
             smdp_address=bundle.smdp_address,
             activation_code=bundle.activation_code,
@@ -324,7 +393,8 @@ class DtoMapper:
                               currency: str = None) -> UserOrderHistoryResponse:
         if currency == user_order.currency:
             rate = 1.0
-        amount = (user_order.modified_amount or user_order.amount)
+        amount = (
+                     user_order.modified_amount if user_order.modified_amount is not None else user_order.amount) + user_order.tax_amount
         data = {
             "order_number": user_order.id,
             "order_status": user_order.payment_status,
@@ -339,7 +409,7 @@ class DtoMapper:
             "company_phone": os.getenv("MERCHANT_PHONE", "Company Phone"),
             "company_email": os.getenv("MERCHANT_EMAIL", "Company Email"),
             "company_website": os.getenv("MERCHANT_WEBSITE", "https://example.com"),
-            "payment_type": os.getenv("PAYMENT_METHODS", PaymentTypeEnum.CARD)
+            "payment_type": user_order.payment_type
         }
         return UserOrderHistoryResponse.model_validate(data)
 
@@ -361,6 +431,9 @@ class DtoMapper:
         first_name = user_metadata.get("first_name", "")
         last_name = user_metadata.get("last_name", "")
         referral_code = user_metadata.get("referral_code", "")
+        login_type = user_metadata.get("login_type", "email")
+        email_editable = login_type != "email"
+        phone_editable = login_type != "phone"
 
         if fullname and first_name == "":
             name_parts = fullname.split()
@@ -382,7 +455,10 @@ class DtoMapper:
             should_notify=user_metadata.get("should_notify", False),
             referral_code=referral_code,
             balance=user_wallet.balance if user_wallet else 0,
-            currency_code=currency,
+            currency_code=user_metadata.get("currency", os.getenv("DEFAULT_CURRENCY")),
+            email_editable=email_editable,
+            phone_editable=phone_editable,
+            language=user_metadata.get("language", "En"),
         )
 
         if not hasattr(supabase_response, "session"):
@@ -412,8 +488,6 @@ class DtoMapper:
 
     @staticmethod
     def bundle_currency_update(bundle: BundleDTO, currency: str = None, rate: float = 1.0) -> BundleDTO:
-        if rate == 1:
-            currency = os.getenv("DEFAULT_CURRENCY")
         price = bundle.original_price * rate
         bundle.currency_code = currency
         if os.getenv("DISPLAY_PRICE", "normal") == "rounded":

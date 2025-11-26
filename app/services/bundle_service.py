@@ -1,16 +1,17 @@
 import os
 import threading
 from datetime import datetime
-from typing import List
+from typing import List, Literal
 
 from coverage.html import os
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance, send_email, generate_qr_code, get_email_template
 from app.config.constants import ErrorMessages
-from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum
+from app.config.db import UserBundleType, OrderStatusEnum, PaymentTypeEnum, ConfigKeysEnum, PromotionRuleAction
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
+from app.config.utils import get_config
 from app.exceptions import BadRequestException, CustomException
 from app.models import BundleModel
 from app.models import UserOrderModel, UsersCopyModel, UserProfileModel
@@ -271,13 +272,20 @@ class BundleService:
             msisdn = os.getenv("WHATSAPP_NUMBER")
             if msisdn:
                 msisdn = msisdn.replace("+", "").replace("-", "").replace(" ", "")
+            currency = user.metadata.get("currency", os.getenv("DEFAULT_CURRENCY", "USD"))
+            rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=currency)
             coverage = self.__get_coverage(user_profile=user_profile, bundle=bundle)
             display_email = user.metadata_json.get("display_email", None)
             email = user.metadata_json.get("email", user.email) if display_email is None else display_email
+            display_email = user.metadata.get("display_email", None)
+            email = user.metadata.get("email", user.email) if display_email is None else display_email
+            amount = user_order.modified_amount + user_order.tax_amount
+            amount = truncate_two_decimals_decimal((amount / 100) * rate)
             data = {
                 "bundle_name": bundle.bundle_name,
                 "gprs_limit_display": bundle.gprs_limit_display,
                 "price": f"{round(user_order.modified_amount / 100, 2)} {user_order.currency.upper()}",
+                "price": f"{amount} {currency.upper()}",
                 "coverage": coverage,
                 "validity": bundle.validity_display,
                 "iccid": user_profile.iccid,
@@ -318,6 +326,11 @@ class BundleService:
         return sorted_bundles
 
     def __get_coverage(self, user_profile: UserProfileModel, bundle: BundleDTO):
+
+        bundle_type = self.__bundle_type(code=bundle.bundle_code)
+        if bundle_type == "CRUISE":
+            return "Cruise"
+
         try:
             searched_countries = RelatedSearchRequestDto.model_validate_json(user_profile.searched_countries)
         except Exception as e:
@@ -331,8 +344,51 @@ class BundleService:
             coverage = bundle_countries[0].country_code if bundle_countries else "No coverage"
 
         if searched_countries:
-            if searched_countries.countries:
+            if searched_countries.countries and len(searched_countries.countries) > 0:
                 coverage = f"{searched_countries.countries[0].country_name} {more_countries}"
             if searched_countries.region:
                 coverage = searched_countries.region.region_name
         return coverage
+    def __get_discount_amount(self, promo_code: str):
+        try:
+            if self.__promotion_service.is_referral_code(promo_code):
+                rule = self.__promotion_service.get_referral_rule()
+                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT:
+                    return float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
+            promotion = self.__promotion_service.get_promotion_by_code(promo_code)
+            if promotion:
+                rule = self.__promotion_service.get_rule_by_id(promotion.rule_id)
+                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT:
+                    return promotion.amount
+            return 0
+        except Exception as e:
+            logger.error(f"error while getting discount amount {str(e)}")
+            return 0
+
+    def __get_discount_rate(self, promo_code: str):
+        try:
+            if self.__promotion_service.is_referral_code(promo_code):
+                rule = self.__promotion_service.get_referral_rule()
+                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE:
+                    return float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
+            promotion = self.__promotion_service.get_promotion_by_code(promo_code)
+            if promotion:
+                rule = self.__promotion_service.get_rule_by_id(promotion.rule_id)
+                if rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE:
+                    return promotion.amount
+            return 0
+        except Exception as e:
+            logger.error(f"error while getting discount rate {str(e)}")
+            return 0
+
+    async def __bundle_type(self, code) -> Literal["COUNTRY", "CRUISE"]:
+        bundle_type = "COUNTRY"
+        bundle_tags = await self.__bundle_tag_repo.list(where={"bundle_id": code})
+        for bundle_tag in bundle_tags:
+            tag = await self.__tag_repo.get_first_by(where={"id": bundle_tag.tag_id})
+            if tag.tag_group_id == 3:
+                bundle_type = "CRUISE"
+                break
+        if bundle_type not in ("COUNTRY", "CRUISE"):
+            raise ValueError(f"Invalid bundle_type: {bundle_type}")
+        return bundle_type
