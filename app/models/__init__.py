@@ -19,7 +19,7 @@ from .user_order import UserOrderModel
 from .user_profile_bundle import UserProfileBundleModel
 from .user_wallet import UserWalletModel
 from .user_wallet_transaction import UserWalletTransactionModel
-from .user import UsersCopyModel
+from .user import UsersCopyModel, SupabaseAuthUserModel
 from .voucher import VoucherModel
 from .user_otp import UserOtpModel
 from .promotion_usage import PromotionUsageModel
@@ -48,6 +48,7 @@ __all__ = [
     "UserWalletModel",
     "UserWalletTransactionModel",
     "UsersCopyModel",
+    "SupabaseAuthUserModel",
     "VoucherModel",
     "UserOtpModel",
     "PromotionUsageModel",

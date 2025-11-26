@@ -3,6 +3,21 @@ from sqlalchemy.dialects.postgresql import UUID, JSONB
 from .base import Base
 
 
+class SupabaseAuthUserModel(Base):
+    """
+    Minimal model for Supabase auth.users table.
+    This is a read-only reference to satisfy foreign key constraints.
+    Supabase manages this table directly.
+    """
+    __tablename__ = "users"
+    __table_args__ = {'schema': 'auth'}
+
+    id = Column(UUID(as_uuid=True), primary_key=True, nullable=False)
+
+    def __repr__(self):
+        return f"SupabaseAuthUser(id={self.id!r})"
+
+
 class UsersCopyModel(Base):
     __tablename__ = "users_copy"
 
