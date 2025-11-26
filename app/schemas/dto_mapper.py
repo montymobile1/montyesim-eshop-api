@@ -8,10 +8,9 @@ from gotrue import AuthResponse
 from loguru import logger
 
 from app.config.context import currency_context
+from app.models import UserProfileBundleModel, UserProfileModel, UserOrderModel, UserWalletModel
 from app.models.currency import CurrencyModel
 from app.models.notification import NotificationModel
-from app.models.user import UserProfileModel, UserProfileBundleModel, CallBackNotificationInfoModel, UserOrderModel, \
-    UserWalletModel
 from app.models.promotion_usage import PromotionUsageModel
 from app.schemas.app import UserNotificationResponse, PageContentResponse, ExchangeRate
 from app.schemas.auth import AuthResponseDTO, UserInfo
@@ -300,7 +299,7 @@ class DtoMapper:
 
     @staticmethod
     def to_order_notification_model(bundle: UserProfileModel, user_id: str,
-                                    user_metadata: dict, iccid: str) -> CallBackNotificationInfoModel:
+                                    user_metadata: dict, iccid: str) -> CallBackNotificationInfo:
         # Extract user display name
         first_name = user_metadata.get("first_name", "")
         last_name = user_metadata.get("last_name", "")
@@ -311,7 +310,7 @@ class DtoMapper:
         bundle_display_name = bundle.label
         bundle_dto: BundleDTO | None = None
         if getattr(bundle, 'bundles', None):
-            first = bundle.bundles[0]
+            first = bundle.user_profile_bundle[0]
             try:
                 if isinstance(first, BundleDTO):
                     bundle_dto = first

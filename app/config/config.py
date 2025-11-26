@@ -96,13 +96,13 @@ def authenticate(email: str | EmailStr, data: dict):
 def send_email(subject: str, html_content: str, recipients: str, attachment: BytesIO = None):
     """
     Send an email with optional attachment.
-    
+
     Args:
         subject (str): Email subject
         html_content (str): HTML content of the email
         recipients (str): Comma-separated list of recipient email addresses
         attachment (BytesIO, optional): Optional attachment to include in the email
-        
+
     Raises:
         ValueError: If required email configuration is missing
         smtplib.SMTPException: If there's an error sending the email

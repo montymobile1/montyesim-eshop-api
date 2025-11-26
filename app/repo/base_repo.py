@@ -6,7 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, selectinload
 
-from app.db.engine import SessionLocal
+from app.db.engine import SessionLocal, SyncSessionLocal
 from app.exceptions import DatabaseException
 
 T = TypeVar("T", bound=DeclarativeBase)
@@ -18,6 +18,68 @@ class BaseRepository(Generic[T]):
 
     def get_session(self) -> AsyncSession:
         return SessionLocal()
+
+    def get_sync_session(self):
+        return SyncSessionLocal()
+
+    def sget_first_by(self, where: dict = None, filters: dict = None) -> Optional[T]:
+        """
+        Synchronous version of get_first_by. Get first record matching WHERE conditions and/or raw SQL filters.
+
+        Args:
+            where: Dictionary of field:value pairs for exact matches (e.g., {"email": "test@example.com"})
+            filters: Dictionary of raw SQL conditions for complex queries like JSONB operators
+                    (e.g., {"metadata->>'referral_code'": "ABC123"})
+
+        Returns:
+            First matching record or None
+
+        Example:
+            # Simple WHERE
+            user = repo.sget_first_by(where={"email": "test@example.com"})
+
+            # JSONB filter
+            user = repo.sget_first_by(filters={"metadata->>'referral_code'": "ABC123"})
+        """
+        with self.get_sync_session() as session:
+            try:
+                stmt = select(self.model)
+
+                # Apply WHERE conditions
+                if where:
+                    for key, value in where.items():
+                        stmt = stmt.where(getattr(self.model, key) == value)
+
+                # Apply raw SQL filters for JSONB and other complex conditions
+                if filters:
+                    for condition, value in filters.items():
+                        # Build the full condition with table name and placeholder
+                        table_name = self.model.__tablename__
+                        param_name = f"filter_{abs(hash(condition))}"
+                        full_condition = f"{table_name}.{condition.strip()} = :{param_name}"
+                        stmt = stmt.where(text(full_condition)).params(**{param_name: value})
+
+                result = session.execute(stmt)
+                return result.scalars().first()
+            except SQLAlchemyError as e:
+                raise DatabaseException(str(e))
+
+    def screate(self, data: dict | T) -> T:
+        with self.get_sync_session() as session:
+            try:
+                # Handle both dict and model instance
+                if isinstance(data, dict):
+                    record = self.model(**data)
+                else:
+                    record = data
+
+                session.add(record)
+                session.commit()
+                session.refresh(record)
+                return record
+            except SQLAlchemyError as e:
+                session.rollback()
+                raise DatabaseException(str(e))
 
     async def upsert(self, data: dict | T, on_conflict: str) -> T:
         """
@@ -164,7 +226,7 @@ class BaseRepository(Generic[T]):
                 raise DatabaseException(str(e))
 
     async def get_first_by_with_relations(self, where: dict = None, filters: dict = None,
-                                         relations: List[str] = None) -> Optional[T]:
+                                          relations: List[str] = None) -> Optional[T]:
         """
         Get first record matching WHERE conditions and/or raw SQL filters with relationships loaded.
 

@@ -43,12 +43,15 @@ class CurrencyService:
             val = Decimal(amount) / Decimal(rate)
             return float(val)
 
-    def get_currency_rate(self, from_currency: str, to_currency: str):
-        currency = asyncio.run(self.__currency_repo.get_first_by(
-            where={"name": to_currency, "default_currency": from_currency}))
+    async def aget_currency_rate(self, from_currency: str, to_currency: str):
+        currency = await self.__currency_repo.get_first_by(
+            where={"name": to_currency, "default_currency": from_currency})
         if not currency:
             return 1.0
         return currency.rate
+
+    def get_currency_rate(self, from_currency: str, to_currency: str):
+        return asyncio.run(self.aget_currency_rate(from_currency, to_currency))
 
     def get_all_currency(self) -> Response[List[CurrencyDto]]:
         currency_list = asyncio.run(self.__currency_repo.list(where={"default_currency": "USD"}))
