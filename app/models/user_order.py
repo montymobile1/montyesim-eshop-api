@@ -1,5 +1,7 @@
 from sqlalchemy import Column, String, DateTime, Numeric, ForeignKey, func, DECIMAL
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+
 from .base import Base
 
 
@@ -30,5 +32,7 @@ class UserOrderModel(Base):
     otp_expired_at = Column(DateTime(timezone=False), server_default=None)
     tax_amount = Column(Numeric, server_default='0')
 
+    user_profile = relationship("UserProfileModel", uselist=False, back_populates="order")
+
     def __repr__(self):
-        return f"UserOrder(id={self.id!r}, amount={self.amount!r}, status={self.status!r})"
+        return f"UserOrder(id={self.id!r}, amount={self.amount!r}, payment_status={self.payment_status!r},order_status={self.order_status!r})"

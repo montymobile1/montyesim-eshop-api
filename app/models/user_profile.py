@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, DateTime, Boolean, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
 from .base import Base
 
 
@@ -19,6 +20,9 @@ class UserProfileModel(Base):
     esim_hub_order_id = Column(String(200), nullable=True)
     searched_countries = Column(String(200), nullable=True)
     shared_user_id = Column(UUID(as_uuid=True), server_default=func.gen_random_uuid())
+
+    order = relationship("UserOrderModel", back_populates="user_profile")
+    user_profile_bundle = relationship("UserProfileBundleModel", back_populates="user_profile")
 
     def __repr__(self):
         return f"UserProfile(id={self.id!r}, iccid={self.iccid!r})"

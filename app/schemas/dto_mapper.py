@@ -121,7 +121,7 @@ class DtoMapper:
         data = {
             "user_order_id": user_profile_bundle.user_order_id,
             "iccid": user_profile_bundle.iccid,
-            "bundle_type": user_profile_bundle.bundle_type.value,
+            "bundle_type": user_profile_bundle.bundle_type,
             "plan_started": user_profile_bundle.plan_started,
             "bundle_expired": user_profile_bundle.bundle_expired,
             "created_at": user_profile_bundle.created_at,
@@ -131,7 +131,7 @@ class DtoMapper:
 
     @staticmethod
     def get_profile_current_bundle(user_profile: UserProfileModel):
-        bundles = user_profile.bundles
+        bundles = user_profile.user_profile_bundle
         if not bundles:
             return None
         if len(bundles) == 1:
@@ -262,7 +262,7 @@ class DtoMapper:
                 DtoMapper.to_transaction_history_response(user_profile_bundle=bundle, rate=rate, x_currency=x_currency)
                 for
                 bundle in
-                user_profile.bundles],
+                user_profile.user_profile_bundle],
         }
         return EsimBundleResponse.model_validate(data)
 

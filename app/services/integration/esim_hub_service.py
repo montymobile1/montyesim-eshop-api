@@ -5,6 +5,7 @@ import httpx
 from loguru import logger
 
 from app.config.api import EsimHubEndpoint
+from app.config.helper import get_config
 from app.exceptions import EsimHubException
 from app.models.user import UsersCopyModel
 from app.schemas.app import ExchangeRate
@@ -20,6 +21,12 @@ class EsimHubService:
         self.__api_key = api_key
         self.__base_url = base_url
         self.__tenant_key = tenant_key
+
+        self.__limits = httpx.Limits(
+            max_keepalive_connections=int(os.getenv("MAX_KEEPALIVE_CONNECTIONS", 100)),
+            max_connections=int(os.getenv("MAX_CONNECTIONS", 200)),
+        )
+        self.__timeout = httpx.Timeout(120.0)
 
     async def get_regions(self) -> List[RegionDTO]:
         params = {
@@ -164,7 +171,10 @@ class EsimHubService:
             return None
 
     async def create_reseller_order(self, bundle_code: str, order_id: str, user: UsersCopyModel,
-                                    payment_type: str = "") -> EsimHubOrderResponse | None:
+                                    payment_type: str = "", discount_amount: float = 0, discount_rate: float = 0,
+                                    new_price: float = 0,
+                                    bundle_type: Literal[
+                                        "COUNTRY", "CRUISE"] = "COUNTRY") -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "Quantity": 1,
@@ -172,8 +182,12 @@ class EsimHubService:
             "ServiceTag": "ESIM",
             "PhoneNumber": user.metadata_json.get("msisdn", ""),
             "ClientName": user.metadata_json.get("first_name", "") + " " + user.metadata_json.get("last_name", ""),
-            "Email": user.metadata_json.get("display_email", ""),
+            "Email": user.metadata_json.get("display_email", user.email),
             "PaymentMethod": payment_type,
+            "DiscountAmount": discount_amount,
+            "DiscountRate": discount_rate,
+            "NewPrice": new_price,
+            "BundleType": bundle_type
 
         }
         try:
@@ -196,7 +210,9 @@ class EsimHubService:
 
     async def create_reseller_topup(self, bundle_code: str, esim_hub_order_id,
                                     order_id: str, user: UsersCopyModel,
-                                    payment_type: str = "") -> EsimHubOrderResponse | None:
+                                    payment_type: str = "",
+                                    bundle_type: Literal[
+                                        "COUNTRY", "CRUISE"] = "COUNTRY") -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "OrderId": esim_hub_order_id,
@@ -204,13 +220,19 @@ class EsimHubService:
             "ServiceTag": "ESIM",
             "PhoneNumber": user.metadata_json.get("msisdn", ""),
             "ClientName": user.metadata_json.get("first_name", "") + " " + user.metadata_json.get("last_name", ""),
-            "Email": user.metadata_json.get("display_email", ""),
+            "Email": user.metadata_json.get("display_email", user.email),
             "PaymentMethod": payment_type,
+            "DiscountAmount": None,
+            "DiscountRate": None,
+            "NewPrice": None,
+            "BundleType": bundle_type
 
         }
         response = await self.__do_request(method="POST", path=EsimHubEndpoint.API_CREATE_RESELLER_TOPUP,
                                            body=request_body,
                                            base_url=os.getenv("ESIM_HUB_BASE_URL2"))
+        logger.debug(f"request body: {request_body}")
+        logger.debug(f"response: {response}")
         logger.info(response)
         if "success" not in response:
             logger.error("Failed to create reseller Hub: {}".format(response))
@@ -344,14 +366,14 @@ class EsimHubService:
     async def get_exchange_rates(self, currency_codes: List[str]) -> List[ExchangeRate]:
         params = {
             "CurrencyCodes": currency_codes,
-            "ResellerGuid": os.getenv("RESELLER_ID", ""),
+            "ResellerGuid": get_config("RESELLER_ID", ""),
         }
         try:
             response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_EXCHANGE_RATE, params=params)
             if "success" not in response:
                 logger.error("Failed to get exchange rates: {}".format(response))
                 return []
-            return [DtoMapper.to_exchange_rate(data) for data in response["data"]["exchangeRates"]]
+            return [DtoMapper.to_exchange_rate(data) for data in response["data"]["items"]]
         except Exception as e:
             logger.error("Failed to get exchange rates: {}".format(e))
             return []
@@ -367,25 +389,34 @@ class EsimHubService:
         if base_url is None:
             base_url = self.__base_url
         try:
-            with httpx.Client() as client:
-                headers["Tenant"] = self.__tenant_key
-                headers["Content-Type"] = "application/json"
-                headers["Accept"] = "application/json"
-                headers["Api-Key"] = self.__api_key
-                response = client.request(method=method, url=base_url + path, headers=headers, params=params,
-                                          json=body, timeout=120)
-                logger.debug("Request: curl -X {} {} {} Response: {}".format(method, response.url, " ".join(
-                    [f'--header "{key}: {value}"' for key, value in headers.items()]), response))
-                if response.status_code != httpx.codes.OK:
-                    try:
-                        json_response = response.json()
-                        raise EsimHubException(
-                            json_response["message"] if "message" in json_response else str(json_response))
-                    except Exception as e:
-                        logger.debug(f"failed to parse response as JSON: {str(e)}")
-                        raise EsimHubException(f"eSIM Hub API request failed: {response.status_code}")
-                return response.json()
+            headers["Tenant"] = self.__tenant_key
+            headers["Content-Type"] = "application/json"
+            headers["Accept"] = "application/json"
+            headers["Api-Key"] = self.__api_key
+
+            # Create a per-request AsyncClient to avoid cross-thread/event-loop reuse
+            async with httpx.AsyncClient(limits=self.__limits, timeout=self.__timeout) as client:
+                response = await client.request(
+                    method=method,
+                    url=base_url + path,
+                    headers=headers,
+                    params=params,
+                    json=body
+                )
+
+            logger.debug("Request: curl -X {} {} {} Response: {}".format(method, base_url + path, " ".join(
+                [f'--header "{key}: {value}"' for key, value in headers.items()]), response))
+            if response.status_code != httpx.codes.OK:
+                try:
+                    json_response = response.json()
+                    raise EsimHubException(
+                        json_response["message"] if "message" in json_response else str(json_response))
+                except Exception as e:
+                    logger.debug(f"failed to parse response as JSON: {str(e)}")
+                    raise EsimHubException(f"eSIM Hub API request failed: {response.status_code}")
+            return response.json()
         except Exception as e:
+            logger.error(f"Error during eSIM Hub API request ({base_url + path}): {str(e)}")
             # Raise CustomException as is, otherwise wrap in EsimHubException
             from app.exceptions import CustomException
             if isinstance(e, CustomException):

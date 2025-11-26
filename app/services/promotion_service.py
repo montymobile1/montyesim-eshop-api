@@ -368,8 +368,8 @@ class PromotionService:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
                                   details="times used is full")
 
-    def is_referral_code(self, referral_code: str) -> bool:
-        return self.__user_repo.get_first_by(where={},
+    async def is_referral_code(self, referral_code: str) -> bool:
+        return await self.__user_repo.get_first_by(where={},
                                              filters={self.__user_repo.referral_code_key(): referral_code}) is not None
 
     async def apply_promotion_code_after_purchase(self, user_id: str, code: str,

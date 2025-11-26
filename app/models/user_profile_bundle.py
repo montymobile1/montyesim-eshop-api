@@ -1,5 +1,6 @@
 from sqlalchemy import Column, String, DateTime, Boolean, BigInteger, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy.orm import relationship
 from .base import Base
 
 
@@ -17,6 +18,8 @@ class UserProfileBundleModel(Base):
     iccid = Column(String, nullable=True)
     user_profile_id = Column(UUID(as_uuid=True), ForeignKey("user_profile.id"), nullable=False)
     esim_hub_order_id = Column(String, nullable=True)
+
+    user_profile = relationship("UserProfileModel", back_populates="user_profile_bundle")
 
     def __repr__(self):
         return f"UserProfileBundle(id={self.id!r}, user_id={self.user_id!r}, bundle_type={self.bundle_type!r})"

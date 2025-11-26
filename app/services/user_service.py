@@ -9,13 +9,11 @@ import stripe
 from fastapi import Request
 from loguru import logger
 
-from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance, supabase_client
+from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance
 from app.config.constants import ErrorMessages, PaymentStatusEnum, UserWalletTransactionSource
 from app.config.db import DatabaseTables, PaymentTypeEnum, OrderStatusEnum, UserOrderType, ConfigKeysEnum
 from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, get_config
 from app.exceptions import BadRequestException, CustomException
-from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel, UsersCopyModel, UserWalletModel, \
-    UserProfileModel
 from app.models import UserOrderModel, UsersCopyModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
 from app.schemas.app import UserNotificationResponse
@@ -131,7 +129,7 @@ class UserBundleService:
     async def assign_top_up(self, user: UserModel, assign_top_up_request: AssignTopUpRequest, device_id: str,
                             request: Request, x_currency: str, locale: str) -> Response:
         bundle_response = await self.__bundle_service.get_bundle(bundle_id=assign_top_up_request.bundle_code,
-                                                           currency_name=x_currency, locale=locale)
+                                                                 currency_name=x_currency, locale=locale)
         bundle = bundle_response.data
 
         order = await self.__user_order_repo.create({
@@ -165,8 +163,9 @@ class UserBundleService:
                                   details=f"Payment type {payment_type} is not supported")
 
     async def get_user_esims(self, user: UserModel, x_currency: str) -> Response[List[EsimBundleResponse]]:
-        user_profiles = await self.__user_profile_repo.list_with_relations(relations=[DatabaseTables.TABLE_USER_PROFILE_BUNDLE],
-                                                        where={"user_id": user.id})
+        user_profiles = await self.__user_profile_repo.list_with_relations(
+            relations=[DatabaseTables.TABLE_USER_PROFILE_BUNDLE],
+            where={"user_id": user.id})
         esim_bundle_response = []
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         for profile in user_profiles:
@@ -186,8 +185,9 @@ class UserBundleService:
         return ResponseHelper.success_data_response(esim_bundle_response, len(esim_bundle_response))
 
     async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str) -> Response[EsimBundleResponse | None]:
-        user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
-                                                        where={"user_id": user.id, "iccid": iccid})
+        user_profiles = await self.__user_profile_repo.list_with_relations(
+            relations=[DatabaseTables.TABLE_USER_PROFILE_BUNDLE],
+            where={"user_id": user.id, "iccid": iccid})
         if len(user_profiles) == 0:
             raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
         rate = await self.__currency_service.aget_rate_by_currency(x_currency)
@@ -211,8 +211,9 @@ class UserBundleService:
     async def user_notifications(self, user: UserModel, page_index: int, page_size: int) -> Response[
         List[UserNotificationResponse]]:
         notifications = await self.__notification_repo.list(where={"user_id": user.id}, limit=page_size,
-                                                      offset=((page_index - 1) * page_size), order_by="created_at",
-                                                      desc=True)
+                                                            offset=((page_index - 1) * page_size),
+                                                            order_by="created_at",
+                                                            desc=True)
         return ResponseHelper.success_data_response(
             [DtoMapper.to_user_notification_response(data) for data in notifications], 1)
 
@@ -238,8 +239,8 @@ class UserBundleService:
 
     async def update_bundle_name(self, code: str, bundle_label_request: UpdateBundleLabelRequest, user: UserModel):
         user_profile_bundle = await self.__user_profile_bundle_repo.get_first_by(where={"user_id": user.id},
-                                                                           filters={
-                                                                               "bundle_data ->> bundle_code": code})
+                                                                                 filters={
+                                                                                     "bundle_data ->> bundle_code": code})
         if user_profile_bundle is None:
             raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_BUNDLE_NOT_FOUND,
                                   details="Bundle Not Found")
@@ -252,7 +253,8 @@ class UserBundleService:
 
     async def update_bundle_name_by_iccid(self, iccid: str, bundle_label_request: UpdateBundleLabelRequest,
                                           user: UserModel):
-        user_profile_bundle = await self.__user_profile_bundle_repo.get_first_by(where={"user_id": user.id, "iccid": iccid})
+        user_profile_bundle = await self.__user_profile_bundle_repo.get_first_by(
+            where={"user_id": user.id, "iccid": iccid})
         if user_profile_bundle is None:
             raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_BUNDLE_NOT_FOUND,
                                   details="Bundle Not Found")
@@ -275,8 +277,8 @@ class UserBundleService:
         for bundle in bundles:
             if await self.__bundle_service.bundle_exists(bundle.bundle_code):
                 local_bundle = await self.__bundle_service.get_bundle(bundle_id=bundle.bundle_code,
-                                                                currency_name=currency_code,
-                                                                locale=accept_language)
+                                                                      currency_name=currency_code,
+                                                                      locale=accept_language)
                 logger.debug(f"local bundle {local_bundle.data}")
                 all_bundles.append(local_bundle.data)
 
@@ -293,8 +295,9 @@ class UserBundleService:
         if user_order.order_status != OrderStatusEnum.SUCCESS:
             raise CustomException(code=400, name=ErrorMessages.ORDER_FAILED,
                                   details=ErrorMessages.ORDER_FAILED)
-        profiles = await self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
-                                                   where={"user_id": user.id, "user_order_id": order_id})
+        profiles = await self.__user_profile_repo.list_with_relations(
+            relations=[DatabaseTables.TABLE_USER_PROFILE_BUNDLE],
+            where={"user_id": user.id, "user_order_id": order_id})
         if len(profiles) == 0:
             raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND,
                                   details=ErrorMessages.ORDER_NOT_FOUND)
@@ -337,7 +340,7 @@ class UserBundleService:
                 raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND,
                                       details=ErrorMessages.ORDER_NOT_FOUND)
             await self.__user_order_repo.update(order_id, {"order_status": OrderStatusEnum.CANCELED,
-                                                     "payment_status": OrderStatusEnum.CANCELED})
+                                                           "payment_status": OrderStatusEnum.CANCELED})
             await self.__promotion_service.cancel_promotion_usage(order_id=order_id)
             stripe.PaymentIntent.cancel(order.payment_intent_code)
             return ResponseHelper.success_response()
@@ -371,7 +374,7 @@ class UserBundleService:
 
         if not response:
             await self.__user_order_repo.update_by(where={"id": user_order.id},
-                                             data={"payment_status": OrderStatusEnum.FAILURE})
+                                                   data={"payment_status": OrderStatusEnum.FAILURE})
             raise CustomException(code=400, name=ErrorMessages.PAYMENT_FAILED, details=ErrorMessages.PAYMENT_FAILED)
 
         payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
@@ -410,9 +413,9 @@ class UserBundleService:
                                   details="Insufficient wallet balance, please top up your wallet")
         try:
             await self.__user_wallet_service.add_wallet_transaction(amount=(bundle_price * -1),
-                                                              user_id=user.id,
-                                                              source=UserWalletTransactionSource.PURCHASE_BUNDLE,
-                                                              order_currency="USD")
+                                                                    user_id=user.id,
+                                                                    source=UserWalletTransactionSource.PURCHASE_BUNDLE,
+                                                                    order_currency="USD")
             if user_order.order_type == UserOrderType.ASSIGN:
                 await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
                                                        payment_status=OrderStatusEnum.SUCCESS,
@@ -438,7 +441,7 @@ class UserBundleService:
         try:
             otp = generate_otp()
             await self.__user_order_repo.update_by(where={"id": user_order.id},
-                                             data={"otp": otp, "otp_expired_at": expire_at})
+                                                   data={"otp": otp, "otp_expired_at": expire_at})
             msisdn = user.msisdn
             logger.info(f"requesting new otp for msisdn: {msisdn}")
             await self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
@@ -538,18 +541,9 @@ class UserBundleService:
         except Exception as e:
             logger.error(f"Error updating order {order_id} in background: {str(e)}")
 
-    def __is_order_otp_expired(self, order_id: str) -> bool:
+    async def __is_order_otp_expired(self, order_id: str) -> bool:
         from datetime import datetime, timezone
 
         now = datetime.now(timezone.utc).isoformat()
-
-        resp = (
-            supabase_client()
-            .table("user_order")
-            .select("id")
-            .eq("id", order_id)
-            .lt("otp_expired_at", now)  # otp_expired_at < now
-            .execute()
-        )
-
+        resp = await self.__user_order_repo.is_otp_expired(order_id=order_id, time=now)
         return len(resp.data) > 0

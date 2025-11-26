@@ -83,6 +83,38 @@ class BaseRepository(Generic[T]):
             except SQLAlchemyError as e:
                 raise DatabaseException(str(e))
 
+    async def get_by_id_with_relations(self, record_id: Any, relations: List[str]) -> Optional[T]:
+        """
+        Get a record by ID with specified relationships eagerly loaded.
+
+        Args:
+            record_id: The ID of the record to fetch
+            relations: List of relationship names to eagerly load (e.g., ["order", "user_profile"])
+
+        Returns:
+            The model instance with relationships loaded, or None if not found
+
+        Example:
+            # Load user_profile with its related order
+            profile = await repo.get_by_id_with_relations(
+                profile_id,
+                relations=["order"]
+            )
+            # Now you can access profile.order without additional queries
+        """
+        async with self.get_session() as session:
+            try:
+                stmt = select(self.model).where(self.model.id == record_id)
+
+                # Add selectinload for each relation
+                for relation in relations:
+                    stmt = stmt.options(selectinload(getattr(self.model, relation)))
+
+                result = await session.execute(stmt)
+                return result.scalars().first()
+            except SQLAlchemyError as e:
+                raise DatabaseException(str(e))
+
     async def get_first_by(self, where: dict = None, filters: dict = None) -> Optional[T]:
         """
         Get first record matching WHERE conditions and/or raw SQL filters.
@@ -125,6 +157,72 @@ class BaseRepository(Generic[T]):
                         param_name = f"filter_{abs(hash(condition))}"
                         full_condition = f"{table_name}.{condition.strip()} = :{param_name}"
                         stmt = stmt.where(text(full_condition)).params(**{param_name: value})
+
+                result = await session.execute(stmt)
+                return result.scalars().first()
+            except SQLAlchemyError as e:
+                raise DatabaseException(str(e))
+
+    async def get_first_by_with_relations(self, where: dict = None, filters: dict = None,
+                                         relations: List[str] = None) -> Optional[T]:
+        """
+        Get first record matching WHERE conditions and/or raw SQL filters with relationships loaded.
+
+        Args:
+            where: Dictionary of field:value pairs for exact matches on the main model
+                   Supports dot notation for filtering on related tables (e.g., {"order.payment_status": "completed"})
+            filters: Dictionary of raw SQL conditions for complex queries like JSONB operators
+            relations: List of relationship names to eagerly load (e.g., ["order", "user"])
+
+        Returns:
+            First matching record with relationships loaded, or None
+
+        Example:
+            # Get user profile with order loaded and filter by order status
+            profile = await repo.get_first_by_with_relations(
+                where={"user_id": user_id, "order.payment_status": "completed"},
+                relations=["order"]
+            )
+        """
+        async with self.get_session() as session:
+            try:
+                stmt = select(self.model)
+
+                # Track which relations need to be joined for filtering
+                joined_relations = set()
+
+                # Apply WHERE conditions
+                if where:
+                    for key, value in where.items():
+                        # Check if this is a relation filter (contains dot notation)
+                        if '.' in key:
+                            relation_name, field_name = key.split('.', 1)
+                            # Get the relationship attribute
+                            relation_attr = getattr(self.model, relation_name)
+                            # Get the related model class
+                            related_model = relation_attr.property.mapper.class_
+                            # Add join if not already joined
+                            if relation_name not in joined_relations:
+                                stmt = stmt.join(related_model)
+                                joined_relations.add(relation_name)
+                            # Apply the filter on the related model
+                            stmt = stmt.where(getattr(related_model, field_name) == value)
+                        else:
+                            # Regular filter on the main model
+                            stmt = stmt.where(getattr(self.model, key) == value)
+
+                # Apply raw SQL filters for JSONB and other complex conditions
+                if filters:
+                    for condition, value in filters.items():
+                        table_name = self.model.__tablename__
+                        param_name = f"filter_{abs(hash(condition))}"
+                        full_condition = f"{table_name}.{condition.strip()} = :{param_name}"
+                        stmt = stmt.where(text(full_condition)).params(**{param_name: value})
+
+                # Add selectinload for each relation
+                if relations:
+                    for relation in relations:
+                        stmt = stmt.options(selectinload(getattr(self.model, relation)))
 
                 result = await session.execute(stmt)
                 return result.scalars().first()
@@ -176,6 +274,87 @@ class BaseRepository(Generic[T]):
                 if order_by:
                     column = getattr(self.model, order_by)
                     stmt = stmt.order_by(column.desc() if desc else column)
+
+                # Apply pagination
+                stmt = stmt.limit(limit).offset(offset)
+
+                result = await session.execute(stmt)
+                return list(result.scalars())
+            except SQLAlchemyError as e:
+                raise DatabaseException(str(e))
+
+    async def list_with_relations(self, where: dict = None, filters: dict = None, limit: int = 50,
+                                  offset: int = 0, order_by: str = None, desc: bool = False,
+                                  relations: List[str] = None) -> List[T]:
+        """
+        List records with optional WHERE conditions, filters, and eagerly loaded relationships.
+
+        Args:
+            where: Dictionary of field:value pairs for exact matches on the main model
+                   Supports dot notation for filtering on related tables (e.g., {"order.payment_status": "completed"})
+            filters: Dictionary of raw SQL conditions for complex queries like JSONB operators
+            limit: Maximum number of records to return
+            offset: Number of records to skip
+            order_by: Field name to order by (e.g., "created_at")
+            desc: If True, order descending; if False, order ascending
+            relations: List of relationship names to eagerly load (e.g., ["order", "user"])
+
+        Returns:
+            List of model instances with relationships loaded
+
+        Example:
+            # Get user profiles with their orders loaded and filter by order status
+            profiles = await repo.list_with_relations(
+                where={"user_id": user_id, "order.payment_status": "completed"},
+                order_by="created_at",
+                desc=True,
+                relations=["order"]
+            )
+        """
+        async with self.get_session() as session:
+            try:
+                stmt = select(self.model)
+
+                # Track which relations need to be joined for filtering
+                joined_relations = set()
+
+                # Apply WHERE conditions
+                if where:
+                    for key, value in where.items():
+                        # Check if this is a relation filter (contains dot notation)
+                        if '.' in key:
+                            relation_name, field_name = key.split('.', 1)
+                            # Get the relationship attribute
+                            relation_attr = getattr(self.model, relation_name)
+                            # Get the related model class
+                            related_model = relation_attr.property.mapper.class_
+                            # Add join if not already joined
+                            if relation_name not in joined_relations:
+                                stmt = stmt.join(related_model)
+                                joined_relations.add(relation_name)
+                            # Apply the filter on the related model
+                            stmt = stmt.where(getattr(related_model, field_name) == value)
+                        else:
+                            # Regular filter on the main model
+                            stmt = stmt.where(getattr(self.model, key) == value)
+
+                # Apply raw SQL filters
+                if filters:
+                    for condition, value in filters.items():
+                        table_name = self.model.__tablename__
+                        param_name = f"filter_{abs(hash(condition))}"
+                        full_condition = f"{table_name}.{condition.strip()} = :{param_name}"
+                        stmt = stmt.where(text(full_condition)).params(**{param_name: value})
+
+                # Apply ordering
+                if order_by:
+                    column = getattr(self.model, order_by)
+                    stmt = stmt.order_by(column.desc() if desc else column)
+
+                # Add selectinload for each relation
+                if relations:
+                    for relation in relations:
+                        stmt = stmt.options(selectinload(getattr(self.model, relation)))
 
                 # Apply pagination
                 stmt = stmt.limit(limit).offset(offset)
