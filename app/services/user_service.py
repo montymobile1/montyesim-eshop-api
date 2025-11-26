@@ -12,7 +12,8 @@ from loguru import logger
 from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance
 from app.config.constants import ErrorMessages, PaymentStatusEnum, UserWalletTransactionSource
 from app.config.db import DatabaseTables, PaymentTypeEnum, OrderStatusEnum, UserOrderType, ConfigKeysEnum
-from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, get_config
+from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, get_config, \
+    truncate_two_decimals_decimal
 from app.exceptions import BadRequestException, CustomException
 from app.models import UserOrderModel, UsersCopyModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
@@ -389,7 +390,7 @@ class UserBundleService:
                                                       payment_type=PaymentTypeEnum.DCB)
 
     async def resend_order_otp(self, user: UserModel, order_id: str) -> Response[None]:
-        order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
+        order = await self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
         if not order:
             raise BadRequestException(f"Order {order_id} not found")
         otp = generate_otp()
@@ -404,7 +405,7 @@ class UserBundleService:
                                       modified_amount: float,
                                       iccid: str = None) -> Response[
         PaymentIntentResponse]:
-        wallet: UserWalletModel = self.__user_wallet_service.get_user_wallet(user_id=user.id)
+        wallet = await self.__user_wallet_service.get_user_wallet(user_id=user.id)
         rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=wallet.currency)
         bundle_price = float(truncate_two_decimals_decimal(modified_amount * rate))
         logger.info(f"wallet balance and bundle price: {wallet.amount=} {bundle_price=}")
@@ -493,7 +494,7 @@ class UserBundleService:
                                                     currency=x_currency,
                                                     ip_address=request.client.host)
         order.payment_intent_code = payment_intent.id
-        self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
+        await self.__user_order_repo.update_by({"id": order.id}, data=order)
         tax_excl = float(getattr(tax, "tax_amount_exclusive", 0) / 100)
         ephemeral = create_payment_ephemeral(payment_intent.customer)
         response = PaymentIntentResponse(publishable_key=os.getenv("STRIPE_PUBLIC_KEY"),

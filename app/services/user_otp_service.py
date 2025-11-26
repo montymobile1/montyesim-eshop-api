@@ -92,7 +92,7 @@ class UserOtpService:
         """
         Retrieve the OTP record for the given mobile number and OTP.
         """
-        results = await self.__user_otp_repo.get_first_by(where={"mobile": mobile, "otp": otp, "email": email})
+        results = await self.__user_otp_repo.list(where={"mobile": mobile, "otp": otp, "email": email})
         if len(results) == 0:
             return None
         return results[0]

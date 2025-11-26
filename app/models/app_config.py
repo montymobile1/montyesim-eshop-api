@@ -11,4 +11,4 @@ class AppConfigModel(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     def __repr__(self):
-        return f"AppConfig(id={self.id!r}, key={self.key!r})"
+        return f"AppConfig(id={self.id!r}, key={self.key!r}, value={self.value!r}, created_at={self.created_at!r})"

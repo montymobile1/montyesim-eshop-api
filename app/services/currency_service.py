@@ -28,7 +28,16 @@ class CurrencyService:
         return currency.rate
 
     def get_rate_by_currency(self, currency_name: str) -> float:
-        return asyncio.run(self.aget_rate_by_currency(currency_name))
+        if currency_name == os.getenv("SYSTEM_CURRENCY", "USD"):
+            return 1.0
+
+        currency = self.__currency_repo.sget_first_by(
+            where={"name": currency_name, "default_currency": os.getenv("SYSTEM_CURRENCY", "USD")})
+
+        if not currency:
+            return 1.0
+
+        return currency.rate
 
     def convert(self, from_currency: str, to_currency: str, amount: float) -> float:
         system_currency = os.getenv("SYSTEM_CURRENCY", "USD")
@@ -51,7 +60,11 @@ class CurrencyService:
         return currency.rate
 
     def get_currency_rate(self, from_currency: str, to_currency: str):
-        return asyncio.run(self.aget_currency_rate(from_currency, to_currency))
+        currency = self.__currency_repo.sget_first_by(
+            where={"name": to_currency, "default_currency": from_currency})
+        if not currency:
+            return 1.0
+        return currency.rate
 
     def get_all_currency(self) -> Response[List[CurrencyDto]]:
         currency_list = asyncio.run(self.__currency_repo.list(where={"default_currency": "USD"}))

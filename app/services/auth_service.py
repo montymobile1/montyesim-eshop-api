@@ -12,6 +12,7 @@ from app.config.db import ConfigKeysEnum
 from app.config.utils import get_config
 from app.config.utils import truncate_two_decimals_decimal
 from app.exceptions import CustomException, BadRequestException
+from app.models import DeviceModel
 from app.repo.device_repo import DeviceRepo
 from app.repo.user_order_repo import UserRepo
 from app.schemas.auth import LoginRequest, VerifyOtpRequest, UpdateUserInfoRequest, AuthResponseDTO
@@ -314,7 +315,8 @@ class AuthService:
     async def __handle_phone_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
         logger.info(f"verify_otp phone request received: {verify_otp_request}")
-        user = await self.__user_repo.get_first_by(filters={"metadata ->> 'msisdn' ": verify_otp_request.phone}, where={})
+        user = await self.__user_repo.get_first_by(filters={"metadata ->> 'msisdn' ": verify_otp_request.phone},
+                                                   where={})
         if not user:
             raise CustomException(code=400, name=ErrorMessages.USER_NOT_FOUND,
                                   details=f"User {verify_otp_request.phone} not found")
@@ -337,10 +339,11 @@ class AuthService:
             "is_logged_in": is_logged_in,
             "device_id": device_id,
         }
+        device = DeviceModel(**data)
         if user_id:
-            data["user_id"] = user_id
+            device.user_id = user_id
         if is_logged_in:
-            data["timestamp_login"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
+            device.timestamp_login = datetime.now(timezone.utc).replace(tzinfo=None)
         else:
-            data["timestamp_logout"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
-        await self.__device_repo.upsert(data=data, on_conflict="device_id,user_id")
+            device.timestamp_logout = datetime.now(timezone.utc).replace(tzinfo=None)
+        await self.__device_repo.upsert(data=device, on_conflict="device_id,user_id")
