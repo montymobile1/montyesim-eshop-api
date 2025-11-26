@@ -253,7 +253,7 @@ class CallbackService:
                     if bundle:
                         logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
                         await self.__sync_service.sync_bundle(bundle)
-            self.__sync_service.update_sync_version()
+            await self.__sync_service.update_sync_version()
         except Exception as e:
             logger.error(f"error while syncing bundle {bundle_id}: {str(e)}")
             raise  # Re-raise so the queue processor can log it
@@ -261,7 +261,7 @@ class CallbackService:
     def __run_full_sync(self, page_index=1):
         import asyncio
         asyncio.run(self.__sync_service.sync_bundles(page_index=page_index))
-        self.__sync_service.update_sync_version()
+        asyncio.run(self.__sync_service.update_sync_version())
 
     def __handle_payment_webhook_data(self, event: dict):
         logger.debug(f"Received payment webhook.{event.get('type')}")
@@ -334,8 +334,8 @@ class CallbackService:
             msisdn = os.getenv("WHATSAPP_NUMBER", "")
             if msisdn:
                 msisdn = msisdn.replace("+", "").replace("-", "").replace(" ", "")
-            display_email = user.metadata.get("display_email", None)
-            email = user.metadata.get("email", user.email) if display_email is None else display_email
+            display_email = user.metadata_json.get("display_email", None)
+            email = user.metadata_json.get("email", user.email) if display_email is None else display_email
 
             data = {
                 "user": email,
@@ -344,7 +344,7 @@ class CallbackService:
                 "iccid": iccid,
                 "base_url": get_config("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
             }
-            language = lower(user.metadata.get("language", "en"))
+            language = lower(user.metadata_json.get("language", "en"))
             template = get_email_template(f"eighty_percent_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="80% Consumption", html_content=html_content,
@@ -357,8 +357,8 @@ class CallbackService:
             msisdn = os.getenv("WHATSAPP_NUMBER", "")
             if msisdn:
                 msisdn = msisdn.replace("+", "").replace("-", "").replace(" ", "")
-            display_email = user.metadata.get("display_email", None)
-            email = user.metadata.get("email", user.email) if display_email is None else display_email
+            display_email = user.metadata_json.get("display_email", None)
+            email = user.metadata_json.get("email", user.email) if display_email is None else display_email
 
             data = {
                 "user": email,
@@ -367,11 +367,11 @@ class CallbackService:
                 "iccid": iccid,
                 "base_url": get_config("BASE_URL", "https://sales-esim-shop-portal.onrender.com")
             }
-            language = lower(user.metadata.get("language", "en"))
+            language = lower(user.metadata_json.get("language", "en"))
             template = get_email_template(f"expiry_email_template_{language}.htm")
             html_content = template.render(data=data)
             send_email(subject="100% Consumption", html_content=html_content,
-                       recipients=user.metadata.get("email", email))
+                       recipients=user.metadata_json.get("email", email))
         except Exception as e:
             logger.error(f"error while sending email {str(e)}")
 
@@ -438,7 +438,7 @@ class CallbackService:
                     bundle_name=order.bundle_display_name,
                     iccid=iccid
                 )
-                self.__update_bundle_expired(iccid=iccid, esim_hub_order_id=esim_order_id, bundle_expired=True)
+                await self.__update_bundle_expired(iccid=iccid, esim_hub_order_id=esim_order_id, bundle_expired=True)
             elif event_type in ["StartBundle", "PLAN-STARTED", "thing activated", "Plan Started and Selected",
                                 "SESSION_START", "Started"]:
                 datetime_str = order.validity
@@ -453,7 +453,7 @@ class CallbackService:
                     bundle_name=order.bundle_display_name,
                     validity_date=date_only_str
                 )
-                self.__update_bundle_plan_started(iccid=iccid, esim_hub_order_id=esim_order_id,
+                await self.__update_bundle_plan_started(iccid=iccid, esim_hub_order_id=esim_order_id,
                                                   plan_started=True)
             else:
                 logger.warning(f"Unsupported event type for plan status callback: {event_type}")
@@ -466,12 +466,12 @@ class CallbackService:
         except Exception as e:
             logger.error(f"Failed to send notification to user {order.user_id}: {str(e)}")
 
-    def __update_bundle_expired(self, iccid: str, esim_hub_order_id: str, bundle_expired: bool):
+    async def __update_bundle_expired(self, iccid: str, esim_hub_order_id: str, bundle_expired: bool):
         logger.info(f"Updating bundle {esim_hub_order_id} {iccid} bundle_expired to {bundle_expired}")
-        self.__user_profile_bundle_repo.update_by(where={"esim_hub_order_id": esim_hub_order_id, "iccid": iccid},
+        await self.__user_profile_bundle_repo.update_by(where={"esim_hub_order_id": esim_hub_order_id, "iccid": iccid},
                                                   data={"bundle_expired": bundle_expired})
 
-    def __update_bundle_plan_started(self, iccid: str, esim_hub_order_id: str, plan_started: bool):
+    async def __update_bundle_plan_started(self, iccid: str, esim_hub_order_id: str, plan_started: bool):
         logger.info(f"Updating bundle {esim_hub_order_id} {iccid} plan_started to {plan_started}")
-        self.__user_profile_bundle_repo.update_by(where={"esim_hub_order_id": esim_hub_order_id, "iccid": iccid},
+        await self.__user_profile_bundle_repo.update_by(where={"esim_hub_order_id": esim_hub_order_id, "iccid": iccid},
                                                   data={"plan_started": plan_started})

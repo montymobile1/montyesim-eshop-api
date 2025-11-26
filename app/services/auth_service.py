@@ -69,6 +69,7 @@ class AuthService:
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
     async def create_wallet_if_not_exists(self, user_id: str, currency_code: str) -> UserWalletResponse | None:
+        user_wallet_response = UserWalletResponse(balance=0,currency="")
         user_wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user_id,
                                                                                   currency_code=currency_code)
         if not user_wallet:
@@ -79,12 +80,14 @@ class AuthService:
             )
             wallet = await self.__user_wallet_service.create_wallet(user_wallet_request_dto)
             if wallet:
-                wallet.balance = float(wallet.balance)
-                return wallet
+                user_wallet_response.balance = float(wallet.amount)
+                user_wallet_response.currency = wallet.currency
+                return user_wallet_response
             else:
                 return None
-        user_wallet.balance = float(truncate_two_decimals_decimal(user_wallet.balance))
-        return user_wallet
+        user_wallet_response.currency = user_wallet.currency
+        user_wallet_response.balance = float(truncate_two_decimals_decimal(user_wallet.balance))
+        return user_wallet_response
 
     def validate_token(self, request: Request) -> Response[bool]:
         try:

@@ -3,7 +3,6 @@ import os
 import httpx
 from loguru import logger
 
-from app.config.constants import ErrorMessages
 from app.exceptions import DCBException
 from app.services.integration.dcb_service import DCBService
 
@@ -44,8 +43,7 @@ class MontyDCBService(DCBService):
                 else:
                     logger.error(f"[MONTY] Failed to send OTP: {json_response}")
                     raise DCBException(
-                        details=f"Failed to send OTP: {json_response['ErrorCode']} {json_response['ErrorDescription']}",
-                        error=ErrorMessages.OTP_SEND_SMS_FAILED)
+                        details=f"Failed to send OTP: {json_response['ErrorCode']} {json_response['ErrorDescription']}")
         except Exception as e:
             logger.error(f"Error sending OTP to {msisdn}: {e}")
             if isinstance(e, DCBException):

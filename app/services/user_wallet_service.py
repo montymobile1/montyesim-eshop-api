@@ -9,7 +9,7 @@ from app.config.constants import ErrorMessages
 from app.config.db import UserOrderType
 from app.config.notification_types import send_wallet_top_up_succeeded_notification
 from app.config.push_notification_manager import fcm_service
-from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral
+from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral, truncate_two_decimals_decimal
 from app.exceptions import CustomException
 from app.models import UserWalletModel, UserWalletTransactionModel
 from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo, UserRepo
@@ -36,10 +36,10 @@ class UserWalletService:
         return DtoMapper.to_user_wallet_response(wallet)
 
     async def create_wallet(self, user_wallet_request_dto: UserWalletRequestDto) -> UserWalletResponse:
-        user_wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user_wallet_request_dto.user_id})
+        user_wallet = await self.__user_wallet_repo.get_first_by(where={"user_id": user_wallet_request_dto.user_id})
         if user_wallet:
             return DtoMapper.to_user_wallet_response(user_wallet)
-        wallet = self.__create_wallet(user_id=user_wallet_request_dto.user_id, amount=user_wallet_request_dto.amount)
+        wallet = await self.__create_wallet(user_id=user_wallet_request_dto.user_id, amount=user_wallet_request_dto.amount)
         return DtoMapper.to_user_wallet_response(wallet)
 
     async def get_user_wallet_by_user_id(self, user_id: str, currency_code: str = os.getenv(
@@ -82,7 +82,7 @@ class UserWalletService:
             new_amount = current_amount + add_amount
             user_wallet.amount = new_amount
             await self.__user_wallet_repo.update_by(where={"user_id": user_id},
-                                              data=user_wallet.model_dump())
+                                              data=user_wallet)
 
             await self.__user_wallet_transaction_repo.create(data={
                 "wallet_id": user_wallet.id,
@@ -118,7 +118,7 @@ class UserWalletService:
         if order_amount <= 0.5:
             raise CustomException(code=400, name=ErrorMessages.INVALID_TOP_UP_AMOUNT,
                                   details="Top up amount must be greater than 0.5")
-        order = self.__user_order_repo.create(data={
+        order = await self.__user_order_repo.create(data={
             "user_id": user.id,
             "bundle_id": None,
             "order_type": UserOrderType.WALLET_TOP_UP,

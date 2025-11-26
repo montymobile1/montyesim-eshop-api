@@ -5,7 +5,6 @@ from deep_translator import GoogleTranslator
 
 from app.models import TagModel
 from app.repo.bundle_repo import BundleRepo
-from app.repo.bundle_tage_repo import BundleTagRepo
 from app.repo.tag_repo import TagRepo, TagTranslationRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import CountryDTO, RegionDTO, BundleDTO
@@ -14,7 +13,6 @@ from app.schemas.home import CountryDTO, RegionDTO, BundleDTO
 class GroupingService:
     def __init__(self):
         self.__tag_repo = TagRepo()
-        self.__bundle_tag_repo = BundleTagRepo()
         self.__bundle_repo = BundleRepo()
         self.__tag_translation_repo = TagTranslationRepo()
 
