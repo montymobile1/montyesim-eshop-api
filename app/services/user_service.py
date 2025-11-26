@@ -173,10 +173,13 @@ class UserBundleService:
             try:
                 order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
                 bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, x_currency=x_currency, rate=rate,
-                                                           tax=order.tax_amount)
+                                                           tax=float(order.tax_amount))
                 for history in bundle.transaction_history:
                     order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=history.user_order_id)
-                    amount = float(history.bundle.original_price * rate) + float((order.tax_amount / 100) * rate)
+                    # Convert Decimal to float before arithmetic operations
+                    original_price = float(history.bundle.original_price) if history.bundle.original_price else 0.0
+                    tax_amount = float(order.tax_amount) if order.tax_amount else 0.0
+                    amount = (original_price * rate) + ((tax_amount / 100) * rate)
                     history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
                 if bundle is not None:
                     esim_bundle_response.append(bundle)
@@ -198,7 +201,10 @@ class UserBundleService:
                                                    tax=user_order.tax_amount)
         for history in bundle.transaction_history:
             order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=history.user_order_id)
-            amount = float(history.bundle.original_price * rate) + float((order.tax_amount / 100) * rate)
+            # Convert Decimal to float before arithmetic operations
+            original_price = float(history.bundle.original_price) if history.bundle.original_price else 0.0
+            tax_amount = float(order.tax_amount) if order.tax_amount else 0.0
+            amount = (original_price * rate) + ((tax_amount / 100) * rate)
             history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
         return ResponseHelper.success_data_response(bundle, 0)
 
@@ -309,7 +315,10 @@ class UserBundleService:
                                                    tax=user_order.tax_amount)
         for history in bundle.transaction_history:
             order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=history.user_order_id)
-            amount = float(history.bundle.original_price * rate) + float((order.tax_amount / 100) * rate)
+            # Convert Decimal to float before arithmetic operations
+            original_price = float(history.bundle.original_price) if history.bundle.original_price else 0.0
+            tax_amount = float(order.tax_amount) if order.tax_amount else 0.0
+            amount = (original_price * rate) + ((tax_amount / 100) * rate)
             history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
         return ResponseHelper.success_data_response(bundle, 0)
 

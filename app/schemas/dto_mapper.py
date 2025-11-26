@@ -118,12 +118,12 @@ class DtoMapper:
             bundle = BundleDTO.model_validate(user_profile_bundle.bundle_data)
             bundle = DtoMapper.bundle_currency_update(bundle, currency=x_currency, rate=rate)
         data = {
-            "user_order_id": user_profile_bundle.user_order_id,
+            "user_order_id": str(user_profile_bundle.user_order_id),
             "iccid": user_profile_bundle.iccid,
             "bundle_type": user_profile_bundle.bundle_type,
             "plan_started": user_profile_bundle.plan_started,
             "bundle_expired": user_profile_bundle.bundle_expired,
-            "created_at": user_profile_bundle.created_at,
+            "created_at": str(user_profile_bundle.created_at),
             "bundle": bundle,
         }
         return TransactionHistoryResponse.model_validate(data)
@@ -136,9 +136,24 @@ class DtoMapper:
         if len(bundles) == 1:
             return bundles[0]
 
+        def get_created_at_datetime(bundle):
+            """Helper to safely get created_at as datetime object"""
+            if not bundle.created_at:
+                return datetime.min
+            if isinstance(bundle.created_at, datetime):
+                return bundle.created_at
+            if isinstance(bundle.created_at, str):
+                try:
+                    # Handle ISO format strings with 'Z' suffix
+                    normalized = bundle.created_at.replace('Z', '+00:00') if bundle.created_at.endswith('Z') else bundle.created_at
+                    return datetime.fromisoformat(normalized)
+                except Exception:
+                    return datetime.min
+            return datetime.min
+
         sorted_bundles = sorted(
             bundles,
-            key=lambda bundle: datetime.fromisoformat(bundle.created_at) if bundle.created_at else datetime.min,
+            key=get_created_at_datetime,
             reverse=True
         )
 
@@ -221,13 +236,15 @@ class DtoMapper:
             order_status = "Active"
         else:
             order_status = "Expired"
-        amount = (float(bundle_data.original_price) * rate) + ((tax / 100) * rate)
+        # Convert Decimal to float to avoid type mismatch errors
+        original_price_float = float(bundle_data.original_price) if bundle_data.original_price else 0.0
+        amount = (original_price_float * rate) + ((tax / 100) * rate)
         data = {
             "is_topup_allowed": user_profile.allow_topup,
             "plan_started": profile_current_bundle.plan_started,
             "bundle_expired": profile_current_bundle.bundle_expired,
             "label_name": user_profile.label or None,
-            "order_number": user_profile.user_order_id,
+            "order_number": str(user_profile.user_order_id),
             "order_status": order_status,
             "searched_countries": [],
             "qr_code_value": f"LPA:1${user_profile.smdp_address}${user_profile.activation_code}",
@@ -235,7 +252,7 @@ class DtoMapper:
             "smdp_address": user_profile.smdp_address,
             "validity_date": user_profile.validity,
             "iccid": user_profile.iccid,
-            "payment_date": profile_current_bundle.created_at,
+            "payment_date": str(profile_current_bundle.created_at),
             "shared_with": None,
             "display_title": display_title,
             "display_subtitle": bundle_data.display_subtitle,
@@ -392,14 +409,16 @@ class DtoMapper:
                               currency: str = None) -> UserOrderHistoryResponse:
         if currency == user_order.currency:
             rate = 1.0
-        amount = (
-                     user_order.modified_amount if user_order.modified_amount is not None else user_order.amount) + user_order.tax_amount
+        # Convert Decimal to float to avoid type mismatch errors
+        modified_or_amount = float(user_order.modified_amount) if user_order.modified_amount is not None else float(user_order.amount)
+        tax_amount = float(user_order.tax_amount) if user_order.tax_amount else 0.0
+        amount = modified_or_amount + tax_amount
         data = {
             "order_number": user_order.id,
             "order_status": user_order.payment_status,
             "order_amount": (amount * rate),
             "order_currency": user_order.currency,
-            "order_display_price": f"{round((float(amount) / 100) * rate, 2)} {currency}",
+            "order_display_price": f"{round((amount / 100) * rate, 2)} {currency}",
             "order_date": user_order.created_at,
             "order_type": user_order.order_type,
             "bundle_details": BundleDTO.model_validate_json(user_order.bundle_data),
@@ -487,7 +506,8 @@ class DtoMapper:
 
     @staticmethod
     def bundle_currency_update(bundle: BundleDTO, currency: str = None, rate: float = 1.0) -> BundleDTO:
-        price = bundle.original_price * rate
+        # Convert Decimal to float to avoid type mismatch errors
+        price = float(bundle.original_price) * rate
         bundle.currency_code = currency
         if os.getenv("DISPLAY_PRICE", "normal") == "rounded":
             price = int(ceil(price))
@@ -509,9 +529,12 @@ class DtoMapper:
         if promotion_usage.referral_code:
             is_referral = True
 
+        # Convert Decimal to float to avoid type mismatch errors
+        amount_float = float(promotion_usage.amount) if promotion_usage.amount else 0.0
+
         promotion_history_data = {
             "is_referral": is_referral,
-            "amount": f'{round(promotion_usage.amount * rate, 2):.2f} {currency}',
+            "amount": f'{round(amount_float * rate, 2):.2f} {currency}',
             "name": promotion_usage.referred_to,
             "promotion_name": promotion_name,
             "date": promotion_usage.created_at
