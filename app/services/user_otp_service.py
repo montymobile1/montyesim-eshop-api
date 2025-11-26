@@ -1,4 +1,6 @@
 from app.config.constants import ErrorMessages
+from app.config.db import ConfigKeysEnum
+from app.config.helper import get_config
 from app.exceptions import CustomException
 from app.models.user_otp import UserOtpModel
 from app.repo.user_otp_repo import UserOtpRepo
@@ -29,7 +31,9 @@ class UserOtpService:
         if existing_otps or len(existing_otps) > 0:
             return await self.generate_otp(mobile)
 
-        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=5)).isoformat()
+        # Calculate expire_at as datetime object (timezone-naive to match DB column)
+        expire_at = datetime.now(tz=dt_timezone.utc).replace(tzinfo=None) + timedelta(
+            minutes=int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, "5")))
         await self.__user_otp_repo.create({
             "mobile": mobile,
             "email": email,
@@ -70,7 +74,7 @@ class UserOtpService:
         from datetime import datetime, timezone
         now = datetime.now(tz=timezone.utc).isoformat()
         results = await self.__user_otp_repo.has_active_otp(mobile=mobile, time=now, is_used=False)
-        return len(results.data) > 0
+        return len(results) > 0
 
     async def __recent_otp_limit(self, mobile: str) -> bool:
         """
@@ -91,4 +95,4 @@ class UserOtpService:
         results = await self.__user_otp_repo.get_first_by(where={"mobile": mobile, "otp": otp, "email": email})
         if len(results) == 0:
             return None
-        return UserOtpModel(**results.data[0])
+        return results[0]

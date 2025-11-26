@@ -1,4 +1,4 @@
-from typing import List, Any
+from datetime import datetime
 
 from sqlalchemy import text
 
@@ -11,9 +11,17 @@ class UserOtpRepo(BaseRepository):
     def __init__(self):
         super().__init__(UserOtpModel)
 
-    async def recent_otp_limit_count(self, mobile: str, time_range: str):
+    async def recent_otp_limit_count(self, mobile: str, time_range: str | datetime):
         async with self.get_session() as session:
             try:
+                # Convert string to datetime if needed
+                if isinstance(time_range, str):
+                    time_range = datetime.fromisoformat(time_range.replace('Z', '+00:00'))
+
+                # Remove timezone info to match database column (timezone=False)
+                if time_range.tzinfo is not None:
+                    time_range = time_range.replace(tzinfo=None)
+
                 stmt = text("""
                             select *
                             from user_otp
@@ -27,9 +35,17 @@ class UserOtpRepo(BaseRepository):
             except Exception as e:
                 raise DatabaseException(str(e))
 
-    async def has_active_otp(self, mobile: str, time: str, is_used: bool):
+    async def has_active_otp(self, mobile: str, time: str | datetime, is_used: bool):
         async with self.get_session() as session:
             try:
+                # Convert string to datetime if needed
+                if isinstance(time, str):
+                    time = datetime.fromisoformat(time.replace('Z', '+00:00'))
+
+                # Remove timezone info to match database column (timezone=False)
+                if time.tzinfo is not None:
+                    time = time.replace(tzinfo=None)
+
                 stmt = text("""
                             select *
                             from user_otp
@@ -44,9 +60,17 @@ class UserOtpRepo(BaseRepository):
             except Exception as e:
                 raise DatabaseException(str(e))
 
-    async def is_otp_expired(self, mobile: str, otp: str, time: str, is_used: bool):
+    async def is_otp_expired(self, mobile: str, otp: str, time: str | datetime, is_used: bool):
         async with self.get_session() as session:
             try:
+                # Convert string to datetime if needed
+                if isinstance(time, str):
+                    time = datetime.fromisoformat(time.replace('Z', '+00:00'))
+
+                # Remove timezone info to match database column (timezone=False)
+                if time.tzinfo is not None:
+                    time = time.replace(tzinfo=None)
+
                 stmt = text("""
                             select *
                             from user_otp
