@@ -9,7 +9,6 @@ from firebase_admin.exceptions import InvalidArgumentError
 from loguru import logger
 
 from app.config.notification_types import NotificationContent
-from app.models.notification import NotificationModel
 from app.repo.device_repo import DeviceRepo
 from app.repo.notification_repo import NotificationRepo
 
@@ -100,7 +99,7 @@ class FCMService:
             "data": json.dumps(notification.data),
             "image_url": ""
         }
-        self.__notification_repo.create(notification_data)
+        self.__notification_repo.screate(notification_data)
 
         return self.send_notification_to_user(user_id, notification.title, notification.message, None,
                                               notification.data)
@@ -124,7 +123,7 @@ class FCMService:
             "data": json.dumps(notification.data),
             "image_url": ""
         }
-        self.__notification_repo.create(notification_data)
+        self.__notification_repo.screate(notification_data)
 
         return self.send_notification_to_device(device_id, notification.title, notification.message, None,
                                                 notification.data)

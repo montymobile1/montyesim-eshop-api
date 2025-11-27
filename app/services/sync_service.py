@@ -48,7 +48,7 @@ class SyncService:
             regions = bundle.bundle_region
             regions = list(filter(lambda r: r.region_code != "GLOBAL", regions))
             await self.__sync_region_tags(regions)
-            if not self.__bundle_repo.get_by_id(bundle.bundle_code):
+            if not await self.__bundle_repo.get_by_id(bundle.bundle_code):
                 await self.__handle_create_bundle(bundle=bundle, countries=countries, regions=regions)
             else:
                 await self.__handle_update_bundle(bundle=bundle, countries=countries, regions=regions)

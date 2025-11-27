@@ -392,7 +392,7 @@ class DtoMapper:
             validity_str = bundle.validity
 
         return CallBackNotificationInfo(
-            user_id=user_id,
+            user_id=str(user_id),
             user_display_name=user_display_name,
             bundle_display_name=bundle_display_name,
             iccid=bundle.iccid,

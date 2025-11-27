@@ -11,7 +11,7 @@ from soupsieve.util import lower
 
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email, get_email_template
 from app.config.constants import PaymentIntentEvents, UserWalletTransactionSource
-from app.config.db import OrderStatusEnum, UserOrderType
+from app.config.db import OrderStatusEnum, UserOrderType, DatabaseTables
 from app.config.db import PaymentTypeEnum
 from app.config.helper import get_config
 from app.config.notification_types import send_consumption_80_bundle_notification, \
@@ -78,7 +78,7 @@ class CallbackService:
             if not user_profile_bundle:
                 logger.warning(f"No user profile bundle found for iccid {iccid} and order_id {request.order_id}")
                 return
-            user_profile: UserProfileModel = await self.__user_profile_repo.get_by_id(
+            user_profile: UserProfileModel = await self.__user_profile_repo.get_by_id_with_relations(relations=[DatabaseTables.TABLE_USER_PROFILE_BUNDLE],
                 record_id=user_profile_bundle.user_profile_id)
             bundles = []
             bundles.append(user_profile_bundle)
