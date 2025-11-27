@@ -90,7 +90,7 @@ class BundleService:
         rate = await self.__currency_service.aget_rate_by_currency(currency_name)
         for b in original_bundles:
             bundles.append(DtoMapper.bundle_currency_update(b, currency_name, rate))
-        await CacheService.add_to_cache(cache_key, bundles, ttl=3600)
+        await CacheService.add_to_cache(cache_key, bundles, ttl=int(get_config("CACHE_TIME", 600)))
         return ResponseHelper.success_data_response(bundles, len(bundles))
 
     async def get_bundles_by_region(self, region_code: str, currency: str, locale: str) -> Response[List[BundleDTO]]:
@@ -122,7 +122,7 @@ class BundleService:
         filtered = self.__filter_forbidden_countries(filtered)
         duration = (datetime.now() - start_time).total_seconds()
         logger.info(f"get_bundles_by_region executed in {duration} seconds")
-        await CacheService.add_to_cache(cache_key, filtered, ttl=3600)
+        await CacheService.add_to_cache(cache_key, filtered, int(get_config("CACHE_TIME", 600)))
         return ResponseHelper.success_data_response(filtered, len(filtered))
 
     async def get_countries(self, locale: str):
