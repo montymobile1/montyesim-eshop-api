@@ -1,3 +1,4 @@
+from datetime import datetime
 from sqlalchemy import text
 
 from app.exceptions import DatabaseException
@@ -12,9 +13,33 @@ class UserOrderRepo(BaseRepository):
     def __init__(self):
         super().__init__(UserOrderModel)
 
-    async def is_otp_expired(self, order_id: str, time: str):
+    @staticmethod
+    def _convert_to_naive_datetime(time_value: str | datetime) -> datetime:
+        """
+        Helper method to convert string or timezone-aware datetime to timezone-naive datetime.
+        This ensures compatibility with DateTime(timezone=False) database columns.
+
+        Args:
+            time_value: Either an ISO format string or datetime object
+
+        Returns:
+            Timezone-naive datetime object
+        """
+        if isinstance(time_value, str):
+            # Handle ISO format strings with 'Z' suffix
+            time_value = datetime.fromisoformat(time_value.replace('Z', '+00:00'))
+
+        # Remove timezone info if present
+        if time_value.tzinfo is not None:
+            time_value = time_value.replace(tzinfo=None)
+
+        return time_value
+
+    async def is_otp_expired(self, order_id: str, time: str | datetime):
         async with self.get_session() as session:
             try:
+                time = self._convert_to_naive_datetime(time)
+
                 stmt = text("""
                             select *
                             from user_order

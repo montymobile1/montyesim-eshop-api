@@ -11,16 +11,32 @@ class UserOtpRepo(BaseRepository):
     def __init__(self):
         super().__init__(UserOtpModel)
 
+    @staticmethod
+    def _convert_to_naive_datetime(time_value: str | datetime) -> datetime:
+        """
+        Helper method to convert string or timezone-aware datetime to timezone-naive datetime.
+        This ensures compatibility with DateTime(timezone=False) database columns.
+
+        Args:
+            time_value: Either an ISO format string or datetime object
+
+        Returns:
+            Timezone-naive datetime object
+        """
+        if isinstance(time_value, str):
+            # Handle ISO format strings with 'Z' suffix
+            time_value = datetime.fromisoformat(time_value.replace('Z', '+00:00'))
+
+        # Remove timezone info if present
+        if time_value.tzinfo is not None:
+            time_value = time_value.replace(tzinfo=None)
+
+        return time_value
+
     async def recent_otp_limit_count(self, mobile: str, time_range: str | datetime):
         async with self.get_session() as session:
             try:
-                # Convert string to datetime if needed
-                if isinstance(time_range, str):
-                    time_range = datetime.fromisoformat(time_range.replace('Z', '+00:00'))
-
-                # Remove timezone info to match database column (timezone=False)
-                if time_range.tzinfo is not None:
-                    time_range = time_range.replace(tzinfo=None)
+                time_range = self._convert_to_naive_datetime(time_range)
 
                 stmt = text("""
                             select *
@@ -38,13 +54,7 @@ class UserOtpRepo(BaseRepository):
     async def has_active_otp(self, mobile: str, time: str | datetime, is_used: bool):
         async with self.get_session() as session:
             try:
-                # Convert string to datetime if needed
-                if isinstance(time, str):
-                    time = datetime.fromisoformat(time.replace('Z', '+00:00'))
-
-                # Remove timezone info to match database column (timezone=False)
-                if time.tzinfo is not None:
-                    time = time.replace(tzinfo=None)
+                time = self._convert_to_naive_datetime(time)
 
                 stmt = text("""
                             select *
@@ -63,13 +73,7 @@ class UserOtpRepo(BaseRepository):
     async def is_otp_expired(self, mobile: str, otp: str, time: str | datetime, is_used: bool):
         async with self.get_session() as session:
             try:
-                # Convert string to datetime if needed
-                if isinstance(time, str):
-                    time = datetime.fromisoformat(time.replace('Z', '+00:00'))
-
-                # Remove timezone info to match database column (timezone=False)
-                if time.tzinfo is not None:
-                    time = time.replace(tzinfo=None)
+                time = self._convert_to_naive_datetime(time)
 
                 stmt = text("""
                             select *

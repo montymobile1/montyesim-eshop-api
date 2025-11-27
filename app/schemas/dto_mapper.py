@@ -509,7 +509,7 @@ class DtoMapper:
     @staticmethod
     def bundle_currency_update(bundle: BundleDTO, currency: str = None, rate: float = 1.0) -> BundleDTO:
         # Convert Decimal to float to avoid type mismatch errors
-        price = float(bundle.original_price) * rate
+        price = float(bundle.original_price) * float(rate)
         bundle.currency_code = currency
         if os.getenv("DISPLAY_PRICE", "normal") == "rounded":
             price = int(ceil(price))
