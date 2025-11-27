@@ -74,7 +74,11 @@ class UserBundleService:
             "promo_code": assign_request.promo_code or None,
             "payment_type": assign_request.payment_type,
         }
-        if assign_request.promo_code and await self.__promotion_service.is_referral_code(assign_request.promo_code):
+        is_referral = False
+        if assign_request.promo_code:
+            is_referral = await self.__promotion_service.is_referral_code(assign_request.promo_code)
+
+        if is_referral:
             data.setdefault("referral_code", assign_request.promo_code)
             data.pop("promo_code")
 

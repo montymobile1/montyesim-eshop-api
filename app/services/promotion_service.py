@@ -76,7 +76,7 @@ class PromotionService:
                                   order_id: str = None,
                                   locale: str = "en") -> PromotionValidationResponse | None:
         # check if the code is promotion
-        is_referral = self.is_referral_code(code)
+        is_referral = await self.is_referral_code(code)
         rate = self.__currency_service.get_rate_by_currency(currency)
         if is_referral:
             rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
