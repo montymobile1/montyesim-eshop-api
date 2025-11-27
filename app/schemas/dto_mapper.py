@@ -145,7 +145,8 @@ class DtoMapper:
             if isinstance(bundle.created_at, str):
                 try:
                     # Handle ISO format strings with 'Z' suffix
-                    normalized = bundle.created_at.replace('Z', '+00:00') if bundle.created_at.endswith('Z') else bundle.created_at
+                    normalized = bundle.created_at.replace('Z', '+00:00') if bundle.created_at.endswith(
+                        'Z') else bundle.created_at
                     return datetime.fromisoformat(normalized)
                 except Exception:
                     return datetime.min
@@ -410,16 +411,17 @@ class DtoMapper:
         if currency == user_order.currency:
             rate = 1.0
         # Convert Decimal to float to avoid type mismatch errors
-        modified_or_amount = float(user_order.modified_amount) if user_order.modified_amount is not None else float(user_order.amount)
+        modified_or_amount = float(user_order.modified_amount) if user_order.modified_amount is not None else float(
+            user_order.amount)
         tax_amount = float(user_order.tax_amount) if user_order.tax_amount else 0.0
         amount = modified_or_amount + tax_amount
         data = {
-            "order_number": user_order.id,
+            "order_number": str(user_order.id),
             "order_status": user_order.payment_status,
             "order_amount": (amount * rate),
             "order_currency": user_order.currency,
             "order_display_price": f"{round((amount / 100) * rate, 2)} {currency}",
-            "order_date": user_order.created_at,
+            "order_date": user_order.created_at.strftime("%Y-%m-%d %H:%M:%S"),
             "order_type": user_order.order_type,
             "bundle_details": BundleDTO.model_validate_json(user_order.bundle_data),
             "company_name": os.getenv("MERCHANT_DISPLAY_NAME", "Company Name"),
