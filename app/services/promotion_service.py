@@ -63,7 +63,7 @@ class PromotionService:
             raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
                                   details=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE)
         validation_response = await self.validate_promo_code(code=promotion_validation_request.promo_code,
-                                                             bundle=bundle, user_id=user_id, device_id=device_id,
+                                                             bundle=bundle, user_id=str(user_id), device_id=device_id,
                                                              currency=x_currency,
                                                              locale=locale)
         rate = self.__currency_service.get_rate_by_currency(x_currency)
@@ -186,7 +186,7 @@ class PromotionService:
                                                        is_referral=is_referral, bundle=bundle, device_id=device_id,
                                                        order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle,
-                                                   rule_id=rule.id,
+                                                   rule_id=str(rule.id),
                                                    message=f"{I18n.get_message(key='DISCOUNT_AMOUNT', lang=locale)} {round(promotion.amount * rate, 2)} {currency}")
             elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
                 discounted = bundle.original_price * promotion.amount / 100
@@ -201,7 +201,7 @@ class PromotionService:
                                                        is_referral=is_referral, bundle=bundle, device_id=device_id,
                                                        order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle,
-                                                   rule_id=rule.id,
+                                                   rule_id=str(rule.id),
                                                    message=f"{I18n.get_message(key='DISCOUNT_PERCENTAGE', lang=locale)} {promotion.amount} %")
             else:
                 if rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_PERCENTAGE.value:
@@ -215,7 +215,7 @@ class PromotionService:
                                                  user_id=user_id, referrer_user_id="0", code=code, is_referral=False,
                                                  event_id=rule.promotion_rule_event_id, bundle=bundle,
                                                  device_id=device_id, order_id=order_id)
-                return PromotionValidationResponse(bundle=bundle, rule_id=rule.id,
+                return PromotionValidationResponse(bundle=bundle, rule_id=str(rule.id),
                                                    message=message)
 
     async def __handle_cashback(self, amount: float, beneficiary: str, user_id: str, referrer_user_id: str,
