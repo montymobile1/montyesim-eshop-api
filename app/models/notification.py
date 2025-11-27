@@ -1,5 +1,6 @@
-from sqlalchemy import Column, String, Text, DateTime, BigInteger, Boolean, func
+from sqlalchemy import Column, String, Text, DateTime, BigInteger, Boolean, func, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
+
 from .base import Base
 
 
@@ -13,7 +14,7 @@ class NotificationModel(Base):
     status = Column(Boolean, nullable=True)
     updated_at = Column(DateTime(timezone=False), server_default=func.now())
     data = Column(Text, nullable=True)
-    user_id = Column(UUID(as_uuid=True), nullable=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id"), server_default=func.auth.uid(), nullable=True)
     image_url = Column(String, nullable=True)
 
     def __repr__(self):
