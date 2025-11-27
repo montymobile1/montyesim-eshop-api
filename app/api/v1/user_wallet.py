@@ -1,10 +1,10 @@
 import os
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header,Request
+from fastapi import APIRouter, Depends, Header, Request
 
 from app.dependencies.security import bearer_token, device_token
-from app.schemas.user import UserModel
+from app.models.user import UserModel
 from app.schemas.bundle import PaymentIntentResponse
 from app.schemas.response import Response, ResponseHelper
 from app.schemas.user_wallet import UserWalletResponse, TopUpWalletRequest
@@ -33,6 +33,7 @@ async def get_user_wallet_by_user_id(user: Annotated[UserModel, Depends(bearer_t
 
 @router.post("/top-up", response_model=Response[PaymentIntentResponse],
              dependencies=[Depends(device_token), Depends(bearer_token)])
-async def top_up_wallet(request:Request,top_up_request: TopUpWalletRequest, user: Annotated[UserModel, Depends(bearer_token)]) -> \
-        Response[PaymentIntentResponse]:
-    return await service.top_up_wallet(top_up_request=top_up_request, user=user,request=request)
+async def top_up_wallet(request: Request, top_up_request: TopUpWalletRequest,
+                        user: Annotated[UserModel, Depends(bearer_token)],
+                        x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))) -> Response[PaymentIntentResponse]:
+    return await service.top_up_wallet(top_up_request=top_up_request, user=user, request=request, x_currency=x_currency)
