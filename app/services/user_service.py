@@ -356,7 +356,8 @@ class UserBundleService:
             await self.__user_order_repo.update(order_id, {"order_status": OrderStatusEnum.CANCELED,
                                                            "payment_status": OrderStatusEnum.CANCELED})
             await self.__promotion_service.cancel_promotion_usage(order_id=order_id)
-            stripe.PaymentIntent.cancel(order.payment_intent_code)
+            if order.payment_intent_code:
+                stripe.PaymentIntent.cancel(order.payment_intent_code)
             return ResponseHelper.success_response()
         except Exception as e:
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))

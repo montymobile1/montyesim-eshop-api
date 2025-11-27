@@ -60,7 +60,7 @@ class GroupingService:
     async def translate_tags(self, locale: str):
         tags = await self.__tag_repo.list(where={})
         for tag in tags:
-            old_translation = self.__tag_translation_repo.get_first_by(where={"tag_id": tag.id, "locale": locale})
+            old_translation = await self.__tag_translation_repo.get_first_by(where={"tag_id": tag.id, "locale": locale})
             if old_translation:
                 continue
             translated = GoogleTranslator(source='en', target=locale).translate(tag.name)

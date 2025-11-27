@@ -18,7 +18,6 @@ from app.models import UserOrderModel, UserProfileModel, UsersCopyModel
 from app.models.bundle import BundleModel
 from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
 from app.repo.bundle_repo import BundleRepo
-from app.repo.config_repo import ConfigRepo
 from app.schemas.bundle import RelatedSearchRequestDto
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO, RegionDTO
@@ -75,10 +74,8 @@ class BundleService:
 
     async def get_bundles_by_country(self, country_codes: str, currency_name: str, locale: str) -> Response[
         List[BundleDTO]]:
-        config_repo = ConfigRepo()
-        bundle_key_config = await config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
-        bundle_key = bundle_key_config.value if bundle_key_config else "default"
-        cache_key = f"by_country:{bundle_key}:{currency_name}:{locale}"
+        cache_config_key = get_config("CACHE_KEY", "default")
+        cache_key = f"by_country:{cache_config_key}:{currency_name}:{locale}"
 
         cached: List[BundleDTO] | None = await CacheService.read_list_from_cache(cache_key, BundleDTO)
         if cached is not None:
@@ -98,10 +95,8 @@ class BundleService:
 
     async def get_bundles_by_region(self, region_code: str, currency: str, locale: str) -> Response[List[BundleDTO]]:
         start_time = datetime.now()
-        config_repo = ConfigRepo()
-        bundle_key_config = await config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
-        bundle_key = bundle_key_config.value if bundle_key_config else "default"
-        cache_key = f"by_region:{bundle_key}:{currency}:{locale}"
+        cache_config_key = get_config("CACHE_KEY", "default")
+        cache_key = f"by_region:{cache_config_key}:{currency}:{locale}"
 
         cached: List[BundleDTO] | None = await CacheService.read_list_from_cache(cache_key, BundleDTO)
         if cached is not None:
