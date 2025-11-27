@@ -314,8 +314,8 @@ class PromotionService:
         from datetime import datetime
         today = datetime.now().date()
         if promotion.valid_from and promotion.valid_to:
-            start_date = promotion.valid_from
-            end_date = promotion.valid_to
+            start_date = promotion.valid_from.date() if isinstance(promotion.valid_from, datetime) else promotion.valid_from
+            end_date = promotion.valid_to.date() if isinstance(promotion.valid_to, datetime) else promotion.valid_to
             if not (start_date <= today <= end_date):
                 raise CustomException(code=400, name=ErrorMessages.PROMOTION_NOT_ACTIVE,
                                       details="Promotion is not active for current date")
