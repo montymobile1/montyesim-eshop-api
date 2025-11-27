@@ -62,7 +62,7 @@ class SyncService:
 
     async def update_sync_version(self):
         new_key = uuid.uuid4().hex
-        old_config = self.__config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
+        old_config = await self.__config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
         if not old_config:
             await self.__config_repo.create({"key": ConfigKeysEnum.APP_CACHE_KEY, "value": new_key})
         else:
@@ -83,7 +83,7 @@ class SyncService:
 
     async def __sync_country_tags(self, countries: List[CountryDTO]):
         for country in countries:
-            if not self.__tag_repo.get_first_by({"id": country.id}):
+            if not await self.__tag_repo.get_first_by({"id": country.id}):
                 await self.__tag_repo.create(
                     TagModel(name=country.country, icon=country.icon, tag_group_id=1, data=country.model_dump(),
                              id=country.id))
@@ -92,7 +92,7 @@ class SyncService:
         for region in regions:
             if region.region_code == "GLOBAL":
                 continue
-            if not self.__tag_repo.get_first_by({"id": region.guid}):
+            if not await self.__tag_repo.get_first_by({"id": region.guid}):
                 await self.__tag_repo.create(
                     TagModel(name=region.region_name, icon=region.icon, tag_group_id=2, data=region.model_dump(),
                              id=region.guid))
