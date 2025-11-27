@@ -290,7 +290,7 @@ class DtoMapper:
             "notification_id": notification.id,
             "title": notification.title,
             "content": notification.content,
-            "datetime": notification.created_at,
+            "datetime": str(notification.created_at),
             "transaction_status": data_dict.get("transaction_status", ""),
             "transaction": data_dict.get("transaction", ""),
             "transaction_message": data_dict.get("transaction_message", ""),

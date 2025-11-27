@@ -44,4 +44,4 @@ class UserRepo(BaseRepository):
         super().__init__(UsersCopyModel)
 
     def referral_code_key(self):
-        return "metadata ->> referral_code"
+        return "metadata ->> 'referral_code'"

@@ -1,3 +1,4 @@
+import asyncio
 import os
 from datetime import datetime, timezone as dt_timezone
 from typing import List, Literal
@@ -17,8 +18,6 @@ from app.models import UserOrderModel, UserProfileModel, UsersCopyModel
 from app.models.bundle import BundleModel
 from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
 from app.repo.bundle_repo import BundleRepo
-from app.repo.bundle_tage_repo import BundleTagRepo
-from app.repo.tag_repo import TagRepo
 from app.schemas.bundle import RelatedSearchRequestDto
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO, RegionDTO
@@ -35,8 +34,6 @@ class BundleService:
         self.__esim_hub_service = esim_hub_service_instance()
         self.__grouping_service = GroupingService()
         self.__bundle_repo = BundleRepo()
-        self.__tag_repo = TagRepo()
-        self.__bundle_tag_repo = BundleTagRepo()
         self.__currency_service = CurrencyService()
         self.__user_repo = UserRepo()
         self.__user_order_repo = UserOrderRepo()
@@ -183,7 +180,7 @@ class BundleService:
         user = await self.__user_repo.get_by_id(record_id=user_order.user_id)
 
         def task():
-            self.__send_email(user=user, user_profile=user_profile, bundle=bundle, user_order=user_order)
+            asyncio.run(self.__send_email(user=user, user_profile=user_profile, bundle=bundle, user_order=user_order))
 
         self.__task_executor.add_task(task)
         return ResponseHelper.success_response()
@@ -239,8 +236,8 @@ class BundleService:
                                              user_id=user_order.user_id)
         return ResponseHelper.success_response()
 
-    def __send_email(self, user: UsersCopyModel, user_profile: UserProfileModel, bundle: BundleDTO,
-                     user_order: UserOrderModel):
+    async def __send_email(self, user: UsersCopyModel, user_profile: UserProfileModel, bundle: BundleDTO,
+                           user_order: UserOrderModel):
         try:
             qr = generate_qr_code(f"LPA:1${user_profile.smdp_address}${user_profile.activation_code}")
             msisdn = get_config("WHATSAPP_NUMBER", "")
@@ -248,7 +245,7 @@ class BundleService:
                 msisdn = msisdn.replace("+", "").replace("-", "").replace(" ", "")
             currency = user.metadata_json.get("currency", os.getenv("DEFAULT_CURRENCY", "USD"))
             rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=currency)
-            coverage = self.__get_coverage(user_profile=user_profile, bundle=bundle)
+            coverage = await self.__get_coverage(user_profile=user_profile, bundle=bundle)
             display_email = user.metadata_json.get("display_email", None)
             email = user.metadata_json.get("email", user.email) if display_email is None else display_email
             amount = float(user_order.modified_amount) + float(user_order.tax_amount)
@@ -317,13 +314,13 @@ class BundleService:
         bundle_type = await self.__bundle_type(code=bundle.bundle_code)
         if bundle_type == "CRUISE":
             return "Cruise"
-
+        searched_countries = None
         try:
             if user_profile.searched_countries is not None:
                 searched_countries = RelatedSearchRequestDto.model_validate_json(user_profile.searched_countries)
         except Exception as e:
             logger.error(f"error while validating searched_countries {str(e)}")
-            searched_countries = None
+
         bundle_countries = bundle.countries
         more_countries = f"+{len(bundle_countries)} more countries " if len(bundle_countries) > 1 else ""
         if len(bundle_countries) > 1:
@@ -371,13 +368,5 @@ class BundleService:
             return 0
 
     async def __bundle_type(self, code) -> Literal["COUNTRY", "CRUISE"]:
-        bundle_type = "COUNTRY"
-        bundle_tags = await self.__bundle_tag_repo.list(where={"bundle_id": code})
-        for bundle_tag in bundle_tags:
-            tag = await self.__tag_repo.get_first_by(where={"id": bundle_tag.tag_id})
-            if tag.tag_group_id == 3:
-                bundle_type = "CRUISE"
-                break
-        if bundle_type not in ("COUNTRY", "CRUISE"):
-            raise ValueError(f"Invalid bundle_type: {bundle_type}")
-        return bundle_type
+        is_cruise = await self.__bundle_repo.is_cruise_bundle(code)
+        return "CRUISE" if is_cruise else "COUNTRY"

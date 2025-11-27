@@ -231,3 +231,18 @@ class BundleRepo(BaseRepository):
 
             except Exception as e:
                 raise DatabaseException(str(e))
+
+    async def is_cruise_bundle(self, code: str) -> bool:
+        async with self.get_session() as session:
+            try:
+                stmt = text("""
+                            SELECT EXISTS(SELECT 1
+                                          FROM bundle_tag bt
+                                                   INNER JOIN tag t ON bt.tag_id = t.id
+                                          WHERE bt.bundle_id = :bundle_id
+                                            AND t.tag_group_id = 3) as is_cruise
+                            """)
+                result = await session.execute(stmt, {"bundle_id": code})
+                return result.scalar()
+            except Exception as e:
+                raise DatabaseException(str(e))

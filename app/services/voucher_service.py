@@ -30,7 +30,7 @@ class VoucherService:
         # Check if voucher is expired using only the date part (ignore time)
         from datetime import datetime, timezone
         if voucher.expired_at:
-            expired_at_dt = datetime.fromisoformat(voucher.expired_at)
+            expired_at_dt = voucher.expired_at
             if expired_at_dt.tzinfo is None:
                 expired_at_dt = expired_at_dt.replace(tzinfo=timezone.utc)
             # Compare only the date part
