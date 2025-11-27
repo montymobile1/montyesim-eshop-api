@@ -4,9 +4,9 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Header, Request
 
 from app.dependencies.security import refresh_token, bearer_token, device_token
-from app.schemas.user import UserModel
 from app.schemas.auth import LoginRequest, VerifyOtpRequest, AuthResponseDTO, UpdateUserInfoRequest
 from app.schemas.response import Response
+from app.schemas.user import UserModel
 from app.services.auth_service import AuthService
 
 router = APIRouter()
@@ -60,7 +60,7 @@ async def refresh_token(x_refresh_token: Annotated[str, Depends(refresh_token)],
 
 @router.post("/logout", response_model=Response, dependencies=[Depends(bearer_token), Depends(device_token)])
 async def logout(user: Annotated[UserModel, Depends(bearer_token)], x_device_id: str = Header(None)) -> Response[None]:
-    return service.logout(user, x_device_id)
+    return await service.logout(user=user, device_id=x_device_id)
 
 
 @router.delete("/delete-account", response_model=Response,
