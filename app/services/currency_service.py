@@ -15,7 +15,6 @@ class CurrencyService:
     def __init__(self):
         self.__currency_repo = CurrencyRepo()
 
-    @cached(cache=TTLCache(maxsize=100, ttl=60))
     async def aget_rate_by_currency(self, currency_name: str) -> float:
         if currency_name == os.getenv("SYSTEM_CURRENCY", "USD"):
             return 1.0
@@ -54,7 +53,6 @@ class CurrencyService:
             val = Decimal(amount) / Decimal(rate)
             return float(val)
 
-    @cached(cache=TTLCache(maxsize=100, ttl=60))
     async def aget_currency_rate(self, from_currency: str, to_currency: str):
         currency = await self.__currency_repo.get_first_by(
             where={"name": to_currency, "default_currency": from_currency})
