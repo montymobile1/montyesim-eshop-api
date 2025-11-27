@@ -557,4 +557,4 @@ class UserBundleService:
 
         now = datetime.now(timezone.utc).isoformat()
         resp = await self.__user_order_repo.is_otp_expired(order_id=order_id, time=now)
-        return len(resp.data) > 0
+        return len(resp) > 0

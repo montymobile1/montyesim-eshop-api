@@ -174,5 +174,7 @@ class AppService:
         List[BannerResponse]]:
         banners = await self.__banner_repo.list(where={"platform": x_platform})
         logger.info(banners)
-        response = [BannerResponse(**banner.model_dump()) for banner in banners]
+        response = [
+            BannerResponse(title=banner.title, description=banner.description, image=banner.image, action=banner.action)
+            for banner in banners]
         return ResponseHelper.success_data_response(response, len(banners))

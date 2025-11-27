@@ -323,7 +323,7 @@ class PromotionService:
         if promotion.times_used >= rule.max_usage:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE,
                                   details="times used is full")
-        promotion_usage = self.__promotion_usage_repo.list(
+        promotion_usage = await self.__promotion_usage_repo.list(
             where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed", "device_id": device_id})
         if promotion_usage:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_ALREADY_USED, details="Promotion Already Used")
@@ -370,10 +370,10 @@ class PromotionService:
                 raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED,
                                       details="Referral Code Already Used by referred user")
 
-        promotion_usage = self.__promotion_usage_repo.list(
+        promotion_usage = await self.__promotion_usage_repo.list(
             where={"user_id": user_id, "referral_code": promotion_code, "status": PromotionStatusEnum.COMPLETED.value})
 
-        if promotion_usage:
+        if len(promotion_usage) > 0:
             logger.error("Referral code already used")
             raise CustomException(code=400, name=ErrorMessages.REFERRAL_CODE_ALREADY_USED,
                                   details="Referral Code Already Used")
