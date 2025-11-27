@@ -72,6 +72,7 @@ class PaymentIntentResponse(BaseModel):
     tax_price_display: Optional[str] = "0.00"
     subtotal_price_display: Optional[str] = "0.00"
     has_tax: Optional[bool] = False
+    otp_expiration: Optional[int] = None
     model_config = ConfigDict(from_attributes=True, extra="forbid")
 
 
