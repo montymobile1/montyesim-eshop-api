@@ -192,7 +192,7 @@ class CallbackService:
                 data={"default_currency": currency_code, "name": "USD", "rate": inverse_rate}
             )
 
-        currency = currency_repo.get_first_by(where={"name": currency_code, "default_currency": "USD"})
+        currency = await currency_repo.get_first_by(where={"name": currency_code, "default_currency": "USD"})
         if not currency:
             logger.info(f"currency {currency_code} not found, creating new currency")
             await currency_repo.create({"name": currency_code, "default_currency": "USD", "rate": rate})

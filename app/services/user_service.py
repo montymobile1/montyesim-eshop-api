@@ -239,7 +239,7 @@ class UserBundleService:
         })
         if len(orders) == 0:
             return ResponseHelper.success_data_response(False, 0)
-        if any(len(item.get("user_profile", [])) > 0 for item in orders):
+        if any(item.user_profile for item in orders):
             logger.info("At least one profile list is non-empty")
             return ResponseHelper.success_data_response(True, 0)
         return ResponseHelper.success_data_response(False, 0)
