@@ -446,7 +446,8 @@ class UserBundleService:
         PaymentIntentResponse]:
         logger.info(f"handle_dcb_payment request {user=} {bundle=} {user_order=}")
         expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
-        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time))
+        # Create timezone-naive datetime to match DB column (DateTime(timezone=False))
+        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).replace(tzinfo=None)
 
         try:
             otp = generate_otp()
