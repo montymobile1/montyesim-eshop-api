@@ -11,7 +11,7 @@ from app.config.notification_types import send_wallet_top_up_succeeded_notificat
 from app.config.push_notification_manager import fcm_service
 from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral, truncate_two_decimals_decimal
 from app.exceptions import CustomException
-from app.models import UserWalletModel, UserWalletTransactionModel, UsersCopyModel
+from app.models import UserWalletModel, UserWalletTransactionModel
 from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo, UserRepo
 from app.schemas.bundle import PaymentIntentResponse
 from app.schemas.dto_mapper import DtoMapper
@@ -143,7 +143,7 @@ class UserWalletService:
         tax_excl = round(float(getattr(tax, "tax_amount_exclusive", 0) / 100), 2)
 
         order.payment_intent_code = intent.id
-        await self.__user_order_repo.update_by({"id": order.id}, data=order.model_dump(exclude={"id"}))
+        await self.__user_order_repo.update_by({"id": order.id}, data=order)
         ephemeral = create_payment_ephemeral(intent.customer)
         response = PaymentIntentResponse(publishable_key=os.getenv("STRIPE_PUBLIC_KEY"),
                                          merchant_identifier=os.getenv("MERCHANT_ID"),

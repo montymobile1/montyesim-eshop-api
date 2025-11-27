@@ -254,7 +254,7 @@ class UserBundleService:
         bundle = BundleDTO.model_validate(user_profile_bundle.bundle_data)
         bundle.label = bleach.clean(bundle_label_request.label)
         await self.__user_profile_bundle_repo.update_by(
-            where={"user_id": user.id}, filters={"bundle_data ->> bundle_code ": code},
+            where={"user_id": user.id}, filters={"bundle_data ->> 'bundle_code' ": code},
             data={"bundle_data": bundle.model_dump()})
         return ResponseHelper.success_response()
 
