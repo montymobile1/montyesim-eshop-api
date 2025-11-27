@@ -311,8 +311,8 @@ class UserBundleService:
         rate = await self.__currency_service.aget_rate_by_currency(x_currency)
         profile = profiles[0]
         user_order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
-        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, rate=rate, x_currency=x_currency,
-                                                   tax=user_order.tax_amount)
+        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, rate=float(rate), x_currency=x_currency,
+                                                   tax=float(user_order.tax_amount))
         for history in bundle.transaction_history:
             order: UserOrderModel = await self.__user_order_repo.get_by_id(record_id=history.user_order_id)
             # Convert Decimal to float before arithmetic operations
