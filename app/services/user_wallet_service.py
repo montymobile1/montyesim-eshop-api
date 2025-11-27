@@ -16,6 +16,7 @@ from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo, U
 from app.schemas.bundle import PaymentIntentResponse
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import Response, ResponseHelper
+from app.schemas.user import UserModel
 from app.schemas.user_wallet import UserWalletRequestDto, TopUpWalletRequest
 from app.schemas.user_wallet import UserWalletResponse
 from app.services.currency_service import CurrencyService
@@ -102,7 +103,7 @@ class UserWalletService:
             logger.error(str(e))
             raise CustomException(code=400, name=ErrorMessages.WALLET_NOT_FOUND, details="user wallet not found")
 
-    async def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UsersCopyModel, request: Request,
+    async def top_up_wallet(self, top_up_request: TopUpWalletRequest, user: UserModel, request: Request,
                             x_currency: str) -> Response[
         PaymentIntentResponse]:
         amount = top_up_request.amount
