@@ -75,7 +75,7 @@ class BundleService:
     async def get_bundles_by_country(self, country_codes: str, currency_name: str, locale: str) -> Response[
         List[BundleDTO]]:
         cache_config_key = get_config("CACHE_KEY", "default")
-        cache_key = f"by_country:{cache_config_key}:{currency_name}:{locale}"
+        cache_key = f"by_country:{country_codes}:{cache_config_key}:{currency_name}:{locale}"
 
         cached: List[BundleDTO] | None = await CacheService.read_list_from_cache(cache_key, BundleDTO)
         if cached is not None:
@@ -96,7 +96,7 @@ class BundleService:
     async def get_bundles_by_region(self, region_code: str, currency: str, locale: str) -> Response[List[BundleDTO]]:
         start_time = datetime.now()
         cache_config_key = get_config("CACHE_KEY", "default")
-        cache_key = f"by_region:{cache_config_key}:{currency}:{locale}"
+        cache_key = f"by_region:{region_code}:{cache_config_key}:{currency}:{locale}"
 
         cached: List[BundleDTO] | None = await CacheService.read_list_from_cache(cache_key, BundleDTO)
         if cached is not None:
