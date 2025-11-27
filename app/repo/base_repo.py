@@ -355,7 +355,7 @@ class BaseRepository(Generic[T]):
                 raise DatabaseException(str(e))
 
     def slist(self, where: dict = None, filters: dict = None, limit: int = 50, offset: int = 0,
-                   order_by: str = None, desc: bool = False) -> List[T]:
+              order_by: str = None, desc: bool = False) -> List[T]:
         """
         List records with optional WHERE conditions and/or raw SQL filters.
 

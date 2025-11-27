@@ -72,7 +72,7 @@ class AppService:
         if user_id is None:
             update_response = await self.__device_repo.update_by(where={"device_id": device_id},
                                                                  data=device_model)
-            if update_response and len(update_response) > 0:
+            if update_response:
                 return ResponseHelper.success_response()
 
         logger.info("No existing Device row found, performing upsert...")
