@@ -99,7 +99,10 @@ class FCMService:
             "data": json.dumps(notification.data),
             "image_url": ""
         }
-        self.__notification_repo.screate(notification_data)
+        try:
+            self.__notification_repo.screate(notification_data)
+        except Exception as e:
+            logger.error(f"error while sending notification to {user_id=} {str(e)}")
 
         return self.send_notification_to_user(user_id, notification.title, notification.message, None,
                                               notification.data)
@@ -114,16 +117,19 @@ class FCMService:
 
         if notification.is_silent:
             return self.send_data_message_to_device(device_id, notification.data)
-
+        user_id = self.get_device_user_id(device_id)
         notification_data = {
-            "user_id": self.get_device_user_id(device_id),
+            "user_id": user_id,
             "title": notification.title,
             "content": notification.message,
             "status": False,
             "data": json.dumps(notification.data),
             "image_url": ""
         }
-        self.__notification_repo.screate(notification_data)
+        try:
+            self.__notification_repo.screate(notification_data)
+        except Exception as e:
+            logger.error(f"error while sending notification to {user_id=} {str(e)}")
 
         return self.send_notification_to_device(device_id, notification.title, notification.message, None,
                                                 notification.data)
