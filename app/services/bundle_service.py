@@ -132,6 +132,7 @@ class BundleService:
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
                          payment_status: str, payment_type: str, rule_id: str = None):
         rate = await self.__currency_service.aget_currency_rate(from_currency=user_order.currency, to_currency="USD")
+        rate = float(rate)
         user = await self.__user_repo.get_by_id(record_id=user_id)
         msisdn = user.metadata_json.get("msisdn", "")
         email = user.email
