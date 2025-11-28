@@ -229,7 +229,7 @@ class BundleService:
             await self.__user_order_repo.update_by({"id": user_order.id}, {
                 "order_status": OrderStatusEnum.FAILURE,
                 "payment_status": payment_status,
-                "callback_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "callback_time": datetime.now().replace(tzinfo=None),
                 "esim_order_id": None
             })
             logger.error(f"error while topping up bundle {user_order.id}")
@@ -237,7 +237,7 @@ class BundleService:
         await self.__user_order_repo.update_by({"id": user_order.id}, {
             "order_status": OrderStatusEnum.SUCCESS,
             "payment_status": payment_status,
-            "callback_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "callback_time": datetime.now().replace(tzinfo=None),
             "esim_order_id": None
         })
         await self.__user_profile_bundle_repo.create({

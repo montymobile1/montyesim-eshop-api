@@ -55,7 +55,7 @@ class AuthService:
                     "options": {
                         "data": {
                             "email": login_request.email,
-                            "user_id": None if user is None else user.id,
+                            "user_id": None if user is None else str(user.id),
                             "device_id": x_device_id,
                             "msisdn": "",
                             "should_notify": False,

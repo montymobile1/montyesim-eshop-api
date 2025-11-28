@@ -408,8 +408,6 @@ class DtoMapper:
     @staticmethod
     def to_user_order_history(user_order: UserOrderModel, rate: float = 1.0,
                               currency: str = None) -> UserOrderHistoryResponse:
-        if currency == user_order.currency:
-            rate = 1.0
         # Convert Decimal to float to avoid type mismatch errors
         modified_or_amount = float(user_order.modified_amount) if user_order.modified_amount is not None else float(
             user_order.amount)

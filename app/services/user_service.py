@@ -328,15 +328,15 @@ class UserBundleService:
 
     async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str) -> Response[
         List[UserOrderHistoryResponse]]:
-        rate = self.__currency_service.get_currency_rate(os.getenv("DEFAULT_CURRENCY"), to_currency=x_currency)
         user_orders = await self.__user_order_repo.list(
             where={"user_id": user_id, "payment_status": OrderStatusEnum.SUCCESS,
                    "order_status": OrderStatusEnum.SUCCESS}, limit=page_size,
             offset=((page_index - 1) * page_size))
-        return ResponseHelper.success_data_response(
-            [DtoMapper.to_user_order_history(user_order=data, rate=rate, currency=x_currency) for data in
-             user_orders],
-            len(user_orders))
+        history: List[UserOrderHistoryResponse] = []
+        for order in user_orders:
+            rate = self.__currency_service.get_currency_rate(order.currency, to_currency=x_currency)
+            history.append(DtoMapper.to_user_order_history(user_order=order, rate=rate, currency=x_currency))
+        return ResponseHelper.success_data_response(history, len(history))
 
     async def get_order_history_by_id(self, user_id: str, order_id: str, x_currency: str) -> Response[
         UserOrderHistoryResponse]:
