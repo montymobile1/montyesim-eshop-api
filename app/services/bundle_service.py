@@ -133,13 +133,14 @@ class BundleService:
                          payment_status: str, payment_type: str, rule_id: str = None):
         rate = await self.__currency_service.aget_currency_rate(from_currency=user_order.currency, to_currency="USD")
         rate = float(rate)
+        order_amount = float(user_order.modified_amount)
         user = await self.__user_repo.get_by_id(record_id=user_id)
         msisdn = user.metadata_json.get("msisdn", "")
         email = user.email
         unique_identifier = f"{msisdn if msisdn else email}|{user_order.id}"
         order_id = user_order.id
         promo_code = user_order.promo_code if user_order.promo_code else user_order.referral_code
-        new_price = (round((user_order.modified_amount / 100) * rate, 2)) if promo_code else None
+        new_price = (round((order_amount / 100) * rate, 2)) if promo_code else None
         discount_amount = await self.__get_discount_amount(promo_code) if promo_code else None
         discount_rate = await self.__get_discount_rate(promo_code) if promo_code else None
         bundle_type = await self.__bundle_type(code=bundle.bundle_code)
