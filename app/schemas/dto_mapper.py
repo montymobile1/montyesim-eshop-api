@@ -1,6 +1,7 @@
 import json
 import os
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from math import ceil
 from typing import List
 
@@ -192,6 +193,10 @@ class DtoMapper:
     @staticmethod
     def to_esim_bundle_response(user_profile: UserProfileModel, rate: float,
                                 x_currency: str, tax: float = 0) -> EsimBundleResponse | None:
+        if isinstance(rate,Decimal):
+            rate = float(rate)
+        if isinstance(tax,Decimal):
+            tax = float(tax)
         profile_current_bundle: UserProfileBundleModel = DtoMapper.get_profile_current_bundle(user_profile)
         if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
             logger.warning(f"Bundle data missing for user profile {user_profile.id}")
