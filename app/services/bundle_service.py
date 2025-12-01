@@ -196,14 +196,17 @@ class BundleService:
                                                                                user_order=user_order,
                                                                                rule_id=rule_id)
 
-        await self.__send_buy_notification(bundle_name=bundle.bundle_name, iccid=esim_hub_order.iccid,
-                                           user_id=user_order.user_id)
         user = await self.__user_repo.get_by_id(record_id=user_order.user_id)
 
-        def task():
+        def send_notification_task():
+            asyncio.run(self.__send_buy_notification(bundle_name=bundle.bundle_name, iccid=esim_hub_order.iccid,
+                                                     user_id=user_order.user_id))
+
+        def send_email_task():
             asyncio.run(self.__send_email(user=user, user_profile=user_profile, bundle=bundle, user_order=user_order))
 
-        self.__task_executor.add_task(task)
+        self.__task_executor.add_task(send_notification_task)
+        self.__task_executor.add_task(send_email_task)
         return ResponseHelper.success_response()
 
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,

@@ -3,10 +3,9 @@ from typing import TypeVar, Generic, Type, Optional, Any, List
 from sqlalchemy import select, update, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, selectinload
 
-from app.db.engine import SessionLocal, SyncSessionLocal
+from app.db.engine import get_async_session as db_get_async_session, get_sync_session as db_get_sync_session
 from app.exceptions import DatabaseException
 
 T = TypeVar("T", bound=DeclarativeBase)
@@ -16,11 +15,20 @@ class BaseRepository(Generic[T]):
     def __init__(self, model: Type[T]):
         self.model = model
 
-    def get_session(self) -> AsyncSession:
-        return SessionLocal()
+    def get_session(self):
+        """Return the async session contextmanager from the DB engine.
+
+        Existing call sites use: `async with self.get_session() as session:`
+        This keeps that pattern working while centralizing session creation.
+        """
+        return db_get_async_session()
 
     def get_sync_session(self):
-        return SyncSessionLocal()
+        """Return the sync session contextmanager from the DB engine.
+
+        Existing call sites use: `with self.get_sync_session() as session:`
+        """
+        return db_get_sync_session()
 
     def sget_first_by(self, where: dict = None, filters: dict = None) -> Optional[T]:
         """

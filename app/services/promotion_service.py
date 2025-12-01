@@ -56,9 +56,8 @@ class PromotionService:
                                       locale: str = "en") -> Response[BundleDTO]:
         from app.services.bundle_service import BundleService
         bundle_service = BundleService()
-        bundle_response = await bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
-                                                          currency_name=x_currency, locale=locale)
-        bundle: BundleDTO = bundle_response.data
+        bundle_response = await bundle_service.get_bundle_by_id(bundle_id=promotion_validation_request.bundle_code)
+        bundle: BundleDTO = BundleDTO.model_validate(bundle_response.data)
         if 0.5 > bundle.original_price > 0:
             raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
                                   details=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE)
