@@ -164,6 +164,8 @@ class AuthService:
                 user_metadata.pop("display_email", None)
             elif login_type == "email":
                 user_metadata.pop("display_email", None)
+                if getattr(update_request, 'msisdn', None) is None:
+                    user_metadata['msisdn'] = ""
             logger.info(f"updating user info for user {user.id} with metadata {user_metadata}")
             response = supabase_client().auth.admin.update_user_by_id(user.id, {
                 'user_metadata': user_metadata
