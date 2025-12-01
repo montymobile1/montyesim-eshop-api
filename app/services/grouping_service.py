@@ -129,7 +129,7 @@ class GroupingService:
     async def translate_bundles(self, locale: str):
 
         def task():
-            return self.__translate_tags(locale=locale)
+            return self.__translate_bundles(locale=locale)
 
         self.__task_executor.add_task(task)
         return ResponseHelper.success_response()
