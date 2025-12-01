@@ -23,6 +23,7 @@ from app.schemas.bundle import RelatedSearchRequestDto
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO, RegionDTO, CountryDTO
 from app.schemas.response import Response, ResponseHelper
+from app.services.cache_service import CacheService
 from app.services.currency_service import CurrencyService
 from app.services.grouping_service import GroupingService
 from app.services.promotion_service import PromotionService
@@ -81,10 +82,18 @@ class BundleService:
         regions = await self.__grouping_service.get_all_regions(locale=locale)
         return ResponseHelper.success_data_response(regions, len(regions))
 
-    def get_bundles_by_country(self, country_codes: str, currency_name: str, locale: str) -> Response[
+    async def get_bundles_by_country(self, country_codes: str, currency_name: str, locale: str) -> Response[
         List[BundleDTO]]:
         if country_codes is None or len(country_codes) == 0:
             raise BadRequestException("country_codes cannot be empty")
+
+        cache_config_key = get_config("CACHE_KEY", "default")
+        cache_key = f"by_country:{country_codes}:{cache_config_key}:{currency_name}:{locale}"
+
+        cached: List[BundleDTO] | None = await CacheService.read_list_from_cache(cache_key, BundleDTO)
+        if cached is not None:
+            logger.info(f"getting bundles from cache {cache_key}")
+            return ResponseHelper.success_data_response(cached, len(cached))
 
         first_tag = self.__tag_repo.get_by_id(country_codes.split(",")[0])
         country = CountryDTO.model_validate(first_tag.data)
@@ -133,10 +142,20 @@ class BundleService:
                 bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency_name, rate))
 
         filtered_bundles = self.__filter_by_gprs_limit(bundles)
+        await CacheService.add_to_cache(cache_key, filtered_bundles, int(get_config("CACHE_TIME", 600)))
         return ResponseHelper.success_data_response(filtered_bundles, len(filtered_bundles))
 
     async def get_bundles_by_region(self, region_code: str, currency: str, locale: str) -> Response[List[BundleDTO]]:
         start_time = datetime.now()
+
+        cache_config_key = get_config("CACHE_KEY", "default")
+        cache_key = f"by_region:{region_code}:{cache_config_key}:{currency}:{locale}"
+
+        cached: List[BundleDTO] | None = await CacheService.read_list_from_cache(cache_key, BundleDTO)
+        if cached is not None:
+            logger.info(f"getting bundles from cache {cache_key}")
+            return ResponseHelper.success_data_response(cached, len(cached))
+
         regions = await self.__grouping_service.get_all_regions(locale)
 
         searched_regions = [region for region in regions if region.region_code == region_code]
@@ -175,6 +194,7 @@ class BundleService:
         filtered = self.__filter_forbidden_countries(filtered)
         duration = (datetime.now() - start_time).total_seconds()
         logger.info(f"get_bundles_by_region executed in {duration} seconds")
+        await CacheService.add_to_cache(cache_key, filtered, int(get_config("CACHE_TIME", 600)))
         return ResponseHelper.success_data_response(filtered, len(filtered))
 
     async def get_countries(self, locale: str):
