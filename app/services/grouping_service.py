@@ -121,29 +121,39 @@ class GroupingService:
     async def translate_tags(self, locale: str):
 
         def task():
-            return self.__translate_tags_and_bundles(locale=locale)
+            return self.__translate_tags(locale=locale)
 
         self.__task_executor.add_task(task)
         return ResponseHelper.success_response()
 
-    def __translate_tags_and_bundles(self, locale: str):
+    async def translate_bundles(self, locale: str):
+
+        def task():
+            return self.__translate_tags(locale=locale)
+
+        self.__task_executor.add_task(task)
+        return ResponseHelper.success_response()
+
+    def __translate_tags(self, locale: str):
         tags = self.__tag_repo.list(where={})
-        # for tag in tags:
-        #     logger.trace(f"translating tag {tag.name} to locale {locale}")
-        #     old_translation = self.__tag_translation_repo.get_first_by(where={"tag_id": tag.id, "locale": locale})
-        #     if old_translation:
-        #         continue
-        #     translated = GoogleTranslator(source='en', target=locale).translate(tag.name)
-        #     data = {
-        #         "tag_id": tag.id,
-        #         "locale": locale,
-        #         "name": translated,
-        #         "data": tag.data
-        #     }
-        #     self.__tag_translation_repo.create(data)
+        for tag in tags:
+            logger.trace(f"translating tag {tag.name} to locale {locale}")
+            old_translation = self.__tag_translation_repo.get_first_by(where={"tag_id": tag.id, "locale": locale})
+            if old_translation:
+                continue
+            translated = GoogleTranslator(source='en', target=locale).translate(tag.name)
+            data = {
+                "tag_id": tag.id,
+                "locale": locale,
+                "name": translated,
+                "data": tag.data
+            }
+            self.__tag_translation_repo.create(data)
+
+    def __translate_bundles(self, locale: str):
         bundles = self.__bundle_repo.list(where={})
         for bundle in bundles:
-            old = self.__bundle_translation_repo.get_first_by(where={"id":bundle.id,"locale":locale})
+            old = self.__bundle_translation_repo.get_first_by(where={"id": bundle.id, "locale": locale})
             if old:
                 continue
             logger.info(f"translating bundle {bundle.id} to locale {locale}")
