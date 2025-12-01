@@ -95,6 +95,7 @@ class DatabaseTables(StrEnum):
     TABLE_USER_COPY = "users_copy"
 
     TABLE_BUNDLE = "bundle"
+    TABLE_BUNDLE_TRANSLATION = "bundle_translation"
     TABLE_TAG = "tag"
     TABLE_TAG_TRANSLATION = "tag_translation"
     TABLE_BUNDLE_TAG = "bundle_tag"

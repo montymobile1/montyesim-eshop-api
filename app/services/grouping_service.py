@@ -2,13 +2,16 @@ import os
 from typing import List
 
 from deep_translator import GoogleTranslator
+from loguru import logger
 
 from app.models.app import TagModel
-from app.repo.bundle_repo import BundleRepo
+from app.repo.bundle_repo import BundleRepo, BundleTranslationRepo
 from app.repo.bundle_tage_repo import BundleTagRepo
 from app.repo.tag_repo import TagRepo, TagTranslationRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import CountryDTO, RegionDTO, BundleDTO
+from app.schemas.response import ResponseHelper
+from app.services.task_executor import TaskExecutor
 
 
 class GroupingService:
@@ -16,7 +19,9 @@ class GroupingService:
         self.__tag_repo = TagRepo()
         self.__bundle_tag_repo = BundleTagRepo()
         self.__bundle_repo = BundleRepo()
+        self.__bundle_translation_repo = BundleTranslationRepo()
         self.__tag_translation_repo = TagTranslationRepo()
+        self.__task_executor = TaskExecutor()
 
     async def __get_all_tags_by_group_id(self, group_id) -> List[TagModel]:
         tags = self.__tag_repo.select_procedure(function_name="get_active_tag_names_and_data_by_group",
@@ -114,16 +119,46 @@ class GroupingService:
         return bundles
 
     async def translate_tags(self, locale: str):
+
+        def task():
+            return self.__translate_tags_and_bundles(locale=locale)
+
+        self.__task_executor.add_task(task)
+        return ResponseHelper.success_response()
+
+    def __translate_tags_and_bundles(self, locale: str):
         tags = self.__tag_repo.list(where={})
-        for tag in tags:
-            old_translation = self.__tag_translation_repo.get_first_by(where={"tag_id": tag.id, "locale": locale})
-            if old_translation:
+        # for tag in tags:
+        #     logger.trace(f"translating tag {tag.name} to locale {locale}")
+        #     old_translation = self.__tag_translation_repo.get_first_by(where={"tag_id": tag.id, "locale": locale})
+        #     if old_translation:
+        #         continue
+        #     translated = GoogleTranslator(source='en', target=locale).translate(tag.name)
+        #     data = {
+        #         "tag_id": tag.id,
+        #         "locale": locale,
+        #         "name": translated,
+        #         "data": tag.data
+        #     }
+        #     self.__tag_translation_repo.create(data)
+        bundles = self.__bundle_repo.list(where={})
+        for bundle in bundles:
+            old = self.__bundle_translation_repo.get_first_by(where={"id":bundle.id,"locale":locale})
+            if old:
                 continue
-            translated = GoogleTranslator(source='en', target=locale).translate(tag.name)
-            data = {
-                "tag_id": tag.id,
-                "locale": locale,
-                "name": translated,
-                "data": tag.data
-            }
-            self.__tag_translation_repo.create(data)
+            logger.info(f"translating bundle {bundle.id} to locale {locale}")
+            try:
+                bundle_dto = BundleDTO(**bundle.data)
+                countries = bundle_dto.countries
+                translated_countries = []
+                for country in countries:
+                    country.country = GoogleTranslator(source='en', target=locale).translate(country.country)
+                    translated_countries.append(country)
+                bundle_dto.countries = translated_countries
+                self.__bundle_translation_repo.create({
+                    "id": bundle.id,
+                    "data": bundle_dto.model_dump(),
+                    "locale": locale
+                })
+            except Exception as e:
+                logger.error(f"error translating bundle {bundle.id} to locale {locale} error: {e}")

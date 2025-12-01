@@ -15,5 +15,12 @@ class BundleRepo(BaseRepository):
         bundle_model = super().get_by_id(record_id=bundle_id)
         return BundleDTO.model_validate(bundle_model.data)
 
-    def get_bundles_by_tag(self, tag_id: str) -> List[BundleModel]:
-        return super().select_procedure(where={"p_tag_id": tag_id}, function_name="get_bundles_for_tag")
+    def get_bundles_by_tag(self, tag_id: str, locale: str = "en") -> List[BundleModel]:
+        return super().select_procedure(where={"p_tag_id": tag_id, "p_locale": locale},
+                                        function_name="get_bundles_for_tag_translated")
+
+
+class BundleTranslationRepo(BaseRepository):
+
+    def __init__(self):
+        super().__init__(DatabaseTables.TABLE_BUNDLE_TRANSLATION, BundleModel)

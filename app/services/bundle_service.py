@@ -163,7 +163,7 @@ class BundleService:
         if len(searched_regions) == 0:
             raise BadRequestException("Region Not Found")
 
-        bundles_model = self.__bundle_repo.get_bundles_by_tag(tag_id=searched_regions[0].guid)
+        bundles_model = self.__bundle_repo.get_bundles_by_tag(tag_id=searched_regions[0].guid, locale=locale)
 
         bundles: List[BundleDTO] = []
 
@@ -173,15 +173,15 @@ class BundleService:
             if bundle and bundle.data:
                 bundle_dto = BundleDTO(**bundle.data)
                 bundle_dto.icon = searched_regions[0].icon
-                if locale != os.getenv("DEFAULT_LOCALE", "en"):
-                    tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
-                    country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
-                                                                    where={"tag_ids": tags_id,
-                                                                           "locale_param": locale})
-                    for country_tag in country_tags:
-                        country_tag.data["country"] = country_tag.name
-                    countries = [CountryDTO.model_validate(tag.data) for tag in country_tags]
-                    bundle_dto.countries = countries
+                # if locale != os.getenv("DEFAULT_LOCALE", "en"):
+                #     tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
+                #     country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
+                #                                                     where={"tag_ids": tags_id,
+                #                                                            "locale_param": locale})
+                #     for country_tag in country_tags:
+                #         country_tag.data["country"] = country_tag.name
+                #     countries = [CountryDTO.model_validate(tag.data) for tag in country_tags]
+                #     bundle_dto.countries = countries
 
                 bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency, rate))
 

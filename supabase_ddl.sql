@@ -673,6 +673,17 @@ create table bundle
         check (length('bundle_name'::text) <= 60)
 );
 
+
+create table bundle_translation
+(
+    id         uuid primary key,
+    locale     varchar(10) not null,
+    data       jsonb,
+    created_at timestamp default current_timestamp,
+    updated_at timestamp default current_timestamp,
+    unique (id, locale)
+);
+
 comment
 on column bundle.bundle_name is 'this field will be used as display title in subscriber, without touching the data inside data json object as it is from sync';
 
@@ -3147,5 +3158,34 @@ SELECT b.id,
 FROM bundle b
          INNER JOIN bundle_tag bt ON bt.bundle_id = b.id
 WHERE bt.tag_id = p_tag_id;
+END;
+$$;
+
+
+create function get_bundles_for_tag_translated(p_tag_id uuid, p_locale varchar = 'en')
+    returns TABLE
+            (
+                id          uuid,
+                data        jsonb,
+                is_active   boolean,
+                created_at  timestamp without time zone,
+                updated_at  timestamp without time zone,
+                bundle_name text
+            )
+    language plpgsql
+as
+$$
+BEGIN
+    RETURN QUERY
+        SELECT b.id,
+               coalesce(btrans.data, b.data) as data,
+               b.is_active,
+               b.created_at,
+               b.updated_at,
+               b.bundle_name
+        FROM bundle b
+                 INNER JOIN bundle_tag bt ON bt.bundle_id = b.id
+                 LEFT JOIN bundle_translation btrans ON b.id = btrans.id AND btrans.locale = p_locale
+        WHERE bt.tag_id = p_tag_id;
 END;
 $$;
