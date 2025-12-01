@@ -3,6 +3,7 @@ from typing import TypeVar, Generic, Type, Optional, Any, List
 from sqlalchemy import select, update, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import DeclarativeBase, selectinload
 
 from app.db.engine import get_async_session as db_get_async_session, get_sync_session as db_get_sync_session
@@ -144,14 +145,22 @@ class BaseRepository(Generic[T]):
                 await session.rollback()
                 raise DatabaseException(str(e))
 
-    async def get_by_id(self, record_id: Any) -> Optional[T]:
-        async with self.get_session() as session:
+    async def get_by_id(self, record_id: Any, session: AsyncSession = None) -> Optional[T]:
+        if session:
             try:
                 stmt = select(self.model).where(self.model.id == record_id)
                 result = await session.execute(stmt)
                 return result.scalars().first()
             except SQLAlchemyError as e:
                 raise DatabaseException(str(e))
+        else:
+            async with self.get_session() as session:
+                try:
+                    stmt = select(self.model).where(self.model.id == record_id)
+                    result = await session.execute(stmt)
+                    return result.scalars().first()
+                except SQLAlchemyError as e:
+                    raise DatabaseException(str(e))
 
     def sget_by_id(self, record_id: Any) -> Optional[T]:
         with self.get_sync_session() as session:
@@ -194,7 +203,7 @@ class BaseRepository(Generic[T]):
             except SQLAlchemyError as e:
                 raise DatabaseException(str(e))
 
-    async def get_first_by(self, where: dict = None, filters: dict = None) -> Optional[T]:
+    async def get_first_by(self, where: dict = None, filters: dict = None, session: AsyncSession = None) -> Optional[T]:
         """
         Get first record matching WHERE conditions and/or raw SQL filters.
 
@@ -202,6 +211,7 @@ class BaseRepository(Generic[T]):
             where: Dictionary of field:value pairs for exact matches (e.g., {"email": "test@example.com"})
             filters: Dictionary of raw SQL conditions for complex queries like JSONB operators
                     (e.g., {"metadata->>'referral_code'": "ABC123"})
+            session: Optional SQLAlchemy AsyncSession to reuse existing session
 
         Returns:
             First matching record or None
@@ -219,7 +229,7 @@ class BaseRepository(Generic[T]):
                 filters={"metadata->>'country'": "USA"}
             )
         """
-        async with self.get_session() as session:
+        if session:
             try:
                 stmt = select(self.model)
 
@@ -241,6 +251,29 @@ class BaseRepository(Generic[T]):
                 return result.scalars().first()
             except SQLAlchemyError as e:
                 raise DatabaseException(str(e))
+        else:
+            async with self.get_session() as session:
+                try:
+                    stmt = select(self.model)
+
+                    # Apply WHERE conditions
+                    if where:
+                        for key, value in where.items():
+                            stmt = stmt.where(getattr(self.model, key) == value)
+
+                    # Apply raw SQL filters for JSONB and other complex conditions
+                    if filters:
+                        for condition, value in filters.items():
+                            # Build the full condition with table name and placeholder
+                            table_name = self.model.__tablename__
+                            param_name = f"filter_{abs(hash(condition))}"
+                            full_condition = f"{table_name}.{condition.strip()} = :{param_name}"
+                            stmt = stmt.where(text(full_condition)).params(**{param_name: value})
+
+                    result = await session.execute(stmt)
+                    return result.scalars().first()
+                except SQLAlchemyError as e:
+                    raise DatabaseException(str(e))
 
     async def get_first_by_with_relations(self, where: dict = None, filters: dict = None,
                                           relations: List[str] = None) -> Optional[T]:
@@ -309,7 +342,7 @@ class BaseRepository(Generic[T]):
                 raise DatabaseException(str(e))
 
     async def list(self, where: dict = None, filters: dict = None, limit: int = 50, offset: int = 0,
-                   order_by: str = None, desc: bool = False) -> List[T]:
+                   order_by: str = None, desc: bool = False, session: AsyncSession = None) -> List[T]:
         """
         List records with optional WHERE conditions and/or raw SQL filters.
 
@@ -320,6 +353,7 @@ class BaseRepository(Generic[T]):
             offset: Number of records to skip
             order_by: Field name to order by (e.g., "created_at")
             desc: If True, order descending; if False, order ascending
+            session: Optional SQLAlchemy AsyncSession to reuse existing session
 
         Returns:
             List of model instances
@@ -332,7 +366,7 @@ class BaseRepository(Generic[T]):
                 desc=True
             )
         """
-        async with self.get_session() as session:
+        if session:
             try:
                 stmt = select(self.model)
 
@@ -361,6 +395,36 @@ class BaseRepository(Generic[T]):
                 return list(result.scalars())
             except SQLAlchemyError as e:
                 raise DatabaseException(str(e))
+        else:
+            async with self.get_session() as session:
+                try:
+                    stmt = select(self.model)
+
+                    # Apply WHERE conditions
+                    if where:
+                        for key, value in where.items():
+                            stmt = stmt.where(getattr(self.model, key) == value)
+
+                    # Apply raw SQL filters
+                    if filters:
+                        for condition, value in filters.items():
+                            table_name = self.model.__tablename__
+                            param_name = f"filter_{abs(hash(condition))}"
+                            full_condition = f"{table_name}.{condition.strip()} = :{param_name}"
+                            stmt = stmt.where(text(full_condition)).params(**{param_name: value})
+
+                    # Apply ordering
+                    if order_by:
+                        column = getattr(self.model, order_by)
+                        stmt = stmt.order_by(column.desc() if desc else column)
+
+                    # Apply pagination
+                    stmt = stmt.limit(limit).offset(offset)
+
+                    result = await session.execute(stmt)
+                    return list(result.scalars())
+                except SQLAlchemyError as e:
+                    raise DatabaseException(str(e))
 
     def slist(self, where: dict = None, filters: dict = None, limit: int = 50, offset: int = 0,
               order_by: str = None, desc: bool = False) -> List[T]:
@@ -541,8 +605,8 @@ class BaseRepository(Generic[T]):
             except SQLAlchemyError as e:
                 raise DatabaseException(str(e))
 
-    async def create(self, data: dict | T) -> T:
-        async with self.get_session() as session:
+    async def create(self, data: dict | T, session: AsyncSession = None) -> T:
+        if session:
             try:
                 # Handle both dict and model instance
                 if isinstance(data, dict):
@@ -551,12 +615,27 @@ class BaseRepository(Generic[T]):
                     record = data
 
                 session.add(record)
-                await session.commit()
+                await session.flush()
                 await session.refresh(record)
                 return record
             except SQLAlchemyError as e:
-                await session.rollback()
                 raise DatabaseException(str(e))
+        else:
+            async with self.get_session() as session:
+                try:
+                    # Handle both dict and model instance
+                    if isinstance(data, dict):
+                        record = self.model(**data)
+                    else:
+                        record = data
+
+                    session.add(record)
+                    await session.commit()
+                    await session.refresh(record)
+                    return record
+                except SQLAlchemyError as e:
+                    await session.rollback()
+                    raise DatabaseException(str(e))
 
     async def update(self, record_id: Any, data: dict | T) -> Optional[T]:
         async with self.get_session() as session:
@@ -585,8 +664,8 @@ class BaseRepository(Generic[T]):
                 await session.rollback()
                 raise DatabaseException(str(e))
 
-    async def update_by(self, where: dict, data: dict | T, filters: dict = None) -> Optional[T]:
-        async with self.get_session() as session:
+    async def update_by(self, where: dict, data: dict | T, filters: dict = None, session: AsyncSession = None) -> Optional[T]:
+        if session:
             try:
                 # Convert model instance to dict if needed
                 if isinstance(data, dict):
@@ -610,11 +689,40 @@ class BaseRepository(Generic[T]):
                         stmt = stmt.where(text(full_condition)).params(**{param_name: value})
 
                 result = await session.execute(stmt)
-                await session.commit()
+                await session.flush()
                 return result.scalars().first()
             except SQLAlchemyError as e:
-                await session.rollback()
                 raise DatabaseException(str(e))
+        else:
+            async with self.get_session() as session:
+                try:
+                    # Convert model instance to dict if needed
+                    if isinstance(data, dict):
+                        data_dict = data
+                    else:
+                        # Get all column values from the model instance, excluding None values
+                        data_dict = {
+                            c.name: getattr(data, c.name, None)
+                            for c in data.__table__.columns
+                            if getattr(data, c.name, None) is not None
+                        }
+
+                    stmt = update(self.model).values(**data_dict).returning(self.model)
+                    for key, value in where.items():
+                        stmt = stmt.where(getattr(self.model, key) == value)
+                    if filters:
+                        for condition, value in filters.items():
+                            table_name = self.model.__tablename__
+                            param_name = f"filter_{abs(hash(condition))}"
+                            full_condition = f"{table_name}.{condition.strip()} = :{param_name}"
+                            stmt = stmt.where(text(full_condition)).params(**{param_name: value})
+
+                    result = await session.execute(stmt)
+                    await session.commit()
+                    return result.scalars().first()
+                except SQLAlchemyError as e:
+                    await session.rollback()
+                    raise DatabaseException(str(e))
 
     async def delete(self, record_id: Any) -> None:
         async with self.get_session() as session:

@@ -131,134 +131,164 @@ class BundleService:
 
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
                          payment_status: str, payment_type: str, rule_id: str = None):
-        rate = await self.__currency_service.aget_currency_rate(from_currency=user_order.currency, to_currency="USD")
-        rate = float(rate)
-        order_amount = float(user_order.modified_amount)
-        user = await self.__user_repo.get_by_id(record_id=user_id)
-        msisdn = user.metadata_json.get("msisdn", "")
-        email = user.email
-        unique_identifier = f"{msisdn if msisdn else email}|{user_order.id}"
-        order_id = user_order.id
-        promo_code = user_order.promo_code if user_order.promo_code else user_order.referral_code
-        new_price = (round((order_amount / 100) * rate, 2)) if promo_code else None
-        discount_amount = await self.__get_discount_amount(promo_code) if promo_code else None
-        discount_rate = await self.__get_discount_rate(promo_code) if promo_code else None
-        bundle_type = await self.__bundle_type(code=bundle.bundle_code)
-        esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
-                                                                             order_id=unique_identifier, user=user,
-                                                                             payment_type=payment_type,
-                                                                             new_price=new_price,
-                                                                             discount_amount=discount_amount,
-                                                                             discount_rate=discount_rate,
-                                                                             bundle_type=bundle_type)
+        start_time = datetime.now()
+        from app.db.engine import get_async_session
 
-        user_order.payment_status = payment_status
-        user_order.payment_time = datetime.now(tz=dt_timezone.utc).replace(tzinfo=None)
-        user_order.order_status = OrderStatusEnum.SUCCESS
-        if esim_hub_order is None:
-            user_order.order_status = OrderStatusEnum.FAILURE
-            await self.__user_order_repo.update_by({"id": user_order.id}, data=user_order)
-            logger.info(f"error creating esim hub profile for order {user_order.id}")
-            await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="failed",
-                                                                  rule_id=rule_id, order_id=order_id)
-            return BadRequestException("Payment failed")
-        else:
-            user_order.esim_order_id = esim_hub_order.orderId
-        await self.__user_order_repo.update_by({"id": user_order.id}, data=user_order)
-        user_profile = await self.__user_profile_repo.create({
-            "user_id": user_id,
-            "user_order_id": user_order.id,
-            "shared_user_id": None,
-            "iccid": esim_hub_order.iccid,
-            "validity": esim_hub_order.validityData,
-            "label": None,
-            "smdp_address": esim_hub_order.smdpAdress,
-            "activation_code": esim_hub_order.activationCode,
-            "allow_topup": esim_hub_order.allowTopup,
-            "esim_hub_order_id": esim_hub_order.orderId,
-            "searched_countries": user_order.searched_countries,
-        })
-        await self.__user_profile_bundle_repo.create({
-            "user_id": user_order.user_id,
-            "user_order_id": user_order.id,
-            "user_profile_id": user_profile.id,
-            "esim_hub_order_id": esim_hub_order.orderId,
-            "iccid": esim_hub_order.iccid,
-            "bundle_type": UserBundleType.PRIMARY_BUNDLE,
-            "plan_started": False,
-            "bundle_expired": False,
-            "bundle_data": bundle.model_dump(),
-        })
-        # await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
-        if user_order.promo_code or user_order.referral_code:
-            await self.__promotion_service.apply_promotion_code_after_purchase(user_id=user_id,
-                                                                               status="completed",
-                                                                               user_order=user_order,
-                                                                               rule_id=rule_id)
+        # Use a single database session for all operations to improve performance
+        async with get_async_session() as session:
+            try:
+                rate = await self.__currency_service.aget_currency_rate(from_currency=user_order.currency, to_currency="USD")
+                rate = float(rate)
+                order_amount = float(user_order.modified_amount)
+                user = await self.__user_repo.get_by_id(record_id=user_id, session=session)
+                msisdn = user.metadata_json.get("msisdn", "")
+                email = user.email
+                unique_identifier = f"{msisdn if msisdn else email}|{user_order.id}"
+                order_id = user_order.id
+                promo_code = user_order.promo_code if user_order.promo_code else user_order.referral_code
+                new_price = (round((order_amount / 100) * rate, 2)) if promo_code else None
+                discount_amount = await self.__get_discount_amount(promo_code) if promo_code else None
+                discount_rate = await self.__get_discount_rate(promo_code) if promo_code else None
+                bundle_type = await self.__bundle_type(code=bundle.bundle_code)
+                esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
+                                                                                     order_id=unique_identifier, user=user,
+                                                                                     payment_type=payment_type,
+                                                                                     new_price=new_price,
+                                                                                     discount_amount=discount_amount,
+                                                                                     discount_rate=discount_rate,
+                                                                                     bundle_type=bundle_type)
 
-        user = await self.__user_repo.get_by_id(record_id=user_order.user_id)
+                user_order.payment_status = payment_status
+                user_order.payment_time = datetime.now(tz=dt_timezone.utc).replace(tzinfo=None)
+                user_order.order_status = OrderStatusEnum.SUCCESS
+                if esim_hub_order is None:
+                    user_order.order_status = OrderStatusEnum.FAILURE
+                    await self.__user_order_repo.update_by({"id": user_order.id}, data=user_order, session=session)
+                    await session.commit()
+                    logger.info(f"error creating esim hub profile for order {user_order.id}")
+                    await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="failed",
+                                                                          rule_id=rule_id, order_id=order_id)
+                    return BadRequestException("Payment failed")
+                else:
+                    user_order.esim_order_id = esim_hub_order.orderId
 
-        def send_notification_task():
-            asyncio.run(self.__send_buy_notification(bundle_name=bundle.bundle_name, iccid=esim_hub_order.iccid,
-                                                     user_id=user_order.user_id))
+                await self.__user_order_repo.update_by({"id": user_order.id}, data=user_order, session=session)
+                user_profile = await self.__user_profile_repo.create({
+                    "user_id": user_id,
+                    "user_order_id": user_order.id,
+                    "shared_user_id": None,
+                    "iccid": esim_hub_order.iccid,
+                    "validity": esim_hub_order.validityData,
+                    "label": None,
+                    "smdp_address": esim_hub_order.smdpAdress,
+                    "activation_code": esim_hub_order.activationCode,
+                    "allow_topup": esim_hub_order.allowTopup,
+                    "esim_hub_order_id": esim_hub_order.orderId,
+                    "searched_countries": user_order.searched_countries,
+                }, session=session)
+                await self.__user_profile_bundle_repo.create({
+                    "user_id": user_order.user_id,
+                    "user_order_id": user_order.id,
+                    "user_profile_id": user_profile.id,
+                    "esim_hub_order_id": esim_hub_order.orderId,
+                    "iccid": esim_hub_order.iccid,
+                    "bundle_type": UserBundleType.PRIMARY_BUNDLE,
+                    "plan_started": False,
+                    "bundle_expired": False,
+                    "bundle_data": bundle.model_dump(),
+                }, session=session)
 
-        def send_email_task():
-            asyncio.run(self.__send_email(user=user, user_profile=user_profile, bundle=bundle, user_order=user_order))
+                # Commit all database changes at once
+                await session.commit()
 
-        self.__task_executor.add_task(send_notification_task)
-        self.__task_executor.add_task(send_email_task)
-        return ResponseHelper.success_response()
+                # async operations that don't need to be in the transaction
+                # await self.__promotion_service.check_referral_rewards_after_buy_bundle(user_id)
+                if user_order.promo_code or user_order.referral_code:
+                    await self.__promotion_service.apply_promotion_code_after_purchase(user_id=user_id,
+                                                                                       status="completed",
+                                                                                       user_order=user_order,
+                                                                                       rule_id=rule_id)
+
+                def send_notification_task():
+                    asyncio.run(self.__send_buy_notification(bundle_name=bundle.bundle_name, iccid=esim_hub_order.iccid,
+                                                             user_id=user_order.user_id))
+
+                def send_email_task():
+                    asyncio.run(self.__send_email(user=user, user_profile=user_profile, bundle=bundle, user_order=user_order))
+
+                self.__task_executor.add_task(send_notification_task)
+                self.__task_executor.add_task(send_email_task)
+                end_time = datetime.now()
+                duration = (end_time - start_time).total_seconds()
+                logger.info(f"buy_bundle executed in {duration} seconds for order {user_order.id}")
+                return ResponseHelper.success_response()
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error in buy_bundle: {str(e)}")
+                raise
 
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,
                             payment_status: str, payment_type: str = PaymentTypeEnum.CARD):
-        user = await self.__user_repo.get_by_id(record_id=user_id)
-        msisdn = user.metadata_json.get("msisdn", "")
-        email = user.email
-        order_id = f"{msisdn if msisdn else email}|{user_order.id}"
-        user_profile = await self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
-        primary_bundle = await self.__user_profile_bundle_repo.get_first_by(
-            {"user_id": user_id, "iccid": iccid, "bundle_type": UserBundleType.PRIMARY_BUNDLE})
-        bundle_type = await self.__bundle_type(code=bundle.bundle_code)
-        try:
-            esim_hub_topup = await self.__esim_hub_service.create_reseller_topup(
-                esim_hub_order_id=user_profile.esim_hub_order_id,
-                bundle_code=bundle.bundle_code,
-                order_id=order_id,
-                user=user,
-                payment_type=payment_type,
-                bundle_type=bundle_type)
-        except Exception as e:
-            esim_hub_topup = None
-            logger.error(f"error while topping up bundle {str(e)}")
-        if not esim_hub_topup:
-            await self.__user_order_repo.update_by({"id": user_order.id}, {
-                "order_status": OrderStatusEnum.FAILURE,
-                "payment_status": payment_status,
-                "callback_time": datetime.now().replace(tzinfo=None),
-                "esim_order_id": None
-            })
-            logger.error(f"error while topping up bundle {user_order.id}")
-            return BadRequestException("Payment failed")
-        await self.__user_order_repo.update_by({"id": user_order.id}, {
-            "order_status": OrderStatusEnum.SUCCESS,
-            "payment_status": payment_status,
-            "callback_time": datetime.now().replace(tzinfo=None),
-            "esim_order_id": None
-        })
-        await self.__user_profile_bundle_repo.create({
-            "user_id": user_order.user_id,
-            "user_order_id": user_order.id,
-            "user_profile_id": user_profile.id,
-            "esim_hub_order_id": esim_hub_topup.orderId,
-            "iccid": iccid,
-            "bundle_type": UserBundleType.TOP_UP_BUNDLE,
-            "plan_started": True if primary_bundle.bundle_expired is True else False,
-            "bundle_expired": False,
-            "bundle_data": bundle.model_dump(),
-        })
-        await self.__send_topup_notification(bundle_name=bundle.bundle_name, iccid=iccid,
-                                             user_id=user_order.user_id)
-        return ResponseHelper.success_response()
+        from app.db.engine import get_async_session
+
+        async with get_async_session() as session:
+            try:
+                user = await self.__user_repo.get_by_id(record_id=user_id, session=session)
+                msisdn = user.metadata_json.get("msisdn", "")
+                email = user.email
+                order_id = f"{msisdn if msisdn else email}|{user_order.id}"
+                user_profile = await self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid}, session=session)
+                primary_bundle = await self.__user_profile_bundle_repo.get_first_by(
+                    {"user_id": user_id, "iccid": iccid, "bundle_type": UserBundleType.PRIMARY_BUNDLE}, session=session)
+                bundle_type = await self.__bundle_type(code=bundle.bundle_code)
+                try:
+                    esim_hub_topup = await self.__esim_hub_service.create_reseller_topup(
+                        esim_hub_order_id=user_profile.esim_hub_order_id,
+                        bundle_code=bundle.bundle_code,
+                        order_id=order_id,
+                        user=user,
+                        payment_type=payment_type,
+                        bundle_type=bundle_type)
+                except Exception as e:
+                    esim_hub_topup = None
+                    logger.error(f"error while topping up bundle {str(e)}")
+                if not esim_hub_topup:
+                    await self.__user_order_repo.update_by({"id": user_order.id}, {
+                        "order_status": OrderStatusEnum.FAILURE,
+                        "payment_status": payment_status,
+                        "callback_time": datetime.now().replace(tzinfo=None),
+                        "esim_order_id": None
+                    }, session=session)
+                    await session.commit()
+                    logger.error(f"error while topping up bundle {user_order.id}")
+                    return BadRequestException("Payment failed")
+                await self.__user_order_repo.update_by({"id": user_order.id}, {
+                    "order_status": OrderStatusEnum.SUCCESS,
+                    "payment_status": payment_status,
+                    "callback_time": datetime.now().replace(tzinfo=None),
+                    "esim_order_id": None
+                }, session=session)
+                await self.__user_profile_bundle_repo.create({
+                    "user_id": user_order.user_id,
+                    "user_order_id": user_order.id,
+                    "user_profile_id": user_profile.id,
+                    "esim_hub_order_id": esim_hub_topup.orderId,
+                    "iccid": iccid,
+                    "bundle_type": UserBundleType.TOP_UP_BUNDLE,
+                    "plan_started": True if primary_bundle.bundle_expired is True else False,
+                    "bundle_expired": False,
+                    "bundle_data": bundle.model_dump(),
+                }, session=session)
+
+                await session.commit()
+
+                await self.__send_topup_notification(bundle_name=bundle.bundle_name, iccid=iccid,
+                                                     user_id=user_order.user_id)
+                return ResponseHelper.success_response()
+            except Exception as e:
+                await session.rollback()
+                logger.error(f"Error in top_up_bundle: {str(e)}")
+                raise
 
     async def __send_email(self, user: UsersCopyModel, user_profile: UserProfileModel, bundle: BundleDTO,
                            user_order: UserOrderModel):

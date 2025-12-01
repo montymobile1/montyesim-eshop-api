@@ -7,20 +7,25 @@ from sqlalchemy.pool import QueuePool, NullPool
 from .settings import DATABASE_URL
 
 # Tunable pool settings — adjust to your DB and workload
-ASYNC_POOL_SIZE = 10
-ASYNC_MAX_OVERFLOW = 20
+ASYNC_POOL_SIZE = 20
+ASYNC_MAX_OVERFLOW = 40
 SYNC_POOL_SIZE = 10
 SYNC_MAX_OVERFLOW = 20
 
-# Async engine: asyncio-compatible engines cannot use the sync QueuePool.
-# Use NullPool for the SQLAlchemy async engine (connections are not pooled by SQLAlchemy here).
-# If you need an async connection pool, consider configuring the DB driver's pool (e.g. asyncpg)
-# or use a different architecture where a sync pool is available to the driver.
+# Async engine: Don't specify poolclass, let SQLAlchemy use AsyncAdaptedQueuePool automatically
+# This is the correct way to enable pooling for async engines
 async_engine = create_async_engine(
     DATABASE_URL,
     echo=False,  # set True if you want verbose SQL logs
     pool_pre_ping=True,  # keeps connections healthy
-    poolclass=NullPool,
+    pool_size=ASYNC_POOL_SIZE,
+    max_overflow=ASYNC_MAX_OVERFLOW,
+    pool_recycle=3600,  # recycle connections after 1 hour
+    # Optional: Connection arguments for asyncpg
+    connect_args={
+        "server_settings": {"jit": "off"},  # Can improve initial connection performance
+        "command_timeout": 60,
+    },
 )
 
 # Use AsyncSession explicitly and avoid expiring objects on commit (common for web apps)

@@ -27,6 +27,10 @@ class EsimHubService:
             max_connections=int(os.getenv("MAX_CONNECTIONS", 200)),
         )
         self.__timeout = httpx.Timeout(120.0)
+        # Create a persistent AsyncClient to reuse connections across requests.
+        # This avoids per-request TCP/TLS handshake overhead and improves latency.
+        # Enable HTTP/2 if the server supports it to reduce latency across multiple requests
+        self._client = httpx.AsyncClient(limits=self.__limits, timeout=self.__timeout, http2=True)
 
     async def get_regions(self) -> List[RegionDTO]:
         params = {
@@ -394,15 +398,14 @@ class EsimHubService:
             headers["Accept"] = "application/json"
             headers["Api-Key"] = self.__api_key
 
-            # Create a per-request AsyncClient to avoid cross-thread/event-loop reuse
-            async with httpx.AsyncClient(limits=self.__limits, timeout=self.__timeout) as client:
-                response = await client.request(
-                    method=method,
-                    url=base_url + path,
-                    headers=headers,
-                    params=params,
-                    json=body
-                )
+            # Use the persistent AsyncClient instance
+            response = await self._client.request(
+                method=method,
+                url=base_url + path,
+                headers=headers,
+                params=params,
+                json=body,
+            )
 
             logger.debug("Request: curl -X {} {} {} Response: {}".format(method, base_url + path, " ".join(
                 [f'--header "{key}: {value}"' for key, value in headers.items()]), response))
@@ -422,6 +425,13 @@ class EsimHubService:
             if isinstance(e, CustomException):
                 raise e
             raise EsimHubException(str(e))
+
+    async def close(self):
+        """Close the underlying AsyncClient. Call on application shutdown if available."""
+        try:
+            await self._client.aclose()
+        except Exception:
+            pass
 
     async def check_bundle_applicable(self, bundle_id: str) -> bool:
         try:
