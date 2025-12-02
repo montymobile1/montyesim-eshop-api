@@ -162,7 +162,7 @@ class GroupingService:
             self.__translate_bundle(bundle=bundle, locale=locale)
 
     def __translate_bundle(self, bundle: BundleModel, locale: str):
-        old = self.__bundle_translation_repo.get_first_by(where={"id": bundle.id, "locale": locale})
+        old = self.__bundle_translation_repo.get_first_by(where={"bundle_id": bundle.id, "locale": locale})
         if old:
             return None
         logger.info(f"translating bundle {bundle.id} to locale {locale}")
@@ -175,7 +175,7 @@ class GroupingService:
                 translated_countries.append(country)
             bundle_dto.countries = translated_countries
             self.__bundle_translation_repo.create({
-                "id": bundle.id,
+                "bundle_id": bundle.id,
                 "data": bundle_dto.model_dump(),
                 "locale": locale
             })
