@@ -156,7 +156,7 @@ class GroupingService:
             self.__tag_translation_repo.create(data)
 
     def __translate_bundles(self, locale: str):
-        bundles = self.__bundle_repo.list(where={})
+        bundles = self.__bundle_repo.list(where={}, limit=5000)
         logger.info(f"translating bundles {len(bundles)}")
         for bundle in bundles:
             self.__translate_bundle(bundle=bundle, locale=locale)
