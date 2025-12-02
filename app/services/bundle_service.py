@@ -154,6 +154,8 @@ class BundleService:
         cached: List[BundleDTO] | None = await CacheService.read_list_from_cache(cache_key, BundleDTO)
         if cached is not None:
             logger.info(f"getting bundles from cache {cache_key}")
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.info(f"get_bundles_by_region executed in {duration} seconds")
             return ResponseHelper.success_data_response(cached, len(cached))
 
         regions = await self.__grouping_service.get_all_regions(locale)

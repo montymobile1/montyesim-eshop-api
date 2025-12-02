@@ -1,7 +1,6 @@
 import os
 from typing import Literal, List
 
-import aiocache
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance
@@ -9,6 +8,7 @@ from app.config.db import ConfigKeysEnum
 from app.config.helper import get_config
 from app.schemas.home import HomeResponseDto, BundleDTO
 from app.schemas.response import Response, ResponseHelper
+from app.services.cache_service import CacheService
 from app.services.currency_service import CurrencyService
 from app.services.grouping_service import GroupingService
 
@@ -44,7 +44,7 @@ class HomeService:
         bundle_key_config = config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
         bundle_key = bundle_key_config.value if bundle_key_config else "default"
         cache_key = f"home:{bundle_key}:{currency}:{locale}"
-        cached_response = await self.__read_from_cache(cache_key)
+        cached_response: HomeResponseDto = await CacheService.read_from_cache(cache_key, HomeResponseDto)
         if cached_response:
             logger.info(f"getting response from cache: {cache_key}")
             return ResponseHelper.success_data_response(cached_response, 0)
@@ -71,7 +71,7 @@ class HomeService:
 
         # Create the response with validated DTO
         home_dto = HomeResponseDto(**home_response)
-        await self.__store_in_cache(cache_key, home_dto)
+        await CacheService.add_to_cache(cache_key, home_dto, 1200)
         return ResponseHelper.success_data_response(home_dto, 0)
 
     async def get_cruise_bundles(self, currency: str, locale: str) -> Response[HomeResponseDto]:
@@ -145,26 +145,4 @@ class HomeService:
             return await self.__grouping_service.get_all_regions(locale)
         except Exception as e:
             logger.error(f"error while getting regions: {str(e)}")
-            return []
-
-    async def __store_in_cache(self, cache_key: str, data: HomeResponseDto):
-        try:
-            cache = aiocache.caches.get("default")
-            await cache.clear()  # Remove all old cache keys before storing new
-            await cache.set(cache_key, data.model_dump_json(), ttl=333600)
-            logger.info(f"Stored data in cache with key: {cache_key}")
-        except Exception as e:
-            logger.error(f"Error storing data in cache: {e}")
-
-    async def __read_from_cache(self, cache_key) -> HomeResponseDto | None:
-        try:
-            cached_data = await aiocache.caches.get("default").get(cache_key)
-            if cached_data:
-                logger.info(f"Retrieved data from cache with key: {cache_key}")
-                return HomeResponseDto.model_validate_json(cached_data)
-            else:
-                logger.info(f"No data found in cache for key: {cache_key}")
-                return None
-        except Exception as e:
-            logger.error(f"Error reading from cache: {e}")
             return None

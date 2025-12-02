@@ -98,3 +98,24 @@ class CacheService:
             logger.error(f"Error reading list from cache: {e}")
             return None
 
+    @staticmethod
+    async def delete_by_prefix(prefix: str) -> None:
+        """
+        Delete all cache keys that start with the given prefix.
+
+        This uses the backend-specific `clear(namespace)` entry point provided by aiocache
+        which will delete keys matching the namespace for Redis and memory backends.
+
+        Args:
+            prefix: Prefix of keys to delete. May include or omit a trailing ':' (both work).
+        """
+        try:
+            # Normalize prefix so callers can pass either "home" or "home:"
+            normalized = prefix[:-1] if prefix.endswith(":") else prefix
+            cache = aiocache.caches.get("default")
+            # The `clear(namespace)` call will use the backend implementation to
+            # remove keys in that namespace (Redis uses namespace:* pattern).
+            await cache.clear(normalized)
+            logger.info(f"Cleared cache keys with prefix: {normalized}")
+        except Exception as e:
+            logger.error(f"Error deleting cache keys by prefix '{prefix}': {e}")

@@ -28,6 +28,7 @@ from app.schemas.response import Response, ResponseHelper
 from app.services.bundle_service import BundleService
 from app.services.currency_service import CurrencyService
 from app.services.promotion_service import PromotionService
+from app.services.task_executor import TaskExecutor
 from app.services.user_wallet_service import UserWalletService
 
 
@@ -45,6 +46,7 @@ class UserBundleService:
         self.__dcb_service = dcb_service_instance()
         self.__currency_service = CurrencyService()
         self.__user_repo = UserRepo()
+        self.__task_executor = TaskExecutor()
 
     async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
                      locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
@@ -97,13 +99,15 @@ class UserBundleService:
             order.modified_amount = round(modified_amount * 100, 2)
             order.bundle_data = bundle.model_dump_json()
             logger.info(f"scheduling background update for order {order.id}")
+
             # Create background task for order update
-            asyncio.create_task(
+            def task():
                 self.__update_order_with_delay(
                     order_id=order.id,
                     bundle=bundle
                 )
-            )
+
+            self.__task_executor.add_task(task)
 
         payment_type = assign_request.payment_type
 
