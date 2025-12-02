@@ -11,6 +11,7 @@ from app.repo.tag_repo import TagRepo, TagTranslationRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import CountryDTO, RegionDTO, BundleDTO
 from app.schemas.response import ResponseHelper
+from app.services.sync_service import SyncService
 from app.services.task_executor import TaskExecutor
 
 
@@ -22,6 +23,7 @@ class GroupingService:
         self.__bundle_translation_repo = BundleTranslationRepo()
         self.__tag_translation_repo = TagTranslationRepo()
         self.__task_executor = TaskExecutor()
+        self.__sync_service = SyncService()
 
     async def __get_all_tags_by_group_id(self, group_id) -> List[TagModel]:
         tags = self.__tag_repo.select_procedure(function_name="get_active_tag_names_and_data_by_group",
@@ -154,12 +156,14 @@ class GroupingService:
                 "data": tag.data
             }
             self.__tag_translation_repo.create(data)
+        self.__sync_service.update_sync_version()
 
     def __translate_bundles(self, locale: str):
         bundles = self.__bundle_repo.list(where={}, limit=5000)
         logger.info(f"translating bundles {len(bundles)}")
         for bundle in bundles:
             self.__translate_bundle(bundle=bundle, locale=locale)
+        self.__sync_service.update_sync_version()
 
     def __translate_bundle(self, bundle: BundleModel, locale: str):
         old = self.__bundle_translation_repo.get_first_by(where={"bundle_id": bundle.id, "locale": locale})

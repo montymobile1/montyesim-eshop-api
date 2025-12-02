@@ -1,7 +1,7 @@
 from typing import List
 
 from app.config.db import DatabaseTables
-from app.models.app import BundleModel
+from app.models.app import BundleModel, BundleTranslationModel
 from app.repo.base_repo import BaseRepository
 from app.schemas.home import BundleDTO
 
@@ -23,4 +23,4 @@ class BundleRepo(BaseRepository):
 class BundleTranslationRepo(BaseRepository):
 
     def __init__(self):
-        super().__init__(DatabaseTables.TABLE_BUNDLE_TRANSLATION, BundleModel)
+        super().__init__(DatabaseTables.TABLE_BUNDLE_TRANSLATION, BundleTranslationModel)
