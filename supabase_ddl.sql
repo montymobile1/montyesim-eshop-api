@@ -676,13 +676,15 @@ create table bundle
 
 create table bundle_translation
 (
-    id         uuid primary key,
+    id         serial4 primary key,
+    bundle_id  uuid        not null references bundle (id) on delete cascade,
     locale     varchar(10) not null,
     data       jsonb,
     created_at timestamp default current_timestamp,
     updated_at timestamp default current_timestamp,
-    unique (id, locale)
+    unique (bundle_id, locale)
 );
+
 
 comment
 on column bundle.bundle_name is 'this field will be used as display title in subscriber, without touching the data inside data json object as it is from sync';
@@ -3162,7 +3164,7 @@ END;
 $$;
 
 
-create function get_bundles_for_tag_translated(p_tag_id uuid, p_locale varchar = 'en')
+create or replace function get_bundles_for_tag_translated(p_tag_id uuid, p_locale varchar = 'en')
     returns TABLE
             (
                 id          uuid,
@@ -3185,7 +3187,7 @@ BEGIN
                b.bundle_name
         FROM bundle b
                  INNER JOIN bundle_tag bt ON bt.bundle_id = b.id
-                 LEFT JOIN bundle_translation btrans ON b.id = btrans.id AND btrans.locale = p_locale
+                 LEFT JOIN bundle_translation btrans ON b.id = btrans.bundle_id AND btrans.locale = p_locale
         WHERE bt.tag_id = p_tag_id;
 END;
 $$;
