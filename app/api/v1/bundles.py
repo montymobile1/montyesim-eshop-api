@@ -50,12 +50,17 @@ async def list_all_countries(x_device_id: str = Header(None), accept_language: s
 
 @router.get("/translate_tag", dependencies=[Depends(device_token)])
 async def translate_tags(accept_language: str = Header("ar")):
-    await grouping_service.translate_tags(accept_language)
+    grouping_service.translate_tags(accept_language)
 
 
-@router.get("/translate_bundles", dependencies=[Depends(device_token)])
+@router.get("/translate_bundle", dependencies=[Depends(device_token)])
 async def translate_bundles(accept_language: str = Header("ar")):
-    await grouping_service.translate_bundles(accept_language)
+    grouping_service.translate_bundles(accept_language)
+
+
+@router.get("/translate_bundle/{bundle_code}", dependencies=[Depends(device_token)])
+async def translate_bundles(bundle_code: str, accept_language: str = Header("ar")):
+    grouping_service.translate_bundle(bundle_code=bundle_code, locale=accept_language)
 
 
 @router.get("/{bundle_code}", response_model=Response[BundleDTO], dependencies=[Depends(device_token)])
