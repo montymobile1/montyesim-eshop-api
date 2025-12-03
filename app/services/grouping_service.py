@@ -139,6 +139,7 @@ class GroupingService:
     def translate_bundle(self, bundle_code: str, locale: str = "en"):
         bundle = self.__bundle_repo.get_first_by(where={"id": bundle_code})
         self.__translate_bundle(bundle=bundle, locale=locale)
+        self.__sync_service.update_sync_version()
         return ResponseHelper.success_response()
 
     def __translate_tags(self, locale: str):
