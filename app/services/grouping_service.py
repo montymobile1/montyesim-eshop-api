@@ -128,10 +128,10 @@ class GroupingService:
         self.__task_executor.add_task(task)
         return ResponseHelper.success_response()
 
-    def translate_bundles(self, locale: str):
+    def translate_bundles(self, locale: str, page_size: int = 1000, page_index: int = 0):
 
         def task():
-            return self.__translate_bundles(locale=locale)
+            return self.__translate_bundles(locale=locale, page_size=page_size, page_index=page_index)
 
         self.__task_executor.add_task(task)
         return ResponseHelper.success_response()
@@ -159,8 +159,8 @@ class GroupingService:
             self.__tag_translation_repo.create(data)
         self.__sync_service.update_sync_version()
 
-    def __translate_bundles(self, locale: str):
-        bundles = self.__bundle_repo.list(where={}, limit=5000)
+    def __translate_bundles(self, locale: str, page_size: int = 1000, page_index: int = 0):
+        bundles = self.__bundle_repo.list(where={}, limit=page_size, offset=page_index * page_size)
         logger.info(f"translating bundles {len(bundles)}")
         for bundle in bundles:
             self.__translate_bundle(bundle=bundle, locale=locale)

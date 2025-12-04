@@ -54,8 +54,10 @@ async def translate_tags(accept_language: str = Header("ar")):
 
 
 @router.get("/translate_bundle", dependencies=[Depends(device_token)])
-async def translate_bundles(accept_language: str = Header("ar")):
-    grouping_service.translate_bundles(accept_language)
+async def translate_bundles(accept_language: str = Header("ar"),
+                            page_index: int = Query(1, description="Page Index"),
+                            page_size: int = Query(10, description="Page Size")):
+    grouping_service.translate_bundles(locale=accept_language, page_size=page_size, page_index=page_index)
 
 
 @router.get("/translate_bundle/{bundle_code}", dependencies=[Depends(device_token)])
