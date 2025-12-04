@@ -23,15 +23,16 @@ async def bundles_by_country(
         x_device_id: str = Header(None),
         accept_language: str = Header("en"),
         x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))) -> Response:
-    return service.get_bundles_by_country(country_codes=country_codes,currency_name=x_currency,locale=accept_language)
+    return await service.get_bundles_by_country(country_codes=country_codes, currency_name=x_currency,
+                                                locale=accept_language)
 
 
 @router.get("/by-region/{region_code}", response_model=Response[List[BundleDTO]],
             dependencies=[Depends(device_token)])
 async def bundles_by_region(region_code: str = Path(description="region_code from the returned regions"),
-                      x_device_id: str = Header(None),
-                      accept_language: str = Header("en"),
-                      x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))) -> Response:
+                            x_device_id: str = Header(None),
+                            accept_language: str = Header("en"),
+                            x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))) -> Response:
     return await service.get_bundles_by_region(region_code=region_code, currency=x_currency, locale=accept_language)
 
 
@@ -46,13 +47,24 @@ async def list_all_countries(x_device_id: str = Header(None), accept_language: s
     List[CountryDTO]]:
     return await service.get_countries(accept_language)
 
+
 @router.get("/translate_tag", dependencies=[Depends(device_token)])
-async def translate(accept_language: str = Header("ar")):
-    await grouping_service.translate_tags(accept_language)
+async def translate_tags(accept_language: str = Header("ar")):
+    grouping_service.translate_tags(accept_language)
+
+
+@router.get("/translate_bundle", dependencies=[Depends(device_token)])
+async def translate_bundles(accept_language: str = Header("ar")):
+    grouping_service.translate_bundles(accept_language)
+
+
+@router.get("/translate_bundle/{bundle_code}", dependencies=[Depends(device_token)])
+async def translate_bundles(bundle_code: str, accept_language: str = Header("ar")):
+    grouping_service.translate_bundle(bundle_code=bundle_code, locale=accept_language)
+
 
 @router.get("/{bundle_code}", response_model=Response[BundleDTO], dependencies=[Depends(device_token)])
-async def bundle_by_code(bundle_code: str, x_device_id: str = Header(None), accept_language: str = Header("en"),x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))) -> \
+async def bundle_by_code(bundle_code: str, x_device_id: str = Header(None), accept_language: str = Header("en"),
+                         x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))) -> \
         Response[BundleDTO]:
-    return service.get_bundle(bundle_code,x_currency,accept_language)
-
-
+    return service.get_bundle(bundle_code, x_currency, accept_language)

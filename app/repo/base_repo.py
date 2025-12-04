@@ -68,11 +68,13 @@ class BaseRepository(Generic[T]):
         except Exception as e:
             raise DatabaseException(str(e))
 
-    def list(self, where: dict, limit: int = 1000, offset: int = 0, order_by: str = None, desc=False) -> List[T]:
+    def list(self, where: dict, limit: int = None, offset: int = 0, order_by: str = None, desc=False) -> List[T]:
         try:
             query = self.table.select("*")
             for key, value in where.items():
                 query = query.eq(key, value)
+            if limit is None:
+                limit = 1000
             query = query.limit(limit).offset(offset)
             if order_by:
                 query = query.order(order_by, desc=desc)

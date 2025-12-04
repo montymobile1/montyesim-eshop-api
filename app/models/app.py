@@ -59,6 +59,13 @@ class BundleModel(BaseModel):
         return value
 
 
+class BundleTranslationModel(BundleModel):
+    id: Optional[int] = Field(None, alias="id")
+    bundle_id: Optional[str] = Field(None, alias="bundle_id")
+    locale: Optional[str] = Field(None, alias="locale")
+    data: Optional[Dict[str, Any]] = Field(None, alias="data")
+
+
 class TagModel(BaseModel):
     id: Optional[str] = Field(None, alias="id")
     tag_group_id: Optional[int] = Field(None, alias="tag_group_id")
@@ -133,6 +140,7 @@ class BannerModel(BaseModel):
     action: str
     platform: str
     created_at: str
+
 
 class UserOtpModel(BaseModel):
     id: Optional[int] = Field(None, alias="id")
