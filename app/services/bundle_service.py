@@ -84,6 +84,7 @@ class BundleService:
 
     async def get_bundles_by_country(self, country_codes: str, currency_name: str, locale: str) -> Response[
         List[BundleDTO]]:
+        start_time = datetime.now()
         if country_codes is None or len(country_codes) == 0:
             raise BadRequestException("country_codes cannot be empty")
 
@@ -93,6 +94,8 @@ class BundleService:
         cached: List[BundleDTO] | None = await CacheService.read_list_from_cache(cache_key, BundleDTO)
         if cached is not None:
             logger.info(f"getting bundles from cache {cache_key}")
+            duration = (datetime.now() - start_time).total_seconds()
+            logger.info(f"get_bundles_by_country executed in {duration} seconds")
             return ResponseHelper.success_data_response(cached, len(cached))
 
         first_tag = self.__tag_repo.get_by_id(country_codes.split(",")[0])
@@ -112,14 +115,7 @@ class BundleService:
         for row in results.data:
             bundle_map[row["bundle_id"]].add(row["tag_id"])
 
-        target_tag_set = {item.id for item in tags}
-        matching_bundle_ids = [
-            bundle_id for bundle_id, tags in bundle_map.items()
-            if tags >= target_tag_set
-        ]
-        is_active = True
-        bundles_model = self.__bundle_repo.list_in(where={"is_active": is_active}, filter={"id": matching_bundle_ids},
-                                                   order_by="data->price")
+        bundles_model = self.__bundle_repo.get_bundles_by_tags(tag_ids=country_codes, locale=locale)
 
         bundles: List[BundleDTO] = []
 
@@ -129,19 +125,11 @@ class BundleService:
             if bundle and bundle.data:
                 bundle_dto = BundleDTO(**bundle.data)
                 bundle_dto.icon = country.icon
-                tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
-                if locale != os.getenv("DEFAULT_LOCALE", "en"):
-                    country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
-                                                                    where={"tag_ids": tags_id,
-                                                                           "locale_param": locale})
-                    for country_tag in country_tags:
-                        country_tag.data["country"] = country_tag.name
-                    countries = [CountryDTO(**tag.data) for tag in country_tags]
-                    bundle_dto.countries = countries
-
                 bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency_name, rate))
 
         filtered_bundles = self.__filter_by_gprs_limit(bundles)
+        duration = (datetime.now() - start_time).total_seconds()
+        logger.info(f"get_bundles_by_country executed in {duration} seconds")
         await CacheService.add_to_cache(cache_key, filtered_bundles, int(get_config("CACHE_TIME", 600)))
         return ResponseHelper.success_data_response(filtered_bundles, len(filtered_bundles))
 

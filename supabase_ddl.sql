@@ -2234,11 +2234,11 @@ from (select *
       order by created_at desc) d;
 
 -- Referrals
-select get_referral_transactions_with_count(p_user_id, 1000000, 0) - > 'data'
+select get_referral_transactions_with_count(p_user_id, 1000000, 0) -> 'data'
 into v_referrals;
 
 -- Wallet Transactions
-select get_wallet_transactions_with_count(p_user_id, 1000000, 0) - > 'data'
+select get_wallet_transactions_with_count(p_user_id, 1000000, 0) -> 'data'
 into v_wallet;
 
 -- Final JSON output
