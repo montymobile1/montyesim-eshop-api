@@ -19,6 +19,9 @@ class BundleRepo(BaseRepository):
         return super().select_procedure(where={"p_tag_id": tag_id, "p_locale": locale},
                                         function_name="get_bundles_for_tag_translated")
 
+    def get_bundles_by_tags(self, tag_ids: str, locale: str = "en") -> List[BundleModel]:
+        return super().select_procedure(where={"p_tags_ids": tag_ids, "p_locale": locale}, function_name="get_bundles_for_tags_translated")
+
 
 class BundleTranslationRepo(BaseRepository):
 
