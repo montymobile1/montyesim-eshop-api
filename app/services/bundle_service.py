@@ -124,58 +124,49 @@ class BundleService:
         return ResponseHelper.success_data_response(filtered_bundles, len(filtered_bundles))
 
     async def get_bundles_by_region(self, region_code: str, currency: str, locale: str) -> Response[List[BundleDTO]]:
-        start_time = datetime.now()
+            start_time = datetime.now()
 
-        cache_config_key = get_config("CACHE_KEY", "default")
-        cache_key = f"by_region:{region_code}:{cache_config_key}:{currency}:{locale}"
+            cache_config_key = get_config("CACHE_KEY", "default")
+            cache_key = f"by_region:{region_code}:{cache_config_key}:{currency}:{locale}"
 
-        cached: List[BundleDTO] | None = await CacheService.read_list_from_cache(cache_key, BundleDTO)
-        if cached is not None:
-            logger.info(f"getting bundles from cache {cache_key}")
+            cached: List[BundleDTO] | None = await CacheService.read_list_from_cache(cache_key, BundleDTO)
+            if cached is not None:
+                logger.info(f"getting bundles from cache {cache_key}")
+                duration = (datetime.now() - start_time).total_seconds()
+                logger.info(f"get_bundles_by_region executed in {duration} seconds")
+                return ResponseHelper.success_data_response(cached, len(cached))
+
+            regions = await self.__grouping_service.get_all_regions(locale)
+
+            searched_regions = [region for region in regions if region.region_code == region_code]
+
+            if len(searched_regions) == 0:
+                raise BadRequestException("Region Not Found")
+
+            bundles_model = self.__bundle_repo.get_bundles_by_tag(tag_id=searched_regions[0].guid, locale=locale)
+
+            bundles: List[BundleDTO] = []
+
+            rate = self.__currency_service.get_rate_by_currency(currency)
+
+            for bundle in bundles_model:
+                if bundle and bundle.data:
+                    bundle_dto = BundleDTO(**bundle.data)
+                    bundle_dto.icon = searched_regions[0].icon
+
+                    bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency, rate))
+
+            filtered_bundles = []
+            for bundle in bundles:
+                if len(bundle.countries) > 1:
+                    filtered_bundles.append(bundle)
+
+            filtered = self.__filter_by_gprs_limit(filtered_bundles)
+            filtered = self.__filter_forbidden_countries(filtered)
             duration = (datetime.now() - start_time).total_seconds()
             logger.info(f"get_bundles_by_region executed in {duration} seconds")
-            return ResponseHelper.success_data_response(cached, len(cached))
-
-        regions = await self.__grouping_service.get_all_regions(locale)
-
-        searched_regions = [region for region in regions if region.region_code == region_code]
-
-        if len(searched_regions) == 0:
-            raise BadRequestException("Region Not Found")
-
-        bundles_model = self.__bundle_repo.get_bundles_by_tag(tag_id=searched_regions[0].guid, locale=locale)
-
-        bundles: List[BundleDTO] = []
-
-        rate = self.__currency_service.get_rate_by_currency(currency)
-
-        for bundle in bundles_model:
-            if bundle and bundle.data:
-                bundle_dto = BundleDTO(**bundle.data)
-                bundle_dto.icon = searched_regions[0].icon
-                # if locale != os.getenv("DEFAULT_LOCALE", "en"):
-                #     tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
-                #     country_tags = self.__tag_repo.select_procedure(function_name="get_translated_tag_by_tag_id_list",
-                #                                                     where={"tag_ids": tags_id,
-                #                                                            "locale_param": locale})
-                #     for country_tag in country_tags:
-                #         country_tag.data["country"] = country_tag.name
-                #     countries = [CountryDTO.model_validate(tag.data) for tag in country_tags]
-                #     bundle_dto.countries = countries
-
-                bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency, rate))
-
-        filtered_bundles = []
-        for bundle in bundles:
-            if len(bundle.countries) > 1:
-                filtered_bundles.append(bundle)
-
-        filtered = self.__filter_by_gprs_limit(filtered_bundles)
-        filtered = self.__filter_forbidden_countries(filtered)
-        duration = (datetime.now() - start_time).total_seconds()
-        logger.info(f"get_bundles_by_region executed in {duration} seconds")
-        await CacheService.add_to_cache(cache_key, filtered, int(get_config("CACHE_TIME", 600)))
-        return ResponseHelper.success_data_response(filtered, len(filtered))
+            await CacheService.add_to_cache(cache_key, filtered, int(get_config("CACHE_TIME", 600)))
+            return ResponseHelper.success_data_response(filtered, len(filtered))
 
     async def get_countries(self, locale: str):
         countries = await self.__grouping_service.get_all_countries(locale)
