@@ -23,6 +23,8 @@ from app.services.currency_service import CurrencyService
 from app.services.user_wallet_service import UserWalletService
 
 
+PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE = "Promo Code Can not be used for this bundle"
+
 class PromotionService:
 
     def __init__(self):
@@ -53,25 +55,24 @@ class PromotionService:
         return ResponseHelper.success_data_response_with_message(history, "Success", len(history))
 
     async def validate_promotion_code(self, promotion_validation_request: PromotionValidationRequest, x_currency: str,
-                                      user_id: str, device_id: str,
-                                      locale: str = "en") -> Response[BundleDTO]:
-        from app.services.bundle_service import BundleService
-        bundle_service = BundleService()
-        bundle_response = bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
-                                                    currency_name=x_currency, locale=locale)
-        bundle: BundleDTO = bundle_response.data
-        if 0.5 > bundle.original_price > 0:
-            raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
-                                  details="Promo Code Can not be used for this bundle")
-        validation_response = await self.validate_promo_code(code=promotion_validation_request.promo_code,
-                                                             bundle=bundle, user_id=user_id, device_id=device_id,
-                                                             currency=x_currency,
-                                                             locale=locale)
-        rate = self.__currency_service.get_rate_by_currency(x_currency)
-        return ResponseHelper.success_data_response_with_message(
-            DtoMapper.bundle_currency_update(bundle=validation_response.bundle, rate=rate, currency=x_currency),
-            validation_response.message, 1)
-
+                                          user_id: str, device_id: str,
+                                          locale: str = "en") -> Response[BundleDTO]:
+            from app.services.bundle_service import BundleService
+            bundle_service = BundleService()
+            bundle_response = bundle_service.get_bundle(bundle_id=promotion_validation_request.bundle_code,
+                                                        currency_name=x_currency, locale=locale)
+            bundle: BundleDTO = bundle_response.data
+            if 0.5 > bundle.original_price > 0:
+                raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
+                                      details=PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE)
+            validation_response = await self.validate_promo_code(code=promotion_validation_request.promo_code,
+                                                                 bundle=bundle, user_id=user_id, device_id=device_id,
+                                                                 currency=x_currency,
+                                                                 locale=locale)
+            rate = self.__currency_service.get_rate_by_currency(x_currency)
+            return ResponseHelper.success_data_response_with_message(
+                DtoMapper.bundle_currency_update(bundle=validation_response.bundle, rate=rate, currency=x_currency),
+                validation_response.message, 1)
     async def validate_promo_code(self, code: str, user_id: str, bundle: BundleDTO, device_id: str,
                                   currency: str, apply_usage: bool = False,
                                   order_id: str = None,

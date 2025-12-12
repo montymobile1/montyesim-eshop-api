@@ -8,6 +8,8 @@ from app.config.helper import get_config
 from app.services.integration.dcb_service import DCBService
 
 
+APPLICATION_JSON = "application/json"
+
 class HubDcbService(DCBService):
 
     def __init__(self):
@@ -20,44 +22,43 @@ class HubDcbService(DCBService):
                          api_key=api_key)
 
     async def send_otp(self, msisdn: str, otp: str) -> bool:
-        url = self.get_send_otp_url()
-        logger.info(f"[DCB_HUB] Sending OTP to {msisdn=} via {url=}")
-        try:
-            with httpx.Client() as client:
-                body = {
-                    "sourceMsisdn": self.__source_msisdn,
-                    "destinationMsisdn": msisdn.replace("+", ""),
-                    "message": f"Your OTP code is {otp}",
-                    "smsType": "NORMAL",
-                    "deliveryReceipt": False
-                }
-                headers = {
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
-                    "Api-Key": self.get_api_key(),
-                    "Tenant": os.getenv("ESIM_HUB_TENANT_KEY")
-                }
-                response = client.request(method="POST",
-                                          url=url,
-                                          headers=headers,
-                                          json=body,
-                                          timeout=120)
-                try:
-                    json_response = response.json()
-                    if json_response.get("message") == "Success":
-                        return True
-                    else:
-                        logger.error(f"[DCB_HUB] Failed to send OTP: {json_response}")
+            url = self.get_send_otp_url()
+            logger.info(f"[DCB_HUB] Sending OTP to {msisdn=} via {url=}")
+            try:
+                with httpx.Client() as client:
+                    body = {
+                        "sourceMsisdn": self.__source_msisdn,
+                        "destinationMsisdn": msisdn.replace("+", ""),
+                        "message": f"Your OTP code is {otp}",
+                        "smsType": "NORMAL",
+                        "deliveryReceipt": False
+                    }
+                    headers = {
+                        "Content-Type": APPLICATION_JSON,
+                        "Accept": APPLICATION_JSON,
+                        "Api-Key": self.get_api_key(),
+                        "Tenant": os.getenv("ESIM_HUB_TENANT_KEY")
+                    }
+                    response = client.request(method="POST",
+                                              url=url,
+                                              headers=headers,
+                                              json=body,
+                                              timeout=120)
+                    try:
+                        json_response = response.json()
+                        if json_response.get("message") == "Success":
+                            return True
+                        else:
+                            logger.error(f"[DCB_HUB] Failed to send OTP: {json_response}")
+                            return False
+                    except Exception as e:
+                        logger.error(f"[DCB_HUB] Invalid response while sending OTP: {response.status_code}, error: {e}")
                         return False
-                except Exception as e:
-                    logger.error(f"[DCB_HUB] Invalid response while sending OTP: {response.status_code}, error: {e}")
-                    return False
 
 
-        except Exception as e:
-            logger.error(f"[DCB_HUB] Error sending OTP to {msisdn}: {e}")
-            return False
-
+            except Exception as e:
+                logger.error(f"[DCB_HUB] Error sending OTP to {msisdn}: {e}")
+                return False
     async def deduct_balance(self, msisdn: str, amount: float, order_id: str) -> bool:
         url = self.get_charge_url()
         conversion_rate = get_config("DCB_HUB_CONVERSION_RATE", "1.0")
