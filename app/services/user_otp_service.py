@@ -12,35 +12,35 @@ class UserOtpService:
         self.__user_otp_repo = UserOtpRepo()
 
     def generate_otp(self, mobile: str, email: str = None):
-        """
-        Generate a 6-digit OTP for the given mobile number and store it in the database with an expiration time of 5 minutes.
-        """
-        import random
-        from datetime import datetime, timedelta, timezone as dt_timezone
+            """
+            Generate a 6-digit OTP for the given mobile number and store it in the database with an expiration time of 5 minutes.
+            """
+            import secrets
+            from datetime import datetime, timedelta, timezone as dt_timezone
 
-        # Limit: max 3 OTPs/hour per mobile
-        if self.__recent_otp_limit(mobile=mobile):
-            raise CustomException(code=400, name=ErrorMessages.OTP_LIMIT_REACHED,
-                                  details="Maximum OTP requests per hour reached. Please try again later.")
-        if self.__has_active_otp(mobile=mobile):
-            raise CustomException(code=429, name=ErrorMessages.OTP_STILL_ACTIVE,
-                                  details="An active OTP already exists. Please use the existing OTP or wait for it to expire.")
+            # Limit: max 3 OTPs/hour per mobile
+            if self.__recent_otp_limit(mobile=mobile):
+                raise CustomException(code=400, name=ErrorMessages.OTP_LIMIT_REACHED,
+                                      details="Maximum OTP requests per hour reached. Please try again later.")
+            if self.__has_active_otp(mobile=mobile):
+                raise CustomException(code=429, name=ErrorMessages.OTP_STILL_ACTIVE,
+                                      details="An active OTP already exists. Please use the existing OTP or wait for it to expire.")
 
-        otp = f"{random.randint(100000, 999999)}"
-        # Check if OTP already exists for this mobile
-        existing_otps = self.__user_otp_repo.list(where={"mobile": mobile, "is_used": False, "otp": otp})
-        if existing_otps or len(existing_otps) > 0:
-            return self.generate_otp(mobile)
-        expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
-        expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
-        self.__user_otp_repo.create({
-            "mobile": mobile,
-            "email": email,
-            "otp": otp,
-            "expire_at": expire_at,
-            "is_used": False
-        })
-        return otp
+            otp = f"{secrets.randbelow(900000) + 100000}"
+            # Check if OTP already exists for this mobile
+            existing_otps = self.__user_otp_repo.list(where={"mobile": mobile, "is_used": False, "otp": otp})
+            if existing_otps or len(existing_otps) > 0:
+                return self.generate_otp(mobile)
+            expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
+            expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
+            self.__user_otp_repo.create({
+                "mobile": mobile,
+                "email": email,
+                "otp": otp,
+                "expire_at": expire_at,
+                "is_used": False
+            })
+            return otp
 
     def verify_otp(self, otp: str, mobile: str, email: str = None):
         if not otp or len(otp) != 6 or not otp.isdigit():

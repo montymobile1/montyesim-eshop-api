@@ -281,30 +281,30 @@ class AuthService:
         return ResponseHelper.success_data_response(data={"otp_expiration": otp_expiration_time}, total_count=0)
 
     async def __handle_email_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
-        AuthResponseDTO]:
-        logger.info(f"verify_otp email otp request received: {verify_otp_request}")
-        if verify_otp_request.user_email == "test.apple@example.com" and verify_otp_request.verification_pin == "123123":
-            response = supabase_client().auth.sign_in_with_password({
-                "email": verify_otp_request.user_email,
-                "password": "esim_oss@2025"
-            })
-            return ResponseHelper.success_data_response(DtoMapper.to_auth_response(response), 0)
-        try:
-            response = supabase_client().auth.verify_otp(
-                {
+            AuthResponseDTO]:
+            logger.info(f"verify_otp email otp request received: {verify_otp_request}")
+            if verify_otp_request.user_email == "test.apple@example.com" and verify_otp_request.verification_pin == "123123":
+                response = supabase_client().auth.sign_in_with_password({
                     "email": verify_otp_request.user_email,
-                    "token": str(verify_otp_request.verification_pin),
-                    "type": "email"
-                }
-            )
-            self.__upsert_device(user_id=response.user.id, device_id=device_id, is_logged_in=True)
-            user_wallet = await self.create_wallet_if_not_exists(user_id=response.user.id,
-                                                                 currency_code=os.getenv("DEFAULT_CURRENCY"))
-            return ResponseHelper.success_data_response(
-                DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet), 0)
-        except Exception as e:
-            logger.error(f"error while verifying email otp: {str(e)}")
-            raise CustomException(code=400, name=ErrorMessages.VERIFY_FAILED, details=str(e))
+                    "password": os.getenv("TEST_USER_PASSWORD")
+                })
+                return ResponseHelper.success_data_response(DtoMapper.to_auth_response(response), 0)
+            try:
+                response = supabase_client().auth.verify_otp(
+                    {
+                        "email": verify_otp_request.user_email,
+                        "token": str(verify_otp_request.verification_pin),
+                        "type": "email"
+                    }
+                )
+                self.__upsert_device(user_id=response.user.id, device_id=device_id, is_logged_in=True)
+                user_wallet = await self.create_wallet_if_not_exists(user_id=response.user.id,
+                                                                     currency_code=os.getenv("DEFAULT_CURRENCY"))
+                return ResponseHelper.success_data_response(
+                    DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet), 0)
+            except Exception as e:
+                logger.error(f"error while verifying email otp: {str(e)}")
+                raise CustomException(code=400, name=ErrorMessages.VERIFY_FAILED, details=str(e))
 
     async def __handle_phone_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
