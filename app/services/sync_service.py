@@ -12,6 +12,7 @@ from app.repo.bundle_tage_repo import BundleTagRepo
 from app.repo.config_repo import ConfigRepo
 from app.repo.tag_repo import TagRepo
 from app.schemas.home import CountryDTO, RegionDTO, BundleDTO
+from app.services.grouping_service import GroupingService
 
 
 class SyncService:
@@ -22,6 +23,7 @@ class SyncService:
         self.__tag_repo = TagRepo()
         self.__bundle_tag_repo = BundleTagRepo()
         self.__config_repo = ConfigRepo()
+        self.__grouping_service = GroupingService()
 
     async def sync_bundles(self, page_index=1):
         logger.info("Syncing bundles started")
@@ -120,6 +122,7 @@ class SyncService:
                 BundleTagModel(bundle_id=bundle.bundle_code, tag_id=tag.id, id=None).model_dump(
                     exclude={"updated_at", "created_at", "id"}))
             logger.debug("adding region for bundle {}".format(bundle.bundle_code))
+        self.__grouping_service.update_bundle_translation(bundle_code=bundle.bundle_code)
 
     async def __handle_update_bundle(self, bundle: BundleDTO, countries: List[CountryDTO], regions: List[RegionDTO]):
         logger.info(f"bundle already added, updating it {bundle.bundle_code}")
@@ -139,3 +142,4 @@ class SyncService:
                     BundleTagModel(bundle_id=bundle.bundle_code, tag_id=region.guid, id=None).model_dump(
                         exclude={"updated_at", "created_at", "id"}))
                 logger.debug("updating region for bundle {}".format(bundle.bundle_code))
+        self.__grouping_service.update_bundle_translation(bundle_code=bundle.bundle_code)

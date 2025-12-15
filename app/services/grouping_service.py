@@ -142,6 +142,12 @@ class GroupingService:
         self.__sync_service.update_sync_version()
         return ResponseHelper.success_response()
 
+    def update_bundle_translation(self, bundle_code: str):
+        bundle = self.__bundle_repo.get_first_by(where={"id": bundle_code})
+        translations = self.__bundle_translation_repo.list(where={"bundle_id": bundle_code})
+        for translation in translations:
+            self.__translate_bundle(bundle=bundle, locale=translation.locale)
+
     def __translate_tags(self, locale: str):
         tags = self.__tag_repo.list(where={})
         for tag in tags:
@@ -167,18 +173,21 @@ class GroupingService:
         self.__sync_service.update_sync_version()
 
     def __translate_bundle(self, bundle: BundleModel, locale: str):
+
+        bundle_dto = BundleDTO(**bundle.data)
+        countries = bundle_dto.countries
+        translated_countries = []
+        for country in countries:
+            country.country = GoogleTranslator(source='en', target=locale).translate(country.country)
+            translated_countries.append(country)
+        bundle_dto.countries = translated_countries
+
         old = self.__bundle_translation_repo.get_first_by(where={"bundle_id": bundle.id, "locale": locale})
         if old:
-            return None
+            self.__bundle_translation_repo.update(record_id=old.id, data={"data": bundle_dto.model_dump()})
         logger.info(f"translating bundle {bundle.id} to locale {locale}")
         try:
-            bundle_dto = BundleDTO(**bundle.data)
-            countries = bundle_dto.countries
-            translated_countries = []
-            for country in countries:
-                country.country = GoogleTranslator(source='en', target=locale).translate(country.country)
-                translated_countries.append(country)
-            bundle_dto.countries = translated_countries
+
             self.__bundle_translation_repo.create({
                 "bundle_id": bundle.id,
                 "data": bundle_dto.model_dump(),
