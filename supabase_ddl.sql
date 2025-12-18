@@ -3188,6 +3188,46 @@ BEGIN
         FROM bundle b
                  INNER JOIN bundle_tag bt ON bt.bundle_id = b.id
                  LEFT JOIN bundle_translation btrans ON b.id = btrans.bundle_id AND btrans.locale = p_locale
-        WHERE bt.tag_id = p_tag_id;
+        WHERE bt.tag_id = p_tag_id
+        AND b.is_active = TRUE;
+END;
+$$;
+
+
+CREATE OR REPLACE FUNCTION get_bundles_for_tags_translated(
+    p_tags_ids TEXT,
+    p_locale VARCHAR = 'en'
+)
+    RETURNS TABLE
+            (
+                id          UUID,
+                data        JSONB,
+                is_active   BOOLEAN,
+                created_at  TIMESTAMP WITHOUT TIME ZONE,
+                updated_at  TIMESTAMP WITHOUT TIME ZONE,
+                bundle_name TEXT
+            )
+    LANGUAGE plpgsql
+AS
+$$
+BEGIN
+    RETURN QUERY
+        SELECT b.id,
+               COALESCE(btrans.data, b.data) AS data,
+               b.is_active,
+               b.created_at,
+               b.updated_at,
+               b.bundle_name
+        FROM bundle b
+                 INNER JOIN bundle_tag bt
+                            ON bt.bundle_id = b.id
+                 LEFT JOIN bundle_translation btrans
+                           ON b.id = btrans.bundle_id
+                               AND btrans.locale = p_locale
+        WHERE bt.tag_id = ANY (
+            regexp_split_to_array(p_tags_ids, '\s*,\s*')::uuid[]
+            )
+          AND b.is_active = TRUE
+        order by NULLIF(b.data ->> 'price', '')::numeric NULLS LAST;
 END;
 $$;

@@ -1,5 +1,4 @@
 import os
-from collections import defaultdict
 from datetime import datetime
 from typing import List, Literal
 
@@ -105,15 +104,6 @@ class BundleService:
 
         if not tags:
             raise BadRequestException("country_codes not found")
-
-        results = self.__bundle_tag_repo.table \
-            .select("bundle_id, tag_id") \
-            .filter("tag_id", "in", f"({','.join([item.id for item in tags])})") \
-            .execute()
-
-        bundle_map = defaultdict(set)
-        for row in results.data:
-            bundle_map[row["bundle_id"]].add(row["tag_id"])
 
         bundles_model = self.__bundle_repo.get_bundles_by_tags(tag_ids=country_codes, locale=locale)
 

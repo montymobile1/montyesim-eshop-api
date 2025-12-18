@@ -120,6 +120,9 @@ class SyncService:
                 BundleTagModel(bundle_id=bundle.bundle_code, tag_id=tag.id, id=None).model_dump(
                     exclude={"updated_at", "created_at", "id"}))
             logger.debug("adding region for bundle {}".format(bundle.bundle_code))
+        from app.services.grouping_service import GroupingService
+        grouping_service = GroupingService()
+        grouping_service.update_bundle_translation(bundle_code=bundle.bundle_code)
 
     async def __handle_update_bundle(self, bundle: BundleDTO, countries: List[CountryDTO], regions: List[RegionDTO]):
         logger.info(f"bundle already added, updating it {bundle.bundle_code}")
@@ -139,3 +142,6 @@ class SyncService:
                     BundleTagModel(bundle_id=bundle.bundle_code, tag_id=region.guid, id=None).model_dump(
                         exclude={"updated_at", "created_at", "id"}))
                 logger.debug("updating region for bundle {}".format(bundle.bundle_code))
+        from app.services.grouping_service import GroupingService
+        grouping_service = GroupingService()
+        grouping_service.update_bundle_translation(bundle_code=bundle.bundle_code)

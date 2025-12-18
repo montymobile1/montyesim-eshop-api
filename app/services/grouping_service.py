@@ -11,7 +11,6 @@ from app.repo.tag_repo import TagRepo, TagTranslationRepo
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import CountryDTO, RegionDTO, BundleDTO
 from app.schemas.response import ResponseHelper
-from app.services.sync_service import SyncService
 from app.services.task_executor import TaskExecutor
 
 
@@ -23,7 +22,7 @@ class GroupingService:
         self.__bundle_translation_repo = BundleTranslationRepo()
         self.__tag_translation_repo = TagTranslationRepo()
         self.__task_executor = TaskExecutor()
-        self.__sync_service = SyncService()
+        # Do not instantiate SyncService here to avoid circular imports; import lazily where needed
 
     async def __get_all_tags_by_group_id(self, group_id) -> List[TagModel]:
         tags = self.__tag_repo.select_procedure(function_name="get_active_tag_names_and_data_by_group",
@@ -139,8 +138,17 @@ class GroupingService:
     def translate_bundle(self, bundle_code: str, locale: str = "en"):
         bundle = self.__bundle_repo.get_first_by(where={"id": bundle_code})
         self.__translate_bundle(bundle=bundle, locale=locale)
-        self.__sync_service.update_sync_version()
+        # lazy import to avoid circular import at module load time
+        from app.services.sync_service import SyncService
+
+        SyncService().update_sync_version()
         return ResponseHelper.success_response()
+
+    def update_bundle_translation(self, bundle_code: str):
+        bundle = self.__bundle_repo.get_first_by(where={"id": bundle_code})
+        translations = self.__bundle_translation_repo.list(where={"bundle_id": bundle_code})
+        for translation in translations:
+            self.__translate_bundle(bundle=bundle, locale=translation.locale)
 
     def __translate_tags(self, locale: str):
         tags = self.__tag_repo.list(where={})
@@ -157,28 +165,37 @@ class GroupingService:
                 "data": tag.data
             }
             self.__tag_translation_repo.create(data)
-        self.__sync_service.update_sync_version()
+        # lazy import to avoid circular import at module load time
+        from app.services.sync_service import SyncService
+
+        SyncService().update_sync_version()
 
     def __translate_bundles(self, locale: str, page_size: int = 1000, page_index: int = 0):
         bundles = self.__bundle_repo.list(where={}, limit=page_size, offset=page_index * page_size)
         logger.info(f"translating bundles {len(bundles)}")
         for bundle in bundles:
             self.__translate_bundle(bundle=bundle, locale=locale)
-        self.__sync_service.update_sync_version()
+        # lazy import to avoid circular import at module load time
+        from app.services.sync_service import SyncService
+
+        SyncService().update_sync_version()
 
     def __translate_bundle(self, bundle: BundleModel, locale: str):
+
+        bundle_dto = BundleDTO(**bundle.data)
+        countries = bundle_dto.countries
+        translated_countries = []
+        for country in countries:
+            country.country = GoogleTranslator(source='en', target=locale).translate(country.country)
+            translated_countries.append(country)
+        bundle_dto.countries = translated_countries
+
         old = self.__bundle_translation_repo.get_first_by(where={"bundle_id": bundle.id, "locale": locale})
         if old:
-            return None
+            self.__bundle_translation_repo.update(record_id=old.id, data={"data": bundle_dto.model_dump()})
         logger.info(f"translating bundle {bundle.id} to locale {locale}")
         try:
-            bundle_dto = BundleDTO(**bundle.data)
-            countries = bundle_dto.countries
-            translated_countries = []
-            for country in countries:
-                country.country = GoogleTranslator(source='en', target=locale).translate(country.country)
-                translated_countries.append(country)
-            bundle_dto.countries = translated_countries
+
             self.__bundle_translation_repo.create({
                 "bundle_id": bundle.id,
                 "data": bundle_dto.model_dump(),
