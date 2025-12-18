@@ -17,8 +17,9 @@ from app.config.utils import create_payment_intent, create_payment_ephemeral, st
     truncate_two_decimals_decimal
 from app.exceptions import BadRequestException, CustomException
 from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel, UsersCopyModel, UserWalletModel, \
-    UserProfileModel
+    UserProfileModel, UserProfileBundleModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
+from app.repo.bundle_repo import BundleTranslationRepo
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
     ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest, VerifyOtpRequestDto
@@ -47,6 +48,7 @@ class UserBundleService:
         self.__currency_service = CurrencyService()
         self.__user_repo = UserRepo()
         self.__task_executor = TaskExecutor()
+        self.__bundle_translation_repo = BundleTranslationRepo()
 
     async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
                      locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
@@ -168,7 +170,8 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
 
-    async def get_user_esims(self, user: UserModel, x_currency: str) -> Response[List[EsimBundleResponse]]:
+    async def get_user_esims(self, user: UserModel, x_currency: str, accept_language: str = "en") -> Response[
+        List[EsimBundleResponse]]:
         user_profiles: List[UserProfileModel] = self.__user_profile_repo.select(
             tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
             where={"user_id": user.id})
@@ -176,9 +179,20 @@ class UserBundleService:
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         for profile in user_profiles:
             try:
-                order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
+                profile_current_bundle: UserProfileBundleModel = DtoMapper.get_profile_current_bundle(profile)
+                if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
+                    logger.warning(f"Bundle data missing for user profile {profile.id}")
+                    continue
+                bundle_data: BundleDTO = BundleDTO.model_validate(profile_current_bundle.bundle_data)
+
+                translated_bundle = self.__bundle_translation_repo.get_first_by(where={"bundle_id": bundle_data.bundle_code,
+                                                                                       "locale": accept_language})
+
+                if translated_bundle is not None:
+                    bundle_data = BundleDTO.model_validate(translated_bundle.data)
+
                 bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, x_currency=x_currency, rate=rate,
-                                                           tax=order.tax_amount)
+                                                  tax=order.tax_amount, bundle_data=bundle_data)
                 for history in bundle.transaction_history:
                     order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
                     amount = float(history.bundle.original_price * rate) + float((order.tax_amount / 100) * rate)
