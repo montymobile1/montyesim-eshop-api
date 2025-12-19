@@ -21,7 +21,8 @@ from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrder
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
-    ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest, VerifyOtpRequestDto
+    ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest, VerifyOtpRequestDto, \
+    RelatedSearchRequestDto
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
 from app.schemas.response import Response, ResponseHelper
@@ -30,6 +31,8 @@ from app.services.currency_service import CurrencyService
 from app.services.promotion_service import PromotionService
 from app.services.task_executor import TaskExecutor
 from app.services.user_wallet_service import UserWalletService
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 
 
 class UserBundleService:
@@ -321,10 +324,96 @@ class UserBundleService:
             where={"user_id": user_id, "payment_status": OrderStatusEnum.SUCCESS,
                    "order_status": OrderStatusEnum.SUCCESS}, limit=page_size,
             offset=((page_index - 1) * page_size))
-        return ResponseHelper.success_data_response(
-            [DtoMapper.to_user_order_history(user_order=data, rate=rate, currency=x_currency) for data in
-             user_orders],
-            len(user_orders))
+
+        results: list[UserOrderHistoryResponse] = []
+
+        for order in user_orders:
+
+            try:
+                raw_bundle_data = getattr(order, "bundle_data", None)
+                if raw_bundle_data is None:
+                    logger.warning(f"Order {getattr(order, 'id', None)} missing bundle_data")
+                    continue
+
+                if isinstance(raw_bundle_data, str):
+                    bundle_data: BundleDTO = BundleDTO.model_validate_json(raw_bundle_data)
+                else:
+                    bundle_data: BundleDTO = BundleDTO.model_validate(raw_bundle_data)
+
+            except Exception as e:
+                logger.warning(f"Failed parsing bundle_data for order {getattr(order, 'id', None)}: {e}")
+                continue
+
+            bundle_category = bundle_data.bundle_category
+
+            display_title = bundle_data.display_title
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/generic.png"
+
+            searched_countries_array = []
+            searched_region = None
+
+            try:
+                raw_searched = getattr(order, "searched_countries", None)
+                if raw_searched:
+                    search_field = RelatedSearchRequestDto.model_validate_json(raw_searched)
+                    searched_countries_array = search_field.countries if search_field.countries else []
+                    searched_region = search_field.regions
+            except Exception as e:
+                logger.debug(f"Exception parsing RelatedSearchRequestDto: {e}")
+
+            if searched_countries_array and len(searched_countries_array) > 0:
+                first_country = searched_countries_array[0]
+                display_title = first_country.country_name
+                icon_url = (
+                    f"{SUPABASE_URL}/storage/v1/object/public/media/country/"
+                    f"{str(first_country.iso3_code).lower()}.png"
+                )
+
+            elif bundle_category.type.lower() == "region" and searched_region:
+                display_title = searched_region.region_name
+                icon_url = (
+                    f"{SUPABASE_URL}/storage/v1/object/public/media/region/"
+                    f"{searched_region.iso_code}.png"
+                )
+
+            elif bundle_category.type.lower() == "global":
+                display_title = bundle_category.title
+                icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/Global.png"
+
+            elif bundle_data.countries and len(bundle_data.countries) > 0:
+                country = bundle_data.countries[0]
+                display_title = country.country
+                icon_url = (
+                    f"{SUPABASE_URL}/storage/v1/object/public/media/country/"
+                    f"{str(country.iso3_code).lower()}.png"
+                )
+
+            if bundle_data.label is not None and bundle_data.label != "":
+                display_title = bundle_data.label
+
+
+            order_history = DtoMapper.to_user_order_history(user_order=order, rate=rate, currency=x_currency)
+
+
+            update_data = {}
+
+            # display_title injection (if model has it)
+            if "display_title" in order_history.model_fields:
+                update_data["display_title"] = display_title
+
+            # icon injection: pick the first field name that exists in your response model
+            icon_field_candidates = ["icon", "icon_url", "image", "image_url", "bundle_icon", "bundle_icon_url"]
+            for field_name in icon_field_candidates:
+                if field_name in order_history.model_fields:
+                    update_data[field_name] = icon_url
+                    break
+
+            if update_data:
+                order_history = order_history.model_copy(update=update_data)
+
+            results.append(order_history)
+
+        return ResponseHelper.success_data_response(results, len(results))
 
     async def get_order_history_by_id(self, user_id: str, order_id: str, x_currency: str) -> Response[
         UserOrderHistoryResponse]:
