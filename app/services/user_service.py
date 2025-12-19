@@ -393,24 +393,7 @@ class UserBundleService:
 
 
             order_history = DtoMapper.to_user_order_history(user_order=order, rate=rate, currency=x_currency)
-
-
-            update_data = {}
-
-            # display_title injection (if model has it)
-            if "display_title" in order_history.model_fields:
-                update_data["display_title"] = display_title
-
-            # icon injection: pick the first field name that exists in your response model
-            icon_field_candidates = ["icon", "icon_url", "image", "image_url", "bundle_icon", "bundle_icon_url"]
-            for field_name in icon_field_candidates:
-                if field_name in order_history.model_fields:
-                    update_data[field_name] = icon_url
-                    break
-
-            if update_data:
-                order_history = order_history.model_copy(update=update_data)
-
+            order_history.bundle_details.icon = icon_url
             results.append(order_history)
 
         return ResponseHelper.success_data_response(results, len(results))
