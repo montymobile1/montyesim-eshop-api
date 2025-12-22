@@ -5,8 +5,8 @@ from loguru import logger
 
 from app.config.constants import UserWalletTransactionSource, ErrorMessages
 from app.config.db import PromotionRuleAction, Beneficiary, PromotionRuleEvent, ConfigKeysEnum, PromotionStatusEnum
-from app.config.i18n import I18n
 from app.config.helper import get_config
+from app.config.i18n import I18n
 from app.config.utils import truncate_two_decimals_decimal
 from app.exceptions import CustomException
 from app.models.promotion import PromotionModel, PromotionUsageModel
@@ -345,6 +345,11 @@ class PromotionService:
         if promotion.times_used >= rule.max_usage:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE,
                                   details="times used is full")
+        promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", True)
+        if not promotion_limit_active:
+            logger.info("promotion limit is not active")
+            return
+
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed", "device_id": device_id})
         if promotion_usage:
