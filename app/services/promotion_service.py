@@ -523,36 +523,43 @@ class PromotionService:
                                               data={"status": PromotionStatusEnum.FAILED.value})
 
     def referral_info(self, x_currency: str, locale: str = "en") -> Response[ReferralInfoDto]:
-         rate = self.__currency_service.get_rate_by_currency(x_currency)
-         rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
-         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
-         if not rule:
-             raise CustomException(code=400, name=ErrorMessages.PROMOTION_RULE_NOT_FOUND,
-                                   details="promotion rule not found")
+        # Normalize incoming locale (may be Accept-Language header) to primary language tag like 'en' or 'ar'
+        try:
+            primary = locale.split(',')[0].split(';')[0].strip().split('-')[0].lower() if locale else 'en'
+            if primary == '':
+                primary = 'en'
+        except Exception:
+            primary = 'en'
+        rate = self.__currency_service.get_rate_by_currency(x_currency)
+        rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
+        rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
+        if not rule:
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_RULE_NOT_FOUND,
+                                  details="promotion rule not found")
 
-         amount = round(float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate), 2)
-         percentage = float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
+        amount = round(float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate), 2)
+        percentage = float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
         # Use I18n templates to produce localized referral messages. Templates support placeholders:
         # {amount} - formatted amount, {currency} - currency code, {percentage} - numeric percentage
-         if rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_AMOUNT.value:
+        if rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_AMOUNT.value:
             tpl_key = "REFERRAL_MESSAGE_CASHBACK_AMOUNT"
-         elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
+        elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
             tpl_key = "REFERRAL_MESSAGE_DISCOUNT_PERCENTAGE"
-         elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
+        elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
             tpl_key = "REFERRAL_MESSAGE_DISCOUNT_AMOUNT"
-         else:
+        else:
             tpl_key = "REFERRAL_MESSAGE_DEFAULT"
 
-         tpl = I18n.get_message(tpl_key, locale)
-         try:
+        tpl = I18n.get_message(tpl_key, primary)
+        try:
             # Format template with safe values
             message = tpl.format(amount=round(amount, 2), currency=x_currency, percentage=percentage)
-         except Exception:
+        except Exception:
             # Fallback to an English safe string if template formatting fails
             message = f"Get {amount} {x_currency} credit for every friend that signs up and completes a purchase"
-         dto = ReferralInfoDto(amount=round(amount, 2), type=str(rule.promotion_rule_action_id), currency=x_currency,
+        dto = ReferralInfoDto(amount=round(amount, 2), type=str(rule.promotion_rule_action_id), currency=x_currency,
                                message=message)
-         return ResponseHelper.success_data_response(dto, 1)
+        return ResponseHelper.success_data_response(dto, 1)
 
     def get_promotion_by_code(self, promo_code: str) -> PromotionModel | None:
         return self.__promotion_repo.get_first_by(where={"code": promo_code})
