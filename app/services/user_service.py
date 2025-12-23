@@ -261,10 +261,31 @@ class UserBundleService:
                     amount = float(history.bundle.original_price * rate) + float((order_tax / 100) * rate)
                     history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
 
+                # Ensure transaction history is ordered descending by created_at (newest first)
+                try:
+                    bundle.transaction_history = sorted(
+                        bundle.transaction_history,
+                        key=lambda h: int(h.created_at) if getattr(h, 'created_at', None) is not None else 0,
+                        reverse=True
+                    )
+                except Exception:
+                    # If created_at is not a timestamp yet or sorting fails, leave original order
+                    pass
+
                 if bundle is not None:
                     esim_bundle_response.append(bundle)
             except Exception as e:
                 logger.error(f"Failed to map profile (raw keys: {list(profile_raw.keys()) if isinstance(profile_raw, dict) else 'unknown'}): {e}")
+        # Sort overall response by bundle payment_date descending (newest bundles first)
+        try:
+            esim_bundle_response = sorted(
+                esim_bundle_response,
+                key=lambda b: int(b.payment_date) if getattr(b, 'payment_date', None) is not None else 0,
+                reverse=True,
+            )
+        except Exception:
+            pass
+
         return ResponseHelper.success_data_response(esim_bundle_response, len(esim_bundle_response))
 
     async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str, accept_language: str = "en") -> Response[EsimBundleResponse | None]:
