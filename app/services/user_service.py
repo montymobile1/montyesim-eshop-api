@@ -267,7 +267,7 @@ class UserBundleService:
                 logger.error(f"Failed to map profile (raw keys: {list(profile_raw.keys()) if isinstance(profile_raw, dict) else 'unknown'}): {e}")
         return ResponseHelper.success_data_response(esim_bundle_response, len(esim_bundle_response))
 
-    async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str) -> Response[EsimBundleResponse | None]:
+    async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str, accept_language: str = "en") -> Response[EsimBundleResponse | None]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                         where={"user_id": user.id, "iccid": iccid})
         if len(user_profiles) == 0:
@@ -279,6 +279,11 @@ class UserBundleService:
         if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
             raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
         bundle_data = BundleDTO.model_validate(profile_current_bundle.bundle_data)
+        # Apply translation for requested locale when available
+        translated_bundle = self.__bundle_translation_repo.get_first_by(where={"bundle_id": bundle_data.bundle_code,
+                                                                           "locale": accept_language})
+        if translated_bundle is not None and getattr(translated_bundle, 'data', None):
+            bundle_data = BundleDTO.model_validate(translated_bundle.data)
         user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
         bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, bundle_data=bundle_data, rate=rate, x_currency=x_currency,
                                                    tax=user_order.tax_amount)
@@ -406,17 +411,40 @@ class UserBundleService:
             history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
         return ResponseHelper.success_data_response(bundle, 0)
 
-    async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str) -> Response[
-        List[UserOrderHistoryResponse]]:
+    async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str,
+                                accept_language: str = "en") -> Response[List[UserOrderHistoryResponse]]:
+        """Return order history; translate bundle names to `accept_language` when a translation exists.
+
+        Default `accept_language` is 'en' for backward compatibility with callers that don't pass a locale.
+        """
         rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=x_currency)
         user_orders = self.__user_order_repo.list(
             where={"user_id": user_id, "payment_status": OrderStatusEnum.SUCCESS,
                    "order_status": OrderStatusEnum.SUCCESS}, limit=page_size,
             offset=((page_index - 1) * page_size))
-        return ResponseHelper.success_data_response(
-            [DtoMapper.to_user_order_history(user_order=data, rate=rate, currency=x_currency) for data in
-             user_orders],
-            len(user_orders))
+
+        result: List[UserOrderHistoryResponse] = []
+        for data in user_orders:
+            try:
+                uoh: UserOrderHistoryResponse = DtoMapper.to_user_order_history(user_order=data, rate=rate, currency=x_currency)
+                # Translate bundle details if a translation exists for the requested locale
+                try:
+                    bundle_code = getattr(uoh.bundle_details, 'bundle_code', None)
+                    if bundle_code:
+                        translated_bundle = self.__bundle_translation_repo.get_first_by(where={
+                            "bundle_id": bundle_code,
+                            "locale": accept_language
+                        })
+                        if translated_bundle is not None and getattr(translated_bundle, 'data', None):
+                            uoh.bundle_details = BundleDTO.model_validate(translated_bundle.data)
+                except Exception as e:
+                    logger.debug(f"Failed to apply bundle translation for order {getattr(data, 'id', 'unknown')}: {e}")
+
+                result.append(uoh)
+            except Exception as e:
+                logger.error(f"Failed mapping order to history for order {getattr(data, 'id', 'unknown')}: {e}")
+
+        return ResponseHelper.success_data_response(result, len(result))
 
     async def get_order_history_by_id(self, user_id: str, order_id: str, x_currency: str) -> Response[
         UserOrderHistoryResponse]:
