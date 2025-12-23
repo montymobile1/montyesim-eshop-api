@@ -136,11 +136,22 @@ class DtoMapper:
         if len(bundles) == 1:
             return bundles[0]
 
-        sorted_bundles = sorted(
-            bundles,
-            key=lambda bundle: datetime.fromisoformat(bundle.created_at) if bundle.created_at else datetime.min,
-            reverse=True
-        )
+        def _bundle_created_at(bundle):
+            # prefer explicit bundle.created_at, but fallback to bundle.bundle_data.created_at if present
+            created = None
+            try:
+                if getattr(bundle, 'created_at', None):
+                    created = bundle.created_at
+                elif getattr(bundle, 'bundle_data', None) and isinstance(bundle.bundle_data, dict):
+                    created = bundle.bundle_data.get('created_at') or bundle.bundle_data.get('createdAt')
+                if isinstance(created, str) and created:
+                    normalized = created.replace('Z', '+00:00') if created.endswith('Z') else created
+                    return datetime.fromisoformat(normalized)
+            except Exception:
+                pass
+            return datetime.min
+
+        sorted_bundles = sorted(bundles, key=_bundle_created_at, reverse=True)
 
         priority_bundle = next(
             (bundle for bundle in sorted_bundles if bundle.plan_started and not bundle.bundle_expired),
@@ -210,6 +221,17 @@ class DtoMapper:
             display_title = bundle_data.label
 
         countries_sorted = DtoMapper.move_matching_countries_to_top(bundle_data.countries, searched_countries_array)
+
+        # Determine the current profile bundle (may be None) and guard against missing values
+        profile_current_bundle = DtoMapper.get_profile_current_bundle(user_profile)
+        if profile_current_bundle is None:
+            # create a minimal fallback object with the attributes used below
+            class _FallbackBundle:
+                plan_started = False
+                bundle_expired = True
+                created_at = None
+
+            profile_current_bundle = _FallbackBundle()
 
         if not profile_current_bundle.plan_started:
             order_status = "Inactive"
