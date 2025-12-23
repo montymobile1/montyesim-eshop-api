@@ -61,17 +61,18 @@ async def cancel_order(id: str, user: Annotated[UserModel, Depends(bearer_token_
             dependencies=[Depends(bearer_token), Depends(device_token)])
 async def get_order_details(user: Annotated[UserModel, Depends(bearer_token)],
                             x_device_id: str = Header(None),
-                            x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))
+                            x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")), accept_language: str = Header("en")
                             ):
-    return await service.get_user_esims(user, x_currency)
+    return await service.get_user_esims(user, x_currency, accept_language)
 
 
 @router.get("/my-esim/{iccid}", response_model=Response[EsimBundleResponse],
             dependencies=[Depends(bearer_token), Depends(device_token)])
 async def get_order_details(iccid: str, user: Annotated[UserModel, Depends(bearer_token)],
                             x_device_id: str = Header(None),
-                            x_currency: str = Header(os.getenv("DEFAULT_CURRENCY"))):
-    return await service.get_user_esim(iccid=iccid, user=user, x_currency=x_currency)
+                            x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
+                            accept_language: str = Header("en")):
+    return await service.get_user_esim(iccid=iccid, user=user, x_currency=x_currency, accept_language=accept_language)
 
 
 @router.get("/my-esim-by-order/{order_id}", response_model=Response[EsimBundleResponse],
