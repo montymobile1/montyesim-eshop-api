@@ -60,5 +60,11 @@
   "USER_NOT_FOUND": "المستخدم غير موجود.",
   "USER_WITH_EMAIL_ALREADY_EXISTS": "يوجد مستخدم بهذا البريد الإلكتروني بالفعل.",
   "INSUFFICIENT_WALLET_BALANCE": "ليس لديك رصيد كافٍ في محفظتك لإتمام هذه المعاملة.",
-  "INVALID_TOP_UP_AMOUNT": "تم تقديم مبلغ شحن غير صالح."
+  "INVALID_TOP_UP_AMOUNT": "تم تقديم مبلغ شحن غير صالح.",
+
+  "REFERRAL_MESSAGE_CASHBACK_AMOUNT": "احصل على رصيد بقيمة {amount} {currency} مقابل كل صديق يقوم بالتسجيل ويكمل عملية شراء. ويحصل أصدقاؤك على رصيد بقيمة {amount} {currency} في أول عملية شراء لهم.",
+  "REFERRAL_MESSAGE_DISCOUNT_PERCENTAGE": "احصل على رصيد بقيمة {amount} {currency} مقابل كل صديق يقوم بالتسجيل ويكمل عملية شراء. ويحصل أصدقاؤك على خصم بنسبة {percentage}% على أول عملية شراء لهم.",
+  "REFERRAL_MESSAGE_DISCOUNT_AMOUNT": "احصل على رصيد بقيمة {amount} {currency} مقابل كل صديق يقوم بالتسجيل ويكمل عملية شراء. ويحصل أصدقاؤك على خصم بقيمة {amount} {currency} على أول عملية شراء لهم.",
+  "REFERRAL_MESSAGE_DEFAULT": "احصل على رصيد بقيمة {amount} {currency} مقابل كل صديق يقوم بالتسجيل ويكمل عملية شراء."
 }
+
