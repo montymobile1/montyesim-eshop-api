@@ -17,7 +17,7 @@ class BannerRepo(BaseRepository):
 
     def get_banners(self,platform: str, locale: str = "en") -> List[BannerModel]:
         return super().select_procedure(where={"p_platform": platform,"p_locale": locale},
-                                        function_name="get_banners_by_platform_and_locale")
+                                        function_name="get_banners")
 
 
 
