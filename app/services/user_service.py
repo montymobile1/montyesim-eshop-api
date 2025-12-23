@@ -22,8 +22,7 @@ from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfi
 from app.repo.bundle_repo import BundleTranslationRepo
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
-    ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest, VerifyOtpRequestDto, \
-    RelatedSearchRequestDto
+    ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest, VerifyOtpRequestDto
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
 from app.schemas.response import Response, ResponseHelper
@@ -32,8 +31,6 @@ from app.services.currency_service import CurrencyService
 from app.services.promotion_service import PromotionService
 from app.services.task_executor import TaskExecutor
 from app.services.user_wallet_service import UserWalletService
-
-SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
 
 
 class UserBundleService:
@@ -270,7 +267,7 @@ class UserBundleService:
                 logger.error(f"Failed to map profile (raw keys: {list(profile_raw.keys()) if isinstance(profile_raw, dict) else 'unknown'}): {e}")
         return ResponseHelper.success_data_response(esim_bundle_response, len(esim_bundle_response))
 
-    async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str) -> Response[EsimBundleResponse | None]:
+    async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str, accept_language: str = "en") -> Response[EsimBundleResponse | None]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                         where={"user_id": user.id, "iccid": iccid})
         if len(user_profiles) == 0:
@@ -282,6 +279,11 @@ class UserBundleService:
         if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
             raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
         bundle_data = BundleDTO.model_validate(profile_current_bundle.bundle_data)
+        # Apply translation for requested locale when available
+        translated_bundle = self.__bundle_translation_repo.get_first_by(where={"bundle_id": bundle_data.bundle_code,
+                                                                           "locale": accept_language})
+        if translated_bundle is not None and getattr(translated_bundle, 'data', None):
+            bundle_data = BundleDTO.model_validate(translated_bundle.data)
         user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
         bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, bundle_data=bundle_data, rate=rate, x_currency=x_currency,
                                                    tax=user_order.tax_amount)
@@ -409,86 +411,40 @@ class UserBundleService:
             history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
         return ResponseHelper.success_data_response(bundle, 0)
 
-    async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str) -> Response[
-        List[UserOrderHistoryResponse]]:
+    async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str,
+                                accept_language: str = "en") -> Response[List[UserOrderHistoryResponse]]:
+        """Return order history; translate bundle names to `accept_language` when a translation exists.
+
+        Default `accept_language` is 'en' for backward compatibility with callers that don't pass a locale.
+        """
         rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=x_currency)
         user_orders = self.__user_order_repo.list(
             where={"user_id": user_id, "payment_status": OrderStatusEnum.SUCCESS,
                    "order_status": OrderStatusEnum.SUCCESS}, limit=page_size,
             offset=((page_index - 1) * page_size))
 
-        results: list[UserOrderHistoryResponse] = []
-
-        for order in user_orders:
-
+        result: List[UserOrderHistoryResponse] = []
+        for data in user_orders:
             try:
-                raw_bundle_data = getattr(order, "bundle_data", None)
-                if raw_bundle_data is None:
-                    logger.warning(f"Order {getattr(order, 'id', None)} missing bundle_data")
-                    continue
+                uoh: UserOrderHistoryResponse = DtoMapper.to_user_order_history(user_order=data, rate=rate, currency=x_currency)
+                # Translate bundle details if a translation exists for the requested locale
+                try:
+                    bundle_code = getattr(uoh.bundle_details, 'bundle_code', None)
+                    if bundle_code:
+                        translated_bundle = self.__bundle_translation_repo.get_first_by(where={
+                            "bundle_id": bundle_code,
+                            "locale": accept_language
+                        })
+                        if translated_bundle is not None and getattr(translated_bundle, 'data', None):
+                            uoh.bundle_details = BundleDTO.model_validate(translated_bundle.data)
+                except Exception as e:
+                    logger.debug(f"Failed to apply bundle translation for order {getattr(data, 'id', 'unknown')}: {e}")
 
-                if isinstance(raw_bundle_data, str):
-                    bundle_data: BundleDTO = BundleDTO.model_validate_json(raw_bundle_data)
-                else:
-                    bundle_data: BundleDTO = BundleDTO.model_validate(raw_bundle_data)
-
+                result.append(uoh)
             except Exception as e:
-                logger.warning(f"Failed parsing bundle_data for order {getattr(order, 'id', None)}: {e}")
-                continue
+                logger.error(f"Failed mapping order to history for order {getattr(data, 'id', 'unknown')}: {e}")
 
-            bundle_category = bundle_data.bundle_category
-
-            display_title = bundle_data.display_title
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/generic.png"
-
-            searched_countries_array = []
-            searched_region = None
-
-            try:
-                raw_searched = getattr(order, "searched_countries", None)
-                if raw_searched:
-                    search_field = RelatedSearchRequestDto.model_validate_json(raw_searched)
-                    searched_countries_array = search_field.countries if search_field.countries else []
-                    searched_region = search_field.regions
-            except Exception as e:
-                logger.debug(f"Exception parsing RelatedSearchRequestDto: {e}")
-
-            if searched_countries_array and len(searched_countries_array) > 0:
-                first_country = searched_countries_array[0]
-                display_title = first_country.country_name
-                icon_url = (
-                    f"{SUPABASE_URL}/storage/v1/object/public/media/country/"
-                    f"{str(first_country.iso3_code).lower()}.png"
-                )
-
-            elif bundle_category.type.lower() == "region" and searched_region:
-                display_title = searched_region.region_name
-                icon_url = (
-                    f"{SUPABASE_URL}/storage/v1/object/public/media/region/"
-                    f"{searched_region.iso_code}.png"
-                )
-
-            elif bundle_category.type.lower() == "global":
-                display_title = bundle_category.title
-                icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/Global.png"
-
-            elif bundle_data.countries and len(bundle_data.countries) > 0:
-                country = bundle_data.countries[0]
-                display_title = country.country
-                icon_url = (
-                    f"{SUPABASE_URL}/storage/v1/object/public/media/country/"
-                    f"{str(country.iso3_code).lower()}.png"
-                )
-
-            if bundle_data.label is not None and bundle_data.label != "":
-                display_title = bundle_data.label
-
-
-            order_history = DtoMapper.to_user_order_history(user_order=order, rate=rate, currency=x_currency)
-            order_history.bundle_details.icon = icon_url
-            results.append(order_history)
-
-        return ResponseHelper.success_data_response(results, len(results))
+        return ResponseHelper.success_data_response(result, len(result))
 
     async def get_order_history_by_id(self, user_id: str, order_id: str, x_currency: str) -> Response[
         UserOrderHistoryResponse]:
