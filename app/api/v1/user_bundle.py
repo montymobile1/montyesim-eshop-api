@@ -72,8 +72,7 @@ async def get_order_details(iccid: str, user: Annotated[UserModel, Depends(beare
                             x_device_id: str = Header(None),
                             x_currency: str = Header(os.getenv("DEFAULT_CURRENCY")),
                             accept_language: str = Header("en")):
-    # pass locale as positional arg to avoid static analyzer keyword mismatch
-    return await service.get_user_esim(iccid, user, x_currency, accept_language)
+    return await service.get_user_esim(iccid=iccid, user=user, x_currency=x_currency, accept_language=accept_language)
 
 
 @router.get("/my-esim-by-order/{order_id}", response_model=Response[EsimBundleResponse],
@@ -138,8 +137,8 @@ async def get_order_history(user: Annotated[UserModel, Depends(bearer_token)],
                             accept_language: str = Header("en"), ) -> Response[
     List[UserOrderHistoryResponse]]:
     # Pass the requested locale through to the service so bundle names can be translated
-    # pass locale as positional argument to match service signature and avoid static analysis mismatch
-    return await service.get_order_history(user.id, page_index, page_size, x_currency, accept_language)
+    return await service.get_order_history(user_id=user.id, page_index=page_index, page_size=page_size,
+                                           x_currency=x_currency, accept_language=accept_language)
 
 
 @router.get("/order-history/{order_id}", response_model=Response[UserOrderHistoryResponse],
