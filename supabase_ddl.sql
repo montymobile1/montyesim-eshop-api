@@ -3263,41 +3263,5 @@ AS $$
     WHERE b.platform = p_platform
     ORDER BY b.created_at DESC;
 $$;
--- MT OSTE-932 select and update function
-CREATE OR REPLACE FUNCTION public.promotion_usage_select_and_update(
-    p_user_id uuid,
-    p_promotion_code text,
-    p_status text
-)
-RETURNS void
-LANGUAGE plpgsql
-AS $$
-BEGIN
-    -- lock the promotion row (so times_used can't be updated by 2 requests at once)
-    PERFORM 1
-    FROM promotion
-    WHERE code = p_promotion_code
-    FOR UPDATE;
 
-    -- update the usage status (the latest pending usage for this user+code)
-    UPDATE promotion_usage
-    SET status = p_status
-    WHERE id = (
-        SELECT pu.id
-        FROM promotion_usage pu
-        WHERE pu.user_id = p_user_id
-          AND pu.promotion_code = p_promotion_code
-        ORDER BY pu.created_at DESC
-        LIMIT 1
-        FOR UPDATE
-    );
-
-    -- increment only when completed
-    IF p_status = 'completed' THEN
-        UPDATE promotion
-        SET times_used = COALESCE(times_used, 0) + 1
-        WHERE code = p_promotion_code;
-    END IF;
-END;
-$$;
 
