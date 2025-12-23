@@ -464,10 +464,10 @@ class PromotionService:
                     self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
                                                                       source=UserWalletTransactionSource.CASHBACK_PROMO,
                                                                       order_currency="USD")
-            old_usage = self.__promotion_usage_repo.list(where={"promotion_code": code, "status": "completed"})
-            if status == "completed":
-                self.__promotion_repo.update_by(where={"code": code}, data={"times_used": len(old_usage) + 1})
-            self.__promotion_usage_repo.update_by(where=condition, data={"status": status})
+
+            # MT OSTE-932 select and update function
+            self.__promotion_usage_repo.select_and_update_usage(user_id=user_id,promotion_code=code, status=status)
+
             return None
 
     async def __apply_promotion_code_for_referral(self, user_id: str, referrer_user: UsersCopyModel, code: str,
