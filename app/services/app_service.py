@@ -190,8 +190,10 @@ class AppService:
             logger.error(f"Failed to fetch location for IP {ip}: {response.status_code} {response.text}")
         return None
 
-    def banners(self, locale: str = "en", x_platform: str = "web") -> Response[List[BannerResponse]]:
-        banners = self.__banner_repo.list(where={"platform": x_platform})
+    from typing import List
+
+    def banners(self,locale: str = "en", x_platform: str = "web") -> Response[List[BannerResponse]]:
+        banners = self.__banner_repo.get_banners(platform=x_platform,locale=locale)
         logger.info(f"banners {banners=} {locale=}")
         response = [BannerResponse(**banner.model_dump()) for banner in banners]
         return ResponseHelper.success_data_response(response, len(banners))
