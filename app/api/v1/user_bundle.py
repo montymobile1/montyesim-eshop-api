@@ -24,6 +24,11 @@ service = UserBundleService()
 async def consumption(iccid: str, user: Annotated[UserModel, Depends(bearer_token)]):
     return await service.consumption(user, iccid)
 
+@router.get("/consumption/{iccid}/{user_profile_bundle_id}", response_model=Response[ConsumptionResponse],
+            dependencies=[Depends(bearer_token), Depends(device_token)])
+async def consumption_with_bundle(iccid: str, user: Annotated[UserModel, Depends(bearer_token)],
+                                  user_profile_bundle_id: str):
+    return await service.consumption_by_user_profile_bundle(user=user, iccid=iccid, user_profile_bundle_id=user_profile_bundle_id)
 
 @router.post("/bundle/assign", response_model=Response[PaymentIntentResponse] | Response[bool],
              dependencies=[Depends(bearer_token_anonymous), Depends(device_token)])
