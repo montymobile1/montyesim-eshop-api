@@ -291,7 +291,7 @@ class UserBundleService:
         return ResponseHelper.success_data_response(esim_bundle_response, len(esim_bundle_response))
 
     async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str, accept_language: str = "en") -> \
-    Response[EsimBundleResponse | None]:
+            Response[EsimBundleResponse | None]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                         where={"user_id": user.id, "iccid": iccid})
         if len(user_profiles) == 0:
@@ -541,9 +541,11 @@ class UserBundleService:
                                 user_order.modified_amount if user_order.modified_amount else user_order.amount) or 0) / 100
         converted_units = self.__currency_service.convert(from_currency="USD", to_currency=default_currency,
                                                           amount=usd_amount_units)
-
+        usermodel: UsersCopyModel = self.__user_repo.get_by_id(user.id)
         response = await self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=converted_units,
-                                                           order_id=user_order.id)
+                                                           order_id=user_order.id,
+                                                           locale=usermodel.metadata["locale"] if usermodel.metadata[
+                                                               "locale"] else "en")
 
         if not response:
             self.__user_order_repo.update_by(where={"id": user_order.id},
@@ -569,7 +571,10 @@ class UserBundleService:
         expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
         expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
         self.__user_order_repo.update_by(where={"id": order.id}, data={"otp": otp, "otp_expired_at": expire_at})
-        await self.__dcb_service.send_otp(msisdn=user.msisdn, otp=order.otp)
+        usermodel = self.__user_repo.get_by_id(user.id)
+
+        await self.__dcb_service.send_otp(msisdn=user.msisdn, otp=order.otp,
+                                          locale=usermodel.metadata["locale"] if usermodel.metadata["locale"] else "en")
         return ResponseHelper.success_response()
 
     async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,
@@ -617,7 +622,10 @@ class UserBundleService:
                                              data={"otp": otp, "otp_expired_at": expire_at})
             msisdn = user.msisdn
             logger.info(f"requesting new otp for msisdn: {msisdn}")
-            await self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
+            usermodel = self.__user_repo.get_by_id(user.id)
+            await self.__dcb_service.send_otp(msisdn=msisdn, otp=otp,
+                                              locale=usermodel.metadata["locale"] if usermodel.metadata[
+                                                  "locale"] else "en")
             response = PaymentIntentResponse(order_id=user_order.id,
                                              payment_status=PaymentStatusEnum.PENDING_VERIFICATION)
             response.otp_expiration = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60

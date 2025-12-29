@@ -9,7 +9,7 @@ class DCBService:
         self.__verify_otp_url = verify_otp_url
         self.__api_key = api_key
 
-    async def send_otp(self, msisdn: str, otp: str) -> bool:
+    async def send_otp(self, msisdn: str, otp: str, locale: str = "en") -> bool:
         logger.info(f"[DCB] Sending OTP to {msisdn=}")
         return True
 
@@ -17,7 +17,7 @@ class DCBService:
         logger.info(f"[DCB] verifying OTP to DCB  {msisdn=}")
         return True
 
-    async def deduct_balance(self, msisdn: str, amount: float, order_id: str) -> bool:
+    async def deduct_balance(self, msisdn: str, amount: float, order_id: str, locale: str = "en") -> bool:
         logger.info(f"[DCB] deduct balance for  {msisdn=} with {amount=} for {order_id=}")
         return True
 
