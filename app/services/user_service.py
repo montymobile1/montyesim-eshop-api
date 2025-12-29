@@ -229,7 +229,8 @@ class UserBundleService:
                     if raw_bundles:
                         try:
                             profile.bundles = [UserProfileBundleModel.model_validate(rb) for rb in raw_bundles]
-                            logger.debug(f"Populated profile.bundles from raw for user {user.id}, count={len(profile.bundles)}")
+                            logger.debug(
+                                f"Populated profile.bundles from raw for user {user.id}, count={len(profile.bundles)}")
                         except Exception as e:
                             logger.debug(f"Failed to populate profile.bundles from raw: {e}")
 
@@ -275,7 +276,8 @@ class UserBundleService:
                 if bundle is not None:
                     esim_bundle_response.append(bundle)
             except Exception as e:
-                logger.error(f"Failed to map profile (raw keys: {list(profile_raw.keys()) if isinstance(profile_raw, dict) else 'unknown'}): {e}")
+                logger.error(
+                    f"Failed to map profile (raw keys: {list(profile_raw.keys()) if isinstance(profile_raw, dict) else 'unknown'}): {e}")
         # Sort overall response by bundle payment_date descending (newest bundles first)
         try:
             esim_bundle_response = sorted(
@@ -288,7 +290,8 @@ class UserBundleService:
 
         return ResponseHelper.success_data_response(esim_bundle_response, len(esim_bundle_response))
 
-    async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str, accept_language: str = "en") -> Response[EsimBundleResponse | None]:
+    async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str, accept_language: str = "en") -> \
+    Response[EsimBundleResponse | None]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                         where={"user_id": user.id, "iccid": iccid})
         if len(user_profiles) == 0:
@@ -302,11 +305,12 @@ class UserBundleService:
         bundle_data = BundleDTO.model_validate(profile_current_bundle.bundle_data)
         # Apply translation for requested locale when available
         translated_bundle = self.__bundle_translation_repo.get_first_by(where={"bundle_id": bundle_data.bundle_code,
-                                                                           "locale": accept_language})
+                                                                               "locale": accept_language})
         if translated_bundle is not None and getattr(translated_bundle, 'data', None):
             bundle_data = BundleDTO.model_validate(translated_bundle.data)
         user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
-        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, bundle_data=bundle_data, rate=rate, x_currency=x_currency,
+        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, bundle_data=bundle_data, rate=rate,
+                                                   x_currency=x_currency,
                                                    tax=user_order.tax_amount)
         for history in bundle.transaction_history:
             order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
@@ -315,10 +319,32 @@ class UserBundleService:
         return ResponseHelper.success_data_response(bundle, 0)
 
     async def consumption(self, user: UserModel, iccid: str) -> Response[ConsumptionResponse]:
+        started_bundle = self.__user_profile_bundle_repo.list(where={"user_id": user.id, "iccid": iccid,
+                                                                     "bundle_expired": False, "plan_started": True
+                                                                     }, limit=100)
+
+        active_bundle = self.__user_profile_bundle_repo.get_first_by(where={"user_id": user.id, "iccid": iccid,
+                                                                            "bundle_expired": False})
+
         profile = self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
         if not profile:
-            raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
-        consumption = await self.__esim_hub_service.get_bundle_consumption(profile.esim_hub_order_id)
+            raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_NOT_FOUND,
+                                  details="user profile not found", )
+
+        if started_bundle:
+            latest_started_bundle = started_bundle[-1]
+            consumption = await self.__esim_hub_service.get_bundle_consumption(
+                latest_started_bundle.user_order_id
+            )
+        elif active_bundle:
+            consumption = await self.__esim_hub_service.get_bundle_consumption(
+                active_bundle.user_order_id
+            )
+        else:
+            consumption = await self.__esim_hub_service.get_bundle_consumption(
+                profile.esim_hub_order_id
+            )
+
         return ResponseHelper.success_data_response(consumption, 0)
 
     async def user_notifications(self, user: UserModel, page_index: int, page_size: int) -> Response[
@@ -421,10 +447,12 @@ class UserBundleService:
         bundle_data = BundleDTO.model_validate(profile_current_bundle.bundle_data)
         user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
         translated_bundle = self.__bundle_translation_repo.get_first_by(where={"bundle_id": bundle_data.bundle_code,
-                                                                               "locale": os.getenv('DEFAULT_LANGUAGE', 'en')})
+                                                                               "locale": os.getenv('DEFAULT_LANGUAGE',
+                                                                                                   'en')})
         if translated_bundle is not None:
             bundle_data = BundleDTO.model_validate(translated_bundle.data)
-        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, bundle_data=bundle_data, rate=rate, x_currency=x_currency,
+        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, bundle_data=bundle_data, rate=rate,
+                                                   x_currency=x_currency,
                                                    tax=user_order.tax_amount)
         for history in bundle.transaction_history:
             order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
@@ -447,7 +475,8 @@ class UserBundleService:
         result: List[UserOrderHistoryResponse] = []
         for data in user_orders:
             try:
-                uoh: UserOrderHistoryResponse = DtoMapper.to_user_order_history(user_order=data, rate=rate, currency=x_currency)
+                uoh: UserOrderHistoryResponse = DtoMapper.to_user_order_history(user_order=data, rate=rate,
+                                                                                currency=x_currency)
                 # Translate bundle details if a translation exists for the requested locale
                 try:
                     bundle_code = getattr(uoh.bundle_details, 'bundle_code', None)
