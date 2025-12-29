@@ -8,6 +8,7 @@ import bleach
 import stripe
 from fastapi import Request
 from loguru import logger
+from soupsieve.util import lower
 
 from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance, supabase_client
 from app.config.constants import ErrorMessages, PaymentStatusEnum, UserWalletTransactionSource
@@ -17,8 +18,9 @@ from app.config.utils import create_payment_intent, create_payment_ephemeral, st
     truncate_two_decimals_decimal
 from app.exceptions import BadRequestException, CustomException
 from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel, UsersCopyModel, UserWalletModel, \
-    UserProfileModel
+    UserProfileModel, UserProfileBundleModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
+from app.repo.bundle_repo import BundleTranslationRepo
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
     ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest, VerifyOtpRequestDto
@@ -47,6 +49,7 @@ class UserBundleService:
         self.__currency_service = CurrencyService()
         self.__user_repo = UserRepo()
         self.__task_executor = TaskExecutor()
+        self.__bundle_translation_repo = BundleTranslationRepo()
 
     async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
                      locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
@@ -168,37 +171,147 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
 
-    async def get_user_esims(self, user: UserModel, x_currency: str) -> Response[List[EsimBundleResponse]]:
-        user_profiles: List[UserProfileModel] = self.__user_profile_repo.select(
+    async def get_user_esims(self, user: UserModel, x_currency: str, accept_language: str = "en") -> Response[
+        List[EsimBundleResponse]]:
+        # Fetch raw profile rows including joined bundles so we can robustly handle mapping
+        user_profiles_raw = self.__user_profile_repo.select(
             tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
-            where={"user_id": user.id})
+            where={"user_id": user.id},
+            as_model=False)
+        logger.debug(f"Fetched raw user profiles joined rows count={len(user_profiles_raw)} for user {user.id}")
+        # Fallback: if the joined select returned nothing, try fetching bundles directly and synthesize profiles
+        if not user_profiles_raw:
+            logger.debug("No joined user_profile rows found, trying to fetch user_profile_bundle rows directly")
+            bundles = self.__user_profile_bundle_repo.list(where={"user_id": user.id}, limit=100)
+            logger.debug(f"Fetched {len(bundles)} user_profile_bundle rows for user {user.id}")
+            # Group bundles by user_profile_id and construct minimal profile dicts
+            profiles_map: dict = {}
+            for b in bundles:
+                pid = getattr(b, 'user_profile_id', None) or getattr(b, 'user_order_id', None) or 'default'
+                if pid not in profiles_map:
+                    profiles_map[pid] = {
+                        "id": pid,
+                        "user_id": b.user_id,
+                        "user_order_id": b.user_order_id,
+                        "iccid": b.iccid,
+                        "validity": getattr(b, 'created_at', None),
+                        "created_at": getattr(b, 'created_at', None),
+                        "label": getattr(b, 'label', None),
+                        "smdp_address": None,
+                        "activation_code": None,
+                        "allow_topup": False,
+                        "esim_hub_order_id": getattr(b, 'esim_hub_order_id', None),
+                        "searched_countries": None,
+                        "user_profile_bundle": []
+                    }
+                # Append the raw bundle data dict to the joined key so model_validate will map it
+                profiles_map[pid]["user_profile_bundle"].append(b.model_dump())
+            user_profiles_raw = list(profiles_map.values())
+            logger.debug(f"Synthesized {len(user_profiles_raw)} profile entries from bundles for user {user.id}")
+
         esim_bundle_response = []
         rate = self.__currency_service.get_rate_by_currency(x_currency)
-        for profile in user_profiles:
+
+        for profile_raw in user_profiles_raw:
             try:
-                order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
+                # Build pydantic model from raw data (handles alias 'user_profile_bundle' -> bundles)
+                profile: UserProfileModel = UserProfileModel.model_validate(profile_raw)
+
+                # Debug: log when bundles are missing so it's easier to trace empty responses
+                raw_bundles = profile_raw.get("user_profile_bundle") if isinstance(profile_raw, dict) else None
+                if not raw_bundles:
+                    logger.debug(f"No bundles found in profile raw for user {user.id}: keys={list(profile_raw.keys())}")
+                else:
+                    logger.debug(f"Found {len(raw_bundles)} raw bundles for user {user.id}")
+
+                # If pydantic didn't populate profile.bundles, try to build it from the raw join payload
+                if not getattr(profile, 'bundles', None):
+                    raw_bundles = profile_raw.get('user_profile_bundle') if isinstance(profile_raw, dict) else None
+                    if raw_bundles:
+                        try:
+                            profile.bundles = [UserProfileBundleModel.model_validate(rb) for rb in raw_bundles]
+                            logger.debug(
+                                f"Populated profile.bundles from raw for user {user.id}, count={len(profile.bundles)}")
+                        except Exception as e:
+                            logger.debug(f"Failed to populate profile.bundles from raw: {e}")
+
+                profile_current_bundle: UserProfileBundleModel = DtoMapper.get_profile_current_bundle(profile)
+                if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
+                    logger.warning(f"Bundle data missing for user profile {getattr(profile, 'id', 'unknown')}")
+                    continue
+
+                bundle_data: BundleDTO = BundleDTO.model_validate(profile_current_bundle.bundle_data)
+
+                translated_bundle = self.__bundle_translation_repo.get_first_by(where={
+                    "bundle_id": bundle_data.bundle_code,
+                    "locale": accept_language
+                })
+                if translated_bundle is not None:
+                    bundle_data = BundleDTO.model_validate(translated_bundle.data)
+
+                # Fetch related order to obtain tax amount for display calculations
+                order_for_profile: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
+                tax_amount = getattr(order_for_profile, 'tax_amount', 0) if order_for_profile else 0
+
                 bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, x_currency=x_currency, rate=rate,
-                                                           tax=order.tax_amount)
+                                                           tax=tax_amount, bundle_data=bundle_data)
+
+                # Update display price for each transaction history item using the order's tax
                 for history in bundle.transaction_history:
                     order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
-                    amount = float(history.bundle.original_price * rate) + float((order.tax_amount / 100) * rate)
+                    order_tax = getattr(order, 'tax_amount', 0) if order else 0
+                    amount = float(history.bundle.original_price * rate) + float((order_tax / 100) * rate)
                     history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
+
+                # Ensure transaction history is ordered descending by created_at (newest first)
+                try:
+                    bundle.transaction_history = sorted(
+                        bundle.transaction_history,
+                        key=lambda h: int(h.created_at) if getattr(h, 'created_at', None) is not None else 0,
+                        reverse=True
+                    )
+                except Exception:
+                    # If created_at is not a timestamp yet or sorting fails, leave original order
+                    pass
+
                 if bundle is not None:
                     esim_bundle_response.append(bundle)
             except Exception as e:
-                logger.error(e)
-                logger.error(f"Failed to map profile {profile.id if hasattr(profile, 'id') else 'unknown'}: {e}")
+                logger.error(
+                    f"Failed to map profile (raw keys: {list(profile_raw.keys()) if isinstance(profile_raw, dict) else 'unknown'}): {e}")
+        # Sort overall response by bundle payment_date descending (newest bundles first)
+        try:
+            esim_bundle_response = sorted(
+                esim_bundle_response,
+                key=lambda b: int(b.payment_date) if getattr(b, 'payment_date', None) is not None else 0,
+                reverse=True,
+            )
+        except Exception:
+            pass
+
         return ResponseHelper.success_data_response(esim_bundle_response, len(esim_bundle_response))
 
-    async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str) -> Response[EsimBundleResponse | None]:
+    async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str, accept_language: str = "en") -> \
+            Response[EsimBundleResponse | None]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                         where={"user_id": user.id, "iccid": iccid})
         if len(user_profiles) == 0:
             raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         profile = user_profiles[0]
+        # Ensure we have the current bundle and bundle_data
+        profile_current_bundle = DtoMapper.get_profile_current_bundle(profile)
+        if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
+            raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
+        bundle_data = BundleDTO.model_validate(profile_current_bundle.bundle_data)
+        # Apply translation for requested locale when available
+        translated_bundle = self.__bundle_translation_repo.get_first_by(where={"bundle_id": bundle_data.bundle_code,
+                                                                               "locale": accept_language})
+        if translated_bundle is not None and getattr(translated_bundle, 'data', None):
+            bundle_data = BundleDTO.model_validate(translated_bundle.data)
         user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
-        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, rate=rate, x_currency=x_currency,
+        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, bundle_data=bundle_data, rate=rate,
+                                                   x_currency=x_currency,
                                                    tax=user_order.tax_amount)
         for history in bundle.transaction_history:
             order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
@@ -207,10 +320,32 @@ class UserBundleService:
         return ResponseHelper.success_data_response(bundle, 0)
 
     async def consumption(self, user: UserModel, iccid: str) -> Response[ConsumptionResponse]:
+        started_bundle = self.__user_profile_bundle_repo.list(where={"user_id": user.id, "iccid": iccid,
+                                                                     "bundle_expired": False, "plan_started": True
+                                                                     }, limit=100)
+
+        active_bundle = self.__user_profile_bundle_repo.get_first_by(where={"user_id": user.id, "iccid": iccid,
+                                                                            "bundle_expired": False})
+
         profile = self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
         if not profile:
-            raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
-        consumption = await self.__esim_hub_service.get_bundle_consumption(profile.esim_hub_order_id)
+            raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_NOT_FOUND,
+                                  details="user profile not found", )
+
+        if started_bundle:
+            latest_started_bundle = started_bundle[-1]
+            consumption = await self.__esim_hub_service.get_bundle_consumption(
+                latest_started_bundle.user_order_id
+            )
+        elif active_bundle:
+            consumption = await self.__esim_hub_service.get_bundle_consumption(
+                active_bundle.user_order_id
+            )
+        else:
+            consumption = await self.__esim_hub_service.get_bundle_consumption(
+                profile.esim_hub_order_id
+            )
+
         return ResponseHelper.success_data_response(consumption, 0)
 
     async def user_notifications(self, user: UserModel, page_index: int, page_size: int) -> Response[
@@ -305,8 +440,20 @@ class UserBundleService:
                                   details=ErrorMessages.ORDER_NOT_FOUND)
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         profile = profiles[0]
+        # Ensure we have the current bundle and bundle_data
+        profile_current_bundle = DtoMapper.get_profile_current_bundle(profile)
+        if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
+            raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND,
+                                  details="No bundle data found for this profile")
+        bundle_data = BundleDTO.model_validate(profile_current_bundle.bundle_data)
         user_order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
-        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, rate=rate, x_currency=x_currency,
+        translated_bundle = self.__bundle_translation_repo.get_first_by(where={"bundle_id": bundle_data.bundle_code,
+                                                                               "locale": os.getenv('DEFAULT_LANGUAGE',
+                                                                                                   'en')})
+        if translated_bundle is not None:
+            bundle_data = BundleDTO.model_validate(translated_bundle.data)
+        bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, bundle_data=bundle_data, rate=rate,
+                                                   x_currency=x_currency,
                                                    tax=user_order.tax_amount)
         for history in bundle.transaction_history:
             order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
@@ -314,17 +461,41 @@ class UserBundleService:
             history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
         return ResponseHelper.success_data_response(bundle, 0)
 
-    async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str) -> Response[
-        List[UserOrderHistoryResponse]]:
+    async def get_order_history(self, user_id: str, page_index: int, page_size: int, x_currency: str,
+                                accept_language: str = "en") -> Response[List[UserOrderHistoryResponse]]:
+        """Return order history; translate bundle names to `accept_language` when a translation exists.
+
+        Default `accept_language` is 'en' for backward compatibility with callers that don't pass a locale.
+        """
         rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=x_currency)
         user_orders = self.__user_order_repo.list(
             where={"user_id": user_id, "payment_status": OrderStatusEnum.SUCCESS,
                    "order_status": OrderStatusEnum.SUCCESS}, limit=page_size,
             offset=((page_index - 1) * page_size))
-        return ResponseHelper.success_data_response(
-            [DtoMapper.to_user_order_history(user_order=data, rate=rate, currency=x_currency) for data in
-             user_orders],
-            len(user_orders))
+
+        result: List[UserOrderHistoryResponse] = []
+        for data in user_orders:
+            try:
+                uoh: UserOrderHistoryResponse = DtoMapper.to_user_order_history(user_order=data, rate=rate,
+                                                                                currency=x_currency)
+                # Translate bundle details if a translation exists for the requested locale
+                try:
+                    bundle_code = getattr(uoh.bundle_details, 'bundle_code', None)
+                    if bundle_code:
+                        translated_bundle = self.__bundle_translation_repo.get_first_by(where={
+                            "bundle_id": bundle_code,
+                            "locale": accept_language
+                        })
+                        if translated_bundle is not None and getattr(translated_bundle, 'data', None):
+                            uoh.bundle_details = BundleDTO.model_validate(translated_bundle.data)
+                except Exception as e:
+                    logger.debug(f"Failed to apply bundle translation for order {getattr(data, 'id', 'unknown')}: {e}")
+
+                result.append(uoh)
+            except Exception as e:
+                logger.error(f"Failed mapping order to history for order {getattr(data, 'id', 'unknown')}: {e}")
+
+        return ResponseHelper.success_data_response(result, len(result))
 
     async def get_order_history_by_id(self, user_id: str, order_id: str, x_currency: str) -> Response[
         UserOrderHistoryResponse]:
@@ -371,9 +542,11 @@ class UserBundleService:
                                 user_order.modified_amount if user_order.modified_amount else user_order.amount) or 0) / 100
         converted_units = self.__currency_service.convert(from_currency="USD", to_currency=default_currency,
                                                           amount=usd_amount_units)
-
+        usermodel: UsersCopyModel = self.__user_repo.get_by_id(user.id)
+        language = lower(usermodel.metadata.get("language", "en"))
         response = await self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=converted_units,
-                                                           order_id=user_order.id)
+                                                           order_id=user_order.id,
+                                                           locale=language)
 
         if not response:
             self.__user_order_repo.update_by(where={"id": user_order.id},
@@ -399,7 +572,11 @@ class UserBundleService:
         expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
         expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
         self.__user_order_repo.update_by(where={"id": order.id}, data={"otp": otp, "otp_expired_at": expire_at})
-        await self.__dcb_service.send_otp(msisdn=user.msisdn, otp=order.otp)
+        usermodel = self.__user_repo.get_by_id(user.id)
+
+        language = lower(usermodel.metadata.get("language", "en"))
+        await self.__dcb_service.send_otp(msisdn=user.msisdn, otp=order.otp,
+                                          locale=language)
         return ResponseHelper.success_response()
 
     async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,
@@ -447,7 +624,10 @@ class UserBundleService:
                                              data={"otp": otp, "otp_expired_at": expire_at})
             msisdn = user.msisdn
             logger.info(f"requesting new otp for msisdn: {msisdn}")
-            await self.__dcb_service.send_otp(msisdn=msisdn, otp=otp)
+            usermodel = self.__user_repo.get_by_id(user.id)
+            language = lower(usermodel.metadata.get("language", "en"))
+            await self.__dcb_service.send_otp(msisdn=msisdn, otp=otp,
+                                              locale=language)
             response = PaymentIntentResponse(order_id=user_order.id,
                                              payment_status=PaymentStatusEnum.PENDING_VERIFICATION)
             response.otp_expiration = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60

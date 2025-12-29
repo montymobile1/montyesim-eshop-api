@@ -277,7 +277,7 @@ class AuthService:
                 }
             })
             logging.info(f"created new user: {user}")
-        await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone)
+        await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone, locale=language)
         return ResponseHelper.success_data_response(data={"otp_expiration": otp_expiration_time}, total_count=0)
 
     async def __handle_email_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[

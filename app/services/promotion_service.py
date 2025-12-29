@@ -5,8 +5,8 @@ from loguru import logger
 
 from app.config.constants import UserWalletTransactionSource, ErrorMessages
 from app.config.db import PromotionRuleAction, Beneficiary, PromotionRuleEvent, ConfigKeysEnum, PromotionStatusEnum
-from app.config.i18n import I18n
 from app.config.helper import get_config
+from app.config.i18n import I18n
 from app.config.utils import truncate_two_decimals_decimal
 from app.exceptions import CustomException
 from app.models.promotion import PromotionModel, PromotionUsageModel
@@ -345,6 +345,22 @@ class PromotionService:
         if promotion.times_used >= rule.max_usage:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE,
                                   details="times used is full")
+        promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", True)
+        if not promotion_limit_active:
+            logger.info("promotion limit is not active, applying 1 minute rate-limit per user+promo")
+            try:
+                last_usages = self.__promotion_usage_repo.select_procedure(
+                    function_name="get_latest_promotion_usage_per_user",
+                    where={"p_user_id": user_id, "p_promotion_code": promotion.code,
+                           "p_window_seconds": int(get_config("PROMOTION_LIMIT_WINDOW_SECONDS", 60))})
+                if last_usages and len(last_usages) > 0:
+                    raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
+                                          details="Promotion code used too recently, please wait before reusing.")
+            except Exception as e:
+                logger.error(f"error while applying rate limit for promotion usage: {e}")
+
+            return
+
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed", "device_id": device_id})
         if promotion_usage:
@@ -518,6 +534,13 @@ class PromotionService:
                                               data={"status": PromotionStatusEnum.FAILED.value})
 
     def referral_info(self, x_currency: str, locale: str = "en") -> Response[ReferralInfoDto]:
+        # Normalize incoming locale (may be Accept-Language header) to primary language tag like 'en' or 'ar'
+        try:
+            primary = locale.split(',')[0].split(';')[0].strip().split('-')[0].lower() if locale else 'en'
+            if primary == '':
+                primary = 'en'
+        except Exception:
+            primary = 'en'
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         rule_id = get_config(ConfigKeysEnum.DEFAULT_REFERRAL_RULE_ID)
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": rule_id})
@@ -527,13 +550,23 @@ class PromotionService:
 
         amount = round(float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT)) * float(rate), 2)
         percentage = float(get_config(ConfigKeysEnum.REFERRAL_CODE_PERCENTAGE))
+        # Use I18n templates to produce localized referral messages. Templates support placeholders:
+        # {amount} - formatted amount, {currency} - currency code, {percentage} - numeric percentage
         if rule.promotion_rule_action_id == PromotionRuleAction.CASHBACK_AMOUNT.value:
-            message = f"Get {amount} {x_currency} credit for every friend that signs up and completes a purchase. Your friends get {amount} {x_currency} credit for their first purchase."
+            tpl_key = "REFERRAL_MESSAGE_CASHBACK_AMOUNT"
         elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_PERCENTAGE.value:
-            message = f"Get {amount} {x_currency} credit for every friend that signs up and completes a purchase. Your friends get {percentage}% off their first purchase."
+            tpl_key = "REFERRAL_MESSAGE_DISCOUNT_PERCENTAGE"
         elif rule.promotion_rule_action_id == PromotionRuleAction.DISCOUNT_AMOUNT.value:
-            message = f"Get {amount} {x_currency} credit for every friend that signs up and completes a purchase. Your friends get {amount} {x_currency} off their first purchase."
+            tpl_key = "REFERRAL_MESSAGE_DISCOUNT_AMOUNT"
         else:
+            tpl_key = "REFERRAL_MESSAGE_DEFAULT"
+
+        tpl = I18n.get_message(tpl_key, primary)
+        try:
+            # Format template with safe values
+            message = tpl.format(amount=round(amount, 2), currency=x_currency, percentage=percentage)
+        except Exception:
+            # Fallback to an English safe string if template formatting fails
             message = f"Get {amount} {x_currency} credit for every friend that signs up and completes a purchase"
         dto = ReferralInfoDto(amount=round(amount, 2), type=str(rule.promotion_rule_action_id), currency=x_currency,
                               message=message)

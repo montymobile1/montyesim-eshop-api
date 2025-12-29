@@ -3231,3 +3231,60 @@ BEGIN
         order by NULLIF(b.data ->> 'price', '')::numeric NULLS LAST;
 END;
 $$;
+
+CREATE OR REPLACE FUNCTION public.get_banners(
+    p_platform varchar,
+    p_locale varchar
+)
+RETURNS TABLE (
+    id int,
+    title varchar,
+    description varchar,
+    image varchar,
+    action varchar,
+    platform varchar,
+    created_at timestamp
+)
+LANGUAGE sql
+STABLE
+AS $$
+    SELECT
+        b.id,
+        COALESCE(bt.title, b.title)              AS title,
+        COALESCE(bt.description, b.description) AS description,
+        b.image,
+        b.action,
+        b.platform,
+        b.created_at
+    FROM banner b
+    LEFT JOIN banner_translation bt
+        ON bt.id = b.id
+       AND bt.locale = p_locale
+    WHERE b.platform = p_platform
+    ORDER BY b.created_at DESC;
+$$;
+
+
+create or replace function get_latest_promotion_usage_per_user(
+    p_user_id uuid,
+    p_promotion_code text,
+    p_window_seconds integer DEFAULT 60
+)
+    returns bigint
+    language plpgsql
+as
+$$
+DECLARE
+    v_count bigint;
+BEGIN
+    SELECT COUNT(*)
+    INTO v_count
+    FROM promotion_usage pu
+    WHERE pu.user_id = p_user_id
+      AND pu.promotion_code = p_promotion_code
+      AND pu.created_at IS NOT NULL
+      AND pu.created_at >= now() - (p_window_seconds * interval '1 second');
+
+    RETURN v_count;
+END;
+$$;

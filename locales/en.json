@@ -60,5 +60,10 @@
   "USER_NOT_FOUND": "User not found.",
   "USER_WITH_EMAIL_ALREADY_EXISTS": "A user with this email already exists.",
   "INSUFFICIENT_WALLET_BALANCE": "You don't have enough balance in your wallet to complete this transaction.",
-  "INVALID_TOP_UP_AMOUNT": "Invalid top-up amount provided."
+  "INVALID_TOP_UP_AMOUNT": "Invalid top-up amount provided.",
+  "REFERRAL_MESSAGE_CASHBACK_AMOUNT": "Get {amount} {currency} credit for every friend that signs up and completes a purchase. Your friends get {amount} {currency} credit for their first purchase.",
+  "REFERRAL_MESSAGE_DISCOUNT_PERCENTAGE": "Get {amount} {currency} credit for every friend that signs up and completes a purchase. Your friends get {percentage}% off their first purchase.",
+  "REFERRAL_MESSAGE_DISCOUNT_AMOUNT": "Get {amount} {currency} credit for every friend that signs up and completes a purchase. Your friends get {amount} {currency} off their first purchase.",
+  "REFERRAL_MESSAGE_DEFAULT": "Get {amount} {currency} credit for every friend that signs up and completes a purchase",
+  "OTP_IS": "Your OTP is"
 }

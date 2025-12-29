@@ -5,6 +5,7 @@ import httpx
 from loguru import logger
 
 from app.config.helper import get_config
+from app.config.i18n import I18n
 from app.services.integration.dcb_service import DCBService
 
 
@@ -19,7 +20,7 @@ class HubDcbService(DCBService):
         super().__init__(send_otp_url=send_otp_url, charge_url=charge_url, verify_otp_url=verify_otp_url,
                          api_key=api_key)
 
-    async def send_otp(self, msisdn: str, otp: str) -> bool:
+    async def send_otp(self, msisdn: str, otp: str, locale: str = "en") -> bool:
         url = self.get_send_otp_url()
         logger.info(f"[DCB_HUB] Sending OTP to {msisdn=} via {url=}")
         try:
@@ -27,7 +28,7 @@ class HubDcbService(DCBService):
                 body = {
                     "sourceMsisdn": self.__source_msisdn,
                     "destinationMsisdn": msisdn.replace("+", ""),
-                    "message": f"Your OTP code is {otp}",
+                    "message": f"{I18n.get_message(key='OTP_IS', lang=locale)}: {otp}",
                     "smsType": "NORMAL",
                     "deliveryReceipt": False
                 }
@@ -35,7 +36,8 @@ class HubDcbService(DCBService):
                     "Content-Type": "application/json",
                     "Accept": "application/json",
                     "Api-Key": self.get_api_key(),
-                    "Tenant": os.getenv("ESIM_HUB_TENANT_KEY")
+                    "Tenant": os.getenv("ESIM_HUB_TENANT_KEY"),
+                    "LanguageCode": "en"
                 }
                 response = client.request(method="POST",
                                           url=url,
@@ -58,7 +60,7 @@ class HubDcbService(DCBService):
             logger.error(f"[DCB_HUB] Error sending OTP to {msisdn}: {e}")
             return False
 
-    async def deduct_balance(self, msisdn: str, amount: float, order_id: str) -> bool:
+    async def deduct_balance(self, msisdn: str, amount: float, order_id: str, locale: str = "en") -> bool:
         url = self.get_charge_url()
         conversion_rate = get_config("DCB_HUB_CONVERSION_RATE", "1.0")
         converted_amount_cents = int(Decimal(str(amount)) * Decimal(conversion_rate))
@@ -83,7 +85,8 @@ class HubDcbService(DCBService):
                     "Content-Type": "application/json",
                     "Accept": "application/json",
                     "Api-Key": self.get_api_key(),
-                    "Tenant": os.getenv("ESIM_HUB_TENANT_KEY")
+                    "Tenant": os.getenv("ESIM_HUB_TENANT_KEY"),
+                    "LanguageCode": locale
                 }
                 response = client.request(method="POST",
                                           url=url,
