@@ -8,6 +8,7 @@ import bleach
 import stripe
 from fastapi import Request
 from loguru import logger
+from soupsieve.util import lower
 
 from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance, supabase_client
 from app.config.constants import ErrorMessages, PaymentStatusEnum, UserWalletTransactionSource
@@ -542,10 +543,10 @@ class UserBundleService:
         converted_units = self.__currency_service.convert(from_currency="USD", to_currency=default_currency,
                                                           amount=usd_amount_units)
         usermodel: UsersCopyModel = self.__user_repo.get_by_id(user.id)
+        language = lower(usermodel.metadata.get("language", "en"))
         response = await self.__dcb_service.deduct_balance(msisdn=user.msisdn, amount=converted_units,
                                                            order_id=user_order.id,
-                                                           locale=usermodel.metadata["locale"] if usermodel.metadata[
-                                                               "locale"] else "en")
+                                                           locale=language)
 
         if not response:
             self.__user_order_repo.update_by(where={"id": user_order.id},
@@ -573,8 +574,9 @@ class UserBundleService:
         self.__user_order_repo.update_by(where={"id": order.id}, data={"otp": otp, "otp_expired_at": expire_at})
         usermodel = self.__user_repo.get_by_id(user.id)
 
+        language = lower(usermodel.metadata.get("language", "en"))
         await self.__dcb_service.send_otp(msisdn=user.msisdn, otp=order.otp,
-                                          locale=usermodel.metadata["locale"] if usermodel.metadata["locale"] else "en")
+                                          locale=language)
         return ResponseHelper.success_response()
 
     async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,
@@ -623,9 +625,9 @@ class UserBundleService:
             msisdn = user.msisdn
             logger.info(f"requesting new otp for msisdn: {msisdn}")
             usermodel = self.__user_repo.get_by_id(user.id)
+            language = lower(usermodel.metadata.get("language", "en"))
             await self.__dcb_service.send_otp(msisdn=msisdn, otp=otp,
-                                              locale=usermodel.metadata["locale"] if usermodel.metadata[
-                                                  "locale"] else "en")
+                                              locale=language)
             response = PaymentIntentResponse(order_id=user_order.id,
                                              payment_status=PaymentStatusEnum.PENDING_VERIFICATION)
             response.otp_expiration = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
