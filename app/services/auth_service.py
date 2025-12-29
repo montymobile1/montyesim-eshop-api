@@ -239,6 +239,7 @@ class AuthService:
         old_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
                                                                  filters={
                                                                      "metadata->>msisdn": login_request.phone})
+        user_otp_language = language
         if old_user:
             login_request.email = old_user.email
         otp_expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
@@ -259,6 +260,7 @@ class AuthService:
                     "login_type": "phone"
                 }
             })
+            user_otp_language =  lower(user_exists.metadata.get("language", "en"))
         else:
             user = supabase_client().auth.sign_up({
                 "email": user_email,
@@ -277,7 +279,7 @@ class AuthService:
                 }
             })
             logging.info(f"created new user: {user}")
-        await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone, locale=language)
+        await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone, locale=user_otp_language)
         return ResponseHelper.success_data_response(data={"otp_expiration": otp_expiration_time}, total_count=0)
 
     async def __handle_email_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
