@@ -347,7 +347,18 @@ class PromotionService:
                                   details="times used is full")
         promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", True)
         if not promotion_limit_active:
-            logger.info("promotion limit is not active")
+            logger.info("promotion limit is not active, applying 1 minute rate-limit per user+promo")
+            try:
+                last_usages = self.__promotion_usage_repo.select_procedure(
+                    function_name="get_latest_promotion_usage_per_user",
+                    where={"p_user_id": user_id, "p_promotion_code": promotion.code,
+                           "p_window_seconds": int(get_config("PROMOTION_LIMIT_WINDOW_SECONDS", 60))})
+                if last_usages and len(last_usages) > 0:
+                    raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
+                                          details="Promotion code used too recently, please wait before reusing.")
+            except Exception as e:
+                logger.error(f"error while applying rate limit for promotion usage: {e}")
+
             return
 
         promotion_usage = self.__promotion_usage_repo.list(
@@ -558,7 +569,7 @@ class PromotionService:
             # Fallback to an English safe string if template formatting fails
             message = f"Get {amount} {x_currency} credit for every friend that signs up and completes a purchase"
         dto = ReferralInfoDto(amount=round(amount, 2), type=str(rule.promotion_rule_action_id), currency=x_currency,
-                               message=message)
+                              message=message)
         return ResponseHelper.success_data_response(dto, 1)
 
     def get_promotion_by_code(self, promo_code: str) -> PromotionModel | None:

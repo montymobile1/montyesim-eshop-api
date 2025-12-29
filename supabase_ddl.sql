@@ -3265,3 +3265,26 @@ AS $$
 $$;
 
 
+create or replace function get_latest_promotion_usage_per_user(
+    p_user_id uuid,
+    p_promotion_code text,
+    p_window_seconds integer DEFAULT 60
+)
+    returns bigint
+    language plpgsql
+as
+$$
+DECLARE
+    v_count bigint;
+BEGIN
+    SELECT COUNT(*)
+    INTO v_count
+    FROM promotion_usage pu
+    WHERE pu.user_id = p_user_id
+      AND pu.promotion_code = p_promotion_code
+      AND pu.created_at IS NOT NULL
+      AND pu.created_at >= now() - (p_window_seconds * interval '1 second');
+
+    RETURN v_count;
+END;
+$$;
