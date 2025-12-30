@@ -38,7 +38,11 @@ class DtoMapper:
             validity = "0 Day"
         bundle_regions = [DtoMapper.to_region_dto(region) for region in bundle.get("supportedZones", [])]
         bundle_category = bundle.get("bundleCategory", {})
-        countries = [DtoMapper.to_country_dto(c) for c in bundle.get("supportedCountries", [])]
+        try:
+            countries = [DtoMapper.to_country_dto(c) for c in bundle.get("supportedCountries", [])]
+        except Exception as e:
+            logger.debug(f"error while mapping countries for bundle {bundle.get('recordGuid', 'unknown')}: {e}")
+            countries = []
         currency_code = currency_context.get() if currency is None else currency
         original_price = bundle["price"]
         price = bundle["exchangedPrice"] if bundle["exchangedPrice"] is not None else original_price
@@ -185,7 +189,7 @@ class DtoMapper:
         return matching_countries + non_matching_countries
 
     @staticmethod
-    def to_esim_bundle_response(user_profile: UserProfileModel,bundle_data : BundleDTO, rate: float,
+    def to_esim_bundle_response(user_profile: UserProfileModel, bundle_data: BundleDTO, rate: float,
                                 x_currency: str, tax: float = 0) -> EsimBundleResponse | None:
 
         bundle_category = bundle_data.bundle_category

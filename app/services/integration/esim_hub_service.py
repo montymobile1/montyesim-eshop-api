@@ -297,7 +297,7 @@ class EsimHubService:
         items = response["data"].get("items", [])
         if not items:
             return None
-        if len(items) ==0:
+        if len(items) == 0:
             return None
         data = response["data"]["items"][0]
         return DtoMapper.to_bundle_dto(bundle=data, currency=currency_code)
