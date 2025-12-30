@@ -2,6 +2,7 @@ import os
 from typing import List, Literal
 
 from loguru import logger
+from soupsieve.util import lower
 
 from app.config.constants import UserWalletTransactionSource, ErrorMessages
 from app.config.db import PromotionRuleAction, Beneficiary, PromotionRuleEvent, ConfigKeysEnum, PromotionStatusEnum
@@ -345,8 +346,8 @@ class PromotionService:
         if promotion.times_used >= rule.max_usage:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE,
                                   details="times used is full")
-        promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", True)
-        if not promotion_limit_active:
+        promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", "true")
+        if lower(promotion_limit_active) == "false":
             logger.info("promotion limit is not active, applying 1 minute rate-limit per user+promo")
             try:
                 last_usages = self.__promotion_usage_repo.select_procedure(
