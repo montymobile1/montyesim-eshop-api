@@ -227,6 +227,10 @@ class CallbackService:
                     logger.info(f"{operation} for bundle {bundle_id} for reseller {reseller_id}")
                     bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
                                                                             currency_code=os.getenv("DEFAULT_CURRENCY"))
+                    if not bundle:
+                        logger.error(f"bundle {bundle_id} not found in esim hub for reseller {reseller_id}")
+                        await self.__sync_service.delete_bundle(bundle_id=bundle_id)
+                        return
                     await self.__sync_service.sync_bundle(bundle)
                 elif operation == "unassign":
                     logger.info(f"unassigning bundle {bundle_id} for reseller {reseller_id}")
