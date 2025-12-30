@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from fastapi import Request
 from loguru import logger
+from soupsieve.util import lower
 
 from app.config.config import authenticate, supabase_client, dcb_service_instance
 from app.config.constants import ErrorMessages
@@ -260,7 +261,7 @@ class AuthService:
                     "login_type": "phone"
                 }
             })
-            user_otp_language =  lower(user_exists.metadata.get("language", "en"))
+            user_otp_language = lower(user_exists.metadata.get("language", "en"))
         else:
             user = supabase_client().auth.sign_up({
                 "email": user_email,
@@ -279,6 +280,7 @@ class AuthService:
                 }
             })
             logging.info(f"created new user: {user}")
+        logger.info(f"sending otp to phone number {user_otp_language=} {login_request.phone=}")
         await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone, locale=user_otp_language)
         return ResponseHelper.success_data_response(data={"otp_expiration": otp_expiration_time}, total_count=0)
 
