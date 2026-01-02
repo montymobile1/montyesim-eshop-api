@@ -1,17 +1,22 @@
-import os
 import json
+import os
 from functools import lru_cache
+
 
 class I18n:
     @staticmethod
     @lru_cache(maxsize=2)  # Cache for 2 languages (en, ar)
     def load_messages(lang: str = 'en') -> dict:
         """Load messages from i18n json files with caching."""
-        root_path = os.path.abspath(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        path = f"{root_path}/locales/{lang}.json"
+        root = os.path.abspath(os.curdir)
+        root_path = os.getenv("LOCALES_DIR", None)
+        if root_path:
+            path = os.path.join(root_path, f"{lang}.json")
+        else:
+            path = os.path.join(root, "locales", f"{lang}.json")
         if not os.path.exists(path):
-            path = f"{root_path}/locales/en.json"  # Fallback to English
-            
+            path = os.path.join(root, "locales", "en.json")
+
         with open(path, "r", encoding='utf-8') as f:
             return json.load(f)
 
