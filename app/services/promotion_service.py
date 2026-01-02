@@ -349,18 +349,13 @@ class PromotionService:
         promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", "true")
         if lower(promotion_limit_active) == "false":
             logger.info("promotion limit is not active, applying 1 minute rate-limit per user+promo")
-            try:
-                last_usages = self.__promotion_usage_repo.select_procedure(
-                    function_name="get_latest_promotion_usage_per_user",
-                    where={"p_user_id": user_id, "p_promotion_code": promotion.code,
-                           "p_window_seconds": int(get_config("PROMOTION_LIMIT_WINDOW_SECONDS", 60))})
-                if last_usages and len(last_usages) > 0:
-                    raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
-                                          details="Promotion code used too recently, please wait before reusing.")
-            except Exception as e:
-                logger.error(f"error while applying rate limit for promotion usage: {e}")
-
-            return
+            last_usages = self.__promotion_usage_repo.select_procedure(
+                function_name="get_latest_promotion_usage_per_user",
+                where={"p_user_id": user_id, "p_promotion_code": promotion.code,
+                       "p_window_seconds": int(get_config("PROMOTION_LIMIT_WINDOW_SECONDS", 60))})
+            if last_usages and len(last_usages) > 0:
+                raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
+                                      details="Promotion code used too recently, please wait before reusing.")
 
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed", "device_id": device_id})
