@@ -356,6 +356,9 @@ class PromotionService:
             if last_usages and len(last_usages) > 0:
                 raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
                                       details="Promotion code used too recently, please wait before reusing.")
+            else:
+                logger.info("no recent usage found, proceeding")
+                return
 
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed", "device_id": device_id})
