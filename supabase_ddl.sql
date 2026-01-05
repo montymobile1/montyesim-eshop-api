@@ -3265,26 +3265,86 @@ AS $$
 $$;
 
 
-create or replace function get_latest_promotion_usage_per_user(
-    p_user_id uuid,
-    p_promotion_code text,
-    p_window_seconds integer DEFAULT 60
-)
-    returns bigint
+create
+or replace function get_latest_promotion_usage_per_user(p_user_id uuid, p_promotion_code text, p_window_seconds integer DEFAULT 60)
+    returns TABLE(
+        id uuid,
+        user_id uuid,
+        promotion_code varchar,
+        referral_code varchar,
+        amount real,
+        status varchar,
+        created_at timestamp,
+        bundle_id uuid,
+        device_id varchar,
+        referred_to varchar,
+        order_id uuid
+    )
     language plpgsql
 as
 $$
-DECLARE
-    v_count bigint;
 BEGIN
-    SELECT COUNT(*)
-    INTO v_count
+    RETURN QUERY
+    SELECT pu.id,
+           pu.user_id,
+           pu.promotion_code,
+           pu.referral_code,
+           pu.amount,
+           pu.status,
+           pu.created_at,
+           pu.bundle_id,
+           pu.device_id,
+           pu.referred_to,
+           pu.order_id
     FROM promotion_usage pu
     WHERE pu.user_id = p_user_id
       AND pu.promotion_code = p_promotion_code
       AND pu.created_at IS NOT NULL
-      AND pu.created_at >= now() - (p_window_seconds * interval '1 second');
+      AND pu.created_at >= now() - (p_window_seconds * interval '1 second')
+    ORDER BY pu.created_at DESC
+    LIMIT 1;
+END;
+$$;
 
-    RETURN v_count;
+
+create
+or replace function get_latest_pending_promotion_usage_per_user(p_user_id uuid, p_promotion_code text, p_window_seconds integer DEFAULT 60)
+    returns TABLE(
+        id uuid,
+        user_id uuid,
+        promotion_code varchar,
+        referral_code varchar,
+        amount real,
+        status varchar,
+        created_at timestamp,
+        bundle_id uuid,
+        device_id varchar,
+        referred_to varchar,
+        order_id uuid
+    )
+    language plpgsql
+as
+$$
+BEGIN
+    RETURN QUERY
+    SELECT pu.id,
+           pu.user_id,
+           pu.promotion_code,
+           pu.referral_code,
+           pu.amount,
+           pu.status,
+           pu.created_at,
+           pu.bundle_id,
+           pu.device_id,
+           pu.referred_to,
+           pu.order_id
+    FROM promotion_usage pu
+    WHERE pu.user_id = p_user_id
+      AND pu.promotion_code = p_promotion_code
+      AND pu.created_at IS NOT NULL
+      AND pu.created_at >= now() - (p_window_seconds * interval '1 second')
+      AND pu.status = 'pending'
+    ORDER BY pu.created_at DESC
+    LIMIT 1;
 END;
 $$;
