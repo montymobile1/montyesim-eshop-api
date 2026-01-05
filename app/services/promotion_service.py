@@ -347,11 +347,11 @@ class PromotionService:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE,
                                   details="times used is full")
 
-        last_usages_check = self.__promotion_usage_repo.select_procedure(
-            function_name="get_latest_promotion_usage_per_user",
+        last_pending_usage = self.__promotion_usage_repo.select_procedure(
+            function_name="get_latest_pending_promotion_usage_per_user",
             where={"p_user_id": user_id, "p_promotion_code": promotion.code,
                    "p_window_seconds": int(get_config("PROMOTION_RATE_LIMIT_SECONDS", 5))})
-        if last_usages_check and len(last_usages_check) > 0:
+        if last_pending_usage and len(last_pending_usage) > 0:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
                                   details="Promotion code used too recently, please wait before reusing.")
 
