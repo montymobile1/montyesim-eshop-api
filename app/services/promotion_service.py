@@ -346,6 +346,15 @@ class PromotionService:
         if promotion.times_used >= rule.max_usage:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE,
                                   details="times used is full")
+
+        last_usages_check = self.__promotion_usage_repo.select_procedure(
+            function_name="get_latest_promotion_usage_per_user",
+            where={"p_user_id": user_id, "p_promotion_code": promotion.code,
+                   "p_window_seconds": int(get_config("PROMOTION_RATE_LIMIT_SECONDS", 5))})
+        if last_usages_check and len(last_usages_check) > 0:
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
+                                  details="Promotion code used too recently, please wait before reusing.")
+
         promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", "true")
         if lower(promotion_limit_active) == "false":
             logger.info("promotion limit is not active, applying 1 minute rate-limit per user+promo")
