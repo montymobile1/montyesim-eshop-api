@@ -40,7 +40,7 @@
   "REFERRAL_CODE_ALREADY_USED_ON_THIS_DEVICE": "Referral code already used on this device.",
   "REFERRAL_CODE_ALREADY_USED": "Referral code already used.",
   "PROMOTION_RULE_NOT_FOUND": "Promotion rule not found.",
-  "PROMOTION_MAX_USAGE_VALIDATION": "Promotion has reached the maximum allowed usage.",
+  "PROMOTION_MAX_USAGE_VALIDATION": "Promotion code used too recently, please wait before reusing.",
   "VERIFY_FAILED": "Verification failed.",
   "DELETE_ACCOUNT_FAILED": "Failed to delete account.",
   "REQUEST_FAILED": "Request failed. Please try again.",
