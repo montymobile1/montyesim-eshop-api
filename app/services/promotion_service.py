@@ -370,7 +370,7 @@ class PromotionService:
                 return
 
         promotion_usage = self.__promotion_usage_repo.list(
-            where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed", "device_id": device_id})
+            where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed"})
         if promotion_usage:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_ALREADY_USED, details="Promotion Already Used")
 
