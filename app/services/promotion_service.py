@@ -350,9 +350,9 @@ class PromotionService:
         last_pending_usage = self.__promotion_usage_repo.select_procedure(
             function_name="get_latest_pending_promotion_usage_per_user",
             where={"p_user_id": user_id, "p_promotion_code": promotion.code,
-                   "p_window_seconds": int(get_config("PROMOTION_RATE_LIMIT_SECONDS", 5))})
+                   "p_window_seconds": 60 * 60 * 24})
         if last_pending_usage and len(last_pending_usage) > 0:
-            raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_ALREADY_IN_USE,
                                   details="Promotion code used too recently, please wait before reusing.")
 
         promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", "true")
