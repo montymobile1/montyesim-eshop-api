@@ -140,38 +140,32 @@ class DtoMapper:
         if len(bundles) == 1:
             return bundles[0]
 
-        def _bundle_created_at(bundle):
-            # prefer explicit bundle.created_at, but fallback to bundle.bundle_data.created_at if present
-            created = None
-            try:
-                if getattr(bundle, 'created_at', None):
-                    created = bundle.created_at
-                elif getattr(bundle, 'bundle_data', None) and isinstance(bundle.bundle_data, dict):
-                    created = bundle.bundle_data.get('created_at') or bundle.bundle_data.get('createdAt')
-                if isinstance(created, str) and created:
-                    normalized = created.replace('Z', '+00:00') if created.endswith('Z') else created
-                    return datetime.fromisoformat(normalized)
-            except Exception:
-                pass
-            return datetime.min
-
         sorted_bundles = sorted(bundles, key=_bundle_created_at, reverse=True)
-
-        priority_bundle = next(
-            (bundle for bundle in sorted_bundles if bundle.plan_started and not bundle.bundle_expired),
-            None
-        )
-        if priority_bundle:
-            return priority_bundle
-
-        unexpired_bundle = next(
-            (bundle for bundle in sorted_bundles if not bundle.bundle_expired),
-            None
-        )
-        if unexpired_bundle:
-            return unexpired_bundle
+        priority_bundle = _find_priority_bundle(sorted_bundles)
+        return priority_bundle if priority_bundle else _find_unexpired_bundle(sorted_bundles)
 
         return sorted_bundles[0] if sorted_bundles else None
+
+    def _bundle_created_at(bundle):
+        # prefer explicit bundle.created_at, but fallback to bundle.bundle_data.created_at if present
+        created = None
+        try:
+            if getattr(bundle, 'created_at', None):
+                created = bundle.created_at
+            elif getattr(bundle, 'bundle_data', None) and isinstance(bundle.bundle_data, dict):
+                created = bundle.bundle_data.get('created_at') or bundle.bundle_data.get('createdAt')
+            if isinstance(created, str) and created:
+                normalized = created.replace('Z', '+00:00') if created.endswith('Z') else created
+                return datetime.fromisoformat(normalized)
+        except Exception:
+            pass
+        return datetime.min
+
+    def _find_priority_bundle(bundles):
+        return next((bundle for bundle in bundles if bundle.plan_started and not bundle.bundle_expired), None)
+
+    def _find_unexpired_bundle(bundles):
+        return next((bundle for bundle in bundles if not bundle.bundle_expired), None)
 
     @staticmethod
     def move_matching_countries_to_top(countries_dto: List[CountryDTO],
@@ -189,60 +183,12 @@ class DtoMapper:
         return matching_countries + non_matching_countries
 
     @staticmethod
-    def to_esim_bundle_response(user_profile: UserProfileModel, bundle_data: BundleDTO, rate: float,
-                                x_currency: str, tax: float = 0) -> EsimBundleResponse | None:
-
+    def to_esim_bundle_response(user_profile: UserProfileModel, bundle_data: BundleDTO, rate: float, x_currency: str, tax: float = 0) -> EsimBundleResponse | None:
         bundle_category = bundle_data.bundle_category
-
-        display_title = bundle_data.display_title
-        icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/generic.png"
-
-        searched_countries_array = []
-        searched_region = None
-        try:
-            if user_profile.searched_countries:
-                search_field = RelatedSearchRequestDto.model_validate_json(user_profile.searched_countries)
-                searched_countries_array = search_field.countries if search_field.countries else []
-                searched_region = search_field.regions
-        except Exception as e:
-            logger.debug(f"Exception parsing RelatedSearchRequestDto: {e}")
-        if searched_countries_array and len(searched_countries_array) > 0:
-            first_country = searched_countries_array[0]
-            display_title = first_country.country_name
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(first_country.iso3_code).lower()}.png"
-
-        elif bundle_category.type.lower() == "region" and searched_region:
-            display_title = searched_region.region_name
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/{searched_region.iso_code}.png"
-        elif bundle_category.type.lower() == "global":
-            display_title = bundle_category.title
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/Global.png"
-        elif bundle_data.countries and len(bundle_data.countries) > 0:
-            country = bundle_data.countries[0]
-            display_title = country.country
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(country.iso3_code).lower()}.png"
-        if bundle_data.label is not None and bundle_data.label != "":
-            display_title = bundle_data.label
-
-        countries_sorted = DtoMapper.move_matching_countries_to_top(bundle_data.countries, searched_countries_array)
-
-        # Determine the current profile bundle (may be None) and guard against missing values
-        profile_current_bundle = DtoMapper.get_profile_current_bundle(user_profile)
-        if profile_current_bundle is None:
-            # create a minimal fallback object with the attributes used below
-            class _FallbackBundle:
-                plan_started = False
-                bundle_expired = True
-                created_at = None
-
-            profile_current_bundle = _FallbackBundle()
-
-        if not profile_current_bundle.plan_started:
-            order_status = "Inactive"
-        elif not profile_current_bundle.bundle_expired:
-            order_status = "Active"
-        else:
-            order_status = "Expired"
+        display_title, icon_url = _get_display_info(bundle_category, user_profile.searched_countries, user_profile.searched_region, bundle_data)
+        countries_sorted = DtoMapper.move_matching_countries_to_top(bundle_data.countries, user_profile.searched_countries)
+        profile_current_bundle = _get_profile_current_bundle(user_profile)
+        order_status = _determine_order_status(profile_current_bundle)
         amount = (bundle_data.original_price * rate) + ((tax / 100) * rate)
         data = {
             "is_topup_allowed": user_profile.allow_topup,
@@ -281,11 +227,49 @@ class DtoMapper:
             "icon": icon_url,
             "transaction_history": [
                 DtoMapper.to_transaction_history_response(user_profile_bundle=bundle, rate=rate, x_currency=x_currency)
-                for
-                bundle in
-                user_profile.bundles],
+                for bundle in user_profile.bundles],
         }
         return EsimBundleResponse.model_validate(data)
+
+    def _get_display_info(bundle_category, searched_countries_array, searched_region, bundle_data):
+        if searched_countries_array and len(searched_countries_array) > 0:
+            first_country = searched_countries_array[0]
+            display_title = first_country.country_name
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(first_country.iso3_code).lower()}.png"
+        elif bundle_category.type.lower() == "region" and searched_region:
+            display_title = searched_region.region_name
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/{searched_region.iso_code}.png"
+        elif bundle_category.type.lower() == "global":
+            display_title = bundle_category.title
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/Global.png"
+        elif bundle_data.countries and len(bundle_data.countries) > 0:
+            country = bundle_data.countries[0]
+            display_title = country.country
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(country.iso3_code).lower()}.png"
+        else:
+            display_title = bundle_data.display_title
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/generic.png"
+        return display_title, icon_url
+
+    def _get_profile_current_bundle(user_profile):
+        profile_current_bundle = DtoMapper.get_profile_current_bundle(user_profile)
+        if profile_current_bundle is None:
+            class _FallbackBundle:
+                plan_started = False
+                bundle_expired = True
+                created_at = None
+
+            profile_current_bundle = _FallbackBundle()
+        return profile_current_bundle
+
+    def _determine_order_status(profile_current_bundle):
+        if not profile_current_bundle.plan_started:
+            order_status = "Inactive"
+        elif not profile_current_bundle.bundle_expired:
+            order_status = "Active"
+        else:
+            order_status = "Expired"
+        return order_status
 
     @staticmethod
     def to_user_notification_response(notification: NotificationModel) -> UserNotificationResponse:

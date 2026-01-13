@@ -171,8 +171,7 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
 
-    async def get_user_esims(self, user: UserModel, x_currency: str, accept_language: str = "en") -> Response[
-        List[EsimBundleResponse]]:
+    async def get_user_esims(self, user: UserModel, x_currency: str, accept_language: str = "en") -> Response[List[EsimBundleResponse]]:
         # Fetch raw profile rows including joined bundles so we can robustly handle mapping
         user_profiles_raw = self.__user_profile_repo.select(
             tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
@@ -184,113 +183,119 @@ class UserBundleService:
             logger.debug("No joined user_profile rows found, trying to fetch user_profile_bundle rows directly")
             bundles = self.__user_profile_bundle_repo.list(where={"user_id": user.id}, limit=100)
             logger.debug(f"Fetched {len(bundles)} user_profile_bundle rows for user {user.id}")
-            # Group bundles by user_profile_id and construct minimal profile dicts
-            profiles_map: dict = {}
-            for b in bundles:
-                pid = getattr(b, 'user_profile_id', None) or getattr(b, 'user_order_id', None) or 'default'
-                if pid not in profiles_map:
-                    profiles_map[pid] = {
-                        "id": pid,
-                        "user_id": b.user_id,
-                        "user_order_id": b.user_order_id,
-                        "iccid": b.iccid,
-                        "validity": getattr(b, 'created_at', None),
-                        "created_at": getattr(b, 'created_at', None),
-                        "label": getattr(b, 'label', None),
-                        "smdp_address": None,
-                        "activation_code": None,
-                        "allow_topup": False,
-                        "esim_hub_order_id": getattr(b, 'esim_hub_order_id', None),
-                        "searched_countries": None,
-                        "user_profile_bundle": []
-                    }
-                # Append the raw bundle data dict to the joined key so model_validate will map it
-                profiles_map[pid]["user_profile_bundle"].append(b.model_dump())
-            user_profiles_raw = list(profiles_map.values())
-            logger.debug(f"Synthesized {len(user_profiles_raw)} profile entries from bundles for user {user.id}")
-
+            user_profiles_raw = await self._synthesize_profiles_from_bundles(bundles)
         esim_bundle_response = []
         rate = self.__currency_service.get_rate_by_currency(x_currency)
-
         for profile_raw in user_profiles_raw:
             try:
-                # Build pydantic model from raw data (handles alias 'user_profile_bundle' -> bundles)
-                profile: UserProfileModel = UserProfileModel.model_validate(profile_raw)
-
-                # Debug: log when bundles are missing so it's easier to trace empty responses
-                raw_bundles = profile_raw.get("user_profile_bundle") if isinstance(profile_raw, dict) else None
-                if not raw_bundles:
+                profile = self._build_profile(profile_raw)
+                if not self._has_bundles(profile, profile_raw):
                     logger.debug(f"No bundles found in profile raw for user {user.id}: keys={list(profile_raw.keys())}")
                 else:
-                    logger.debug(f"Found {len(raw_bundles)} raw bundles for user {user.id}")
-
-                # If pydantic didn't populate profile.bundles, try to build it from the raw join payload
+                    logger.debug(f"Found {len(profile.bundles)} raw bundles for user {user.id}")
                 if not getattr(profile, 'bundles', None):
-                    raw_bundles = profile_raw.get('user_profile_bundle') if isinstance(profile_raw, dict) else None
-                    if raw_bundles:
-                        try:
-                            profile.bundles = [UserProfileBundleModel.model_validate(rb) for rb in raw_bundles]
-                            logger.debug(
-                                f"Populated profile.bundles from raw for user {user.id}, count={len(profile.bundles)}")
-                        except Exception as e:
-                            logger.debug(f"Failed to populate profile.bundles from raw: {e}")
-
-                profile_current_bundle: UserProfileBundleModel = DtoMapper.get_profile_current_bundle(profile)
-                if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
+                    self._populate_bundles_from_raw(profile, profile_raw, user)
+                if not self._has_current_bundle(profile):
                     logger.warning(f"Bundle data missing for user profile {getattr(profile, 'id', 'unknown')}")
                     continue
-
-                bundle_data: BundleDTO = BundleDTO.model_validate(profile_current_bundle.bundle_data)
-
-                translated_bundle = self.__bundle_translation_repo.get_first_by(where={
-                    "bundle_id": bundle_data.bundle_code,
-                    "locale": accept_language
-                })
-                if translated_bundle is not None:
-                    bundle_data = BundleDTO.model_validate(translated_bundle.data)
-
-                # Fetch related order to obtain tax amount for display calculations
-                order_for_profile: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
-                tax_amount = getattr(order_for_profile, 'tax_amount', 0) if order_for_profile else 0
-
-                bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, x_currency=x_currency, rate=rate,
-                                                           tax=tax_amount, bundle_data=bundle_data)
-
-                # Update display price for each transaction history item using the order's tax
-                for history in bundle.transaction_history:
-                    order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
-                    order_tax = getattr(order, 'tax_amount', 0) if order else 0
-                    amount = float(history.bundle.original_price * rate) + float((order_tax / 100) * rate)
-                    history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
-
-                # Ensure transaction history is ordered descending by created_at (newest first)
-                try:
-                    bundle.transaction_history = sorted(
-                        bundle.transaction_history,
-                        key=lambda h: int(h.created_at) if getattr(h, 'created_at', None) is not None else 0,
-                        reverse=True
-                    )
-                except Exception:
-                    # If created_at is not a timestamp yet or sorting fails, leave original order
-                    pass
-
-                if bundle is not None:
-                    esim_bundle_response.append(bundle)
+                bundle_data = self._get_translated_bundle_data(profile.current_bundle.bundle_data, accept_language)
+                tax_amount = self._get_tax_amount(profile)
+                bundle = DtoMapper.to_esim_bundle_response(
+                    user_profile=profile,
+                    x_currency=x_currency,
+                    rate=rate,
+                    tax=tax_amount,
+                    bundle_data=bundle_data
+                )
+                self._update_transaction_history(bundle, x_currency, rate)
+                esim_bundle_response.append(bundle)
             except Exception as e:
                 logger.error(
                     f"Failed to map profile (raw keys: {list(profile_raw.keys()) if isinstance(profile_raw, dict) else 'unknown'}): {e}")
-        # Sort overall response by bundle payment_date descending (newest bundles first)
+        esim_bundle_response = self._sort_esim_bundle_response(esim_bundle_response)
+        return ResponseHelper.success_data_response(esim_bundle_response, len(esim_bundle_response))
+
+    async def _synthesize_profiles_from_bundles(self, bundles):
+        profiles_map = {}
+        for b in bundles:
+            pid = getattr(b, 'user_profile_id', None) or getattr(b, 'user_order_id', None) or 'default'
+            if pid not in profiles_map:
+                profiles_map[pid] = {
+                    "id": pid,
+                    "user_id": b.user_id,
+                    "user_order_id": b.user_order_id,
+                    "iccid": b.iccid,
+                    "validity": getattr(b, 'created_at', None),
+                    "created_at": getattr(b, 'created_at', None),
+                    "label": getattr(b, 'label', None),
+                    "smdp_address": None,
+                    "activation_code": None,
+                    "allow_topup": False,
+                    "esim_hub_order_id": getattr(b, 'esim_hub_order_id', None),
+                    "searched_countries": None,
+                    "user_profile_bundle": []
+                }
+            profiles_map[pid]["user_profile_bundle"].append(b.model_dump())
+        user_profiles_raw = list(profiles_map.values())
+        logger.debug(f"Synthesized {len(user_profiles_raw)} profile entries from bundles for user {user.id}")
+        return user_profiles_raw
+
+    def _build_profile(self, profile_raw):
+        return UserProfileModel.model_validate(profile_raw)
+
+    def _has_bundles(self, profile, profile_raw):
+        raw_bundles = profile_raw.get("user_profile_bundle") if isinstance(profile_raw, dict) else None
+        return bool(raw_bundles)
+
+    def _populate_bundles_from_raw(self, profile, profile_raw, user):
+        raw_bundles = profile_raw.get('user_profile_bundle') if isinstance(profile_raw, dict) else None
+        if raw_bundles:
+            try:
+                profile.bundles = [UserProfileBundleModel.model_validate(rb) for rb in raw_bundles]
+                logger.debug(
+                    f"Populated profile.bundles from raw for user {user.id}, count={len(profile.bundles)}")
+            except Exception as e:
+                logger.debug(f"Failed to populate profile.bundles from raw: {e}")
+
+    def _has_current_bundle(self, profile):
+        profile_current_bundle = DtoMapper.get_profile_current_bundle(profile)
+        return profile_current_bundle is not None and profile_current_bundle.bundle_data is not None
+
+    def _get_translated_bundle_data(self, bundle_data, accept_language):
+        translated_bundle = self.__bundle_translation_repo.get_first_by(where={
+            "bundle_id": bundle_data.bundle_code,
+            "locale": accept_language
+        })
+        return BundleDTO.model_validate(translated_bundle.data) if translated_bundle else bundle_data
+
+    def _get_tax_amount(self, profile):
+        order_for_profile = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
+        return getattr(order_for_profile, 'tax_amount', 0) if order_for_profile else 0
+
+    def _update_transaction_history(self, bundle, x_currency, rate):
+        for history in bundle.transaction_history:
+            order = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
+            order_tax = getattr(order, 'tax_amount', 0) if order else 0
+            amount = float(history.bundle.original_price * rate) + float((order_tax / 100) * rate)
+            history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
         try:
-            esim_bundle_response = sorted(
+            bundle.transaction_history = sorted(
+                bundle.transaction_history,
+                key=lambda h: int(h.created_at) if getattr(h, 'created_at', None) is not None else 0,
+                reverse=True
+            )
+        except Exception:
+            pass
+
+    def _sort_esim_bundle_response(self, esim_bundle_response):
+        try:
+            return sorted(
                 esim_bundle_response,
                 key=lambda b: int(b.payment_date) if getattr(b, 'payment_date', None) is not None else 0,
                 reverse=True,
             )
         except Exception:
-            pass
-
-        return ResponseHelper.success_data_response(esim_bundle_response, len(esim_bundle_response))
-
+            return esim_bundle_response
     async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str, accept_language: str = "en") -> \
             Response[EsimBundleResponse | None]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},

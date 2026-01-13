@@ -330,14 +330,7 @@ class PromotionService:
         from datetime import datetime
         today = datetime.now().date()
         if promotion.valid_from and promotion.valid_to:
-            def parse_date(date_str):
-                try:
-                    return datetime.strptime(date_str, "%Y-%m-%d").date()
-                except ValueError:
-                    return datetime.strptime(date_str[:10], "%Y-%m-%d").date()
-
-            start_date = parse_date(promotion.valid_from)
-            end_date = parse_date(promotion.valid_to)
+            start_date, end_date = self._parse_dates(promotion.valid_from, promotion.valid_to)
             if not (start_date <= today <= end_date):
                 raise CustomException(code=400, name=ErrorMessages.PROMOTION_NOT_ACTIVE,
                                       details="Promotion is not active for current date")
@@ -348,24 +341,35 @@ class PromotionService:
         promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", True)
         if not promotion_limit_active:
             logger.info("promotion limit is not active, applying 1 minute rate-limit per user+promo")
-            try:
-                last_usages = self.__promotion_usage_repo.select_procedure(
-                    function_name="get_latest_promotion_usage_per_user",
-                    where={"p_user_id": user_id, "p_promotion_code": promotion.code,
-                           "p_window_seconds": int(get_config("PROMOTION_LIMIT_WINDOW_SECONDS", 60))})
-                if last_usages and len(last_usages) > 0:
-                    raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
-                                          details="Promotion code used too recently, please wait before reusing.")
-            except Exception as e:
-                logger.error(f"error while applying rate limit for promotion usage: {e}")
-
-            return
+            self._apply_rate_limit(user_id, promotion)
 
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed", "device_id": device_id})
         if promotion_usage:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_ALREADY_USED, details="Promotion Already Used")
 
+    def _parse_dates(self, valid_from: str, valid_to: str) -> Tuple[date, date]:
+        from datetime import datetime
+        try:
+            start_date = datetime.strptime(valid_from, "%Y-%m-%d").date()
+            end_date = datetime.strptime(valid_to, "%Y-%m-%d").date()
+        except ValueError:
+            start_date = datetime.strptime(valid_from[:10], "%Y-%m-%d").date()
+            end_date = datetime.strptime(valid_to[:10], "%Y-%m-%d").date()
+        return start_date, end_date
+
+    @staticmethod
+    def _apply_rate_limit(self, user_id: str, promotion: PromotionModel):
+        try:
+            last_usages = self.__promotion_usage_repo.select_procedure(
+                function_name="get_latest_promotion_usage_per_user",
+                where={"p_user_id": user_id, "p_promotion_code": promotion.code,
+                       "p_window_seconds": int(get_config("PROMOTION_LIMIT_WINDOW_SECONDS", 60))})
+            if last_usages and len(last_usages) > 0:
+                raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
+                                      details="Promotion code used too recently, please wait before reusing.")
+        except Exception as e:
+            logger.error(f"error while applying rate limit for promotion usage: {e}")
     def __validate_referral(self, user_id: str, promotion_code: str, rule_id: str, device_id: str = None):
 
         referred_user: UsersCopyModel = self.__user_repo.get_first_by(where={},

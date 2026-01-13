@@ -217,47 +217,52 @@ class CallbackService:
         return ResponseHelper.success_response()
 
     async def __run_one_sync_internal(self, bundle_id: str, operation: str, reseller_id: str = None):
-        """Internal method that actually performs tkhe sync work - called by queue processor"""
+        """Internal method that actually performs the sync work - called by queue processor"""
         try:
             if reseller_id and reseller_id == get_config("RESELLER_ID"):
-                if operation == "delete":
-                    logger.info(f"deleting bundle {bundle_id} for reseller {reseller_id}")
-                    await self.__sync_service.delete_bundle(bundle_id=bundle_id)
-                elif operation == "assign" or operation == "edit_price":
-                    logger.info(f"{operation} for bundle {bundle_id} for reseller {reseller_id}")
-                    bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
-                                                                            currency_code=os.getenv("DEFAULT_CURRENCY"))
-                    if not bundle:
-                        logger.error(f"bundle {bundle_id} not found in esim hub for reseller {reseller_id}")
-                        await self.__sync_service.delete_bundle(bundle_id=bundle_id)
-                        return
-                    await self.__sync_service.sync_bundle(bundle)
-                elif operation == "unassign":
-                    logger.info(f"unassigning bundle {bundle_id} for reseller {reseller_id}")
-                    await self.__sync_service.delete_bundle(bundle_id=bundle_id)
-                elif operation == "activate":
-                    logger.info(f"activating bundle {bundle_id} for reseller {reseller_id}")
-                    await self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=True)
-                elif operation == "deactivate":
-                    logger.info(f"deactivating bundle {bundle_id} for reseller {reseller_id}")
-                    await self.__sync_service.delete_bundle(bundle_id=bundle_id)
+                await self._handle_reseller_operations(bundle_id, operation, reseller_id)
             if operation == "update":
-                await self.__sync_service.delete_bundle(bundle_id=bundle_id)
-                bundle = None
-                try:
-                    bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
-                                                                            currency_code=os.getenv("DEFAULT_CURRENCY"))
-                except Exception as e:
-                    logger.error(f"error while fetching bundle {bundle_id} from esim hub: {str(e)}")
-                finally:
-                    if bundle:
-                        logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
-                        await self.__sync_service.sync_bundle(bundle)
+                await self._handle_update_operation(bundle_id, reseller_id)
             self.__sync_service.update_sync_version()
         except Exception as e:
             logger.error(f"error while syncing bundle {bundle_id}: {str(e)}")
             raise  # Re-raise so the queue processor can log it
 
+    async def _handle_reseller_operations(self, bundle_id: str, operation: str, reseller_id: str):
+        if operation == "delete":
+            logger.info(f"deleting bundle {bundle_id} for reseller {reseller_id}")
+            await self.__sync_service.delete_bundle(bundle_id=bundle_id)
+        elif operation in ["assign", "edit_price"]:
+            logger.info(f"{operation} for bundle {bundle_id} for reseller {reseller_id}")
+            bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
+                                                                    currency_code=os.getenv("DEFAULT_CURRENCY"))
+            if not bundle:
+                logger.error(f"bundle {bundle_id} not found in esim hub for reseller {reseller_id}")
+                await self.__sync_service.delete_bundle(bundle_id=bundle_id)
+                return
+            await self.__sync_service.sync_bundle(bundle)
+        elif operation == "unassign":
+            logger.info(f"unassigning bundle {bundle_id} for reseller {reseller_id}")
+            await self.__sync_service.delete_bundle(bundle_id=bundle_id)
+        elif operation == "activate":
+            logger.info(f"activating bundle {bundle_id} for reseller {reseller_id}")
+            await self.__sync_service.update_bundle_status(bundle_id=bundle_id, status=True)
+        elif operation == "deactivate":
+            logger.info(f"deactivating bundle {bundle_id} for reseller {reseller_id}")
+            await self.__sync_service.delete_bundle(bundle_id=bundle_id)
+
+    async def _handle_update_operation(self, bundle_id: str, reseller_id: str):
+        await self.__sync_service.delete_bundle(bundle_id=bundle_id)
+        bundle = None
+        try:
+            bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id=bundle_id,
+                                                                    currency_code=os.getenv("DEFAULT_CURRENCY"))
+        except Exception as e:
+            logger.error(f"error while fetching bundle {bundle_id} from esim hub: {str(e)}")
+        finally:
+            if bundle:
+                logger.info(f"updating bundle {bundle_id} for reseller {reseller_id}")
+                await self.__sync_service.sync_bundle(bundle)
     def __run_full_sync(self, page_index=1):
         import asyncio
         asyncio.run(self.__sync_service.sync_bundles(page_index=page_index))
