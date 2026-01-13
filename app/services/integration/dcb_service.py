@@ -9,9 +9,9 @@ class DCBService:
         self.__verify_otp_url = verify_otp_url
         self.__api_key = api_key
 
-    async def send_otp(self, msisdn: str, otp: str, locale: str = "en") -> bool:
-        logger.info(f"[DCB] Sending OTP to {msisdn=}")
-        return True
+    async def send_otp(self, msisdn: str, otp: str) -> bool:
+            logger.info(f"[DCB] Sending OTP to {msisdn=}")
+            return True
 
     async def verify_otp(self, msisdn: str, otp: str, order_id: str) -> bool:
         logger.info(f"[DCB] verifying OTP to DCB  {msisdn=}")
