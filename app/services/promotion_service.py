@@ -329,52 +329,63 @@ class PromotionService:
         if not promotion.is_active:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_NOT_ACTIVE, details="promotion not active")
 
-        from datetime import datetime
-        today = datetime.now().date()
-        if promotion.valid_from and promotion.valid_to:
-            def parse_date(date_str):
-                try:
-                    return datetime.strptime(date_str, "%Y-%m-%d").date()
-                except ValueError:
-                    return datetime.strptime(date_str[:10], "%Y-%m-%d").date()
-
-            start_date = parse_date(promotion.valid_from)
-            end_date = parse_date(promotion.valid_to)
-            if not (start_date <= today <= end_date):
-                raise CustomException(code=400, name=ErrorMessages.PROMOTION_NOT_ACTIVE,
-                                      details="Promotion is not active for current date")
+        if not self._check_promotion_dates(promotion):
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_NOT_ACTIVE,
+                                  details="Promotion is not active for current date")
 
         if promotion.times_used >= rule.max_usage:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_REACHED_MAX_USAGE,
                                   details="times used is full")
 
-        last_pending_usage = self.__promotion_usage_repo.select_procedure(
-            function_name="get_latest_pending_promotion_usage_per_user",
-            where={"p_user_id": user_id, "p_promotion_code": promotion.code,
-                   "p_window_seconds": 60 * 60 * 24})
-        if last_pending_usage and len(last_pending_usage) > 0:
+        if self._check_last_pending_usage(user_id, promotion):
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_ALREADY_IN_USE,
                                   details="Promotion code used too recently, please wait before reusing.")
 
-        promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", "true")
-        if lower(promotion_limit_active) == "false":
+        if self._check_promotion_limit_active(promotion, user_id):
             logger.info("promotion limit is not active, applying 1 minute rate-limit per user+promo")
-            last_usages = self.__promotion_usage_repo.select_procedure(
-                function_name="get_latest_promotion_usage_per_user",
-                where={"p_user_id": user_id, "p_promotion_code": promotion.code,
-                       "p_window_seconds": int(get_config("PROMOTION_LIMIT_WINDOW_SECONDS", 60))})
-            if last_usages and len(last_usages) > 0:
+            if self._check_recent_usages(user_id, promotion):
                 raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
                                       details="Promotion code used too recently, please wait before reusing.")
             else:
                 logger.info("no recent usage found, proceeding")
                 return
 
-        promotion_usage = self.__promotion_usage_repo.list(
-            where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed"})
-        if promotion_usage:
+        if self._check_promotion_usage(user_id, promotion):
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_ALREADY_USED, details="Promotion Already Used")
 
+    def _check_promotion_dates(self, promotion: PromotionModel):
+        from datetime import datetime
+        today = datetime.now().date()
+        if promotion.valid_from and promotion.valid_to:
+            start_date = self._parse_date(promotion.valid_from)
+            end_date = self._parse_date(promotion.valid_to)
+            return start_date <= today <= end_date
+        return True
+
+    def _check_last_pending_usage(self, user_id: str, promotion: PromotionModel):
+        last_pending_usage = self.__promotion_usage_repo.select_procedure(
+            function_name="get_latest_pending_promotion_usage_per_user",
+            where={"p_user_id": user_id, "p_promotion_code": promotion.code, "p_window_seconds": 60 * 60 * 24}
+        )
+        return last_pending_usage and len(last_pending_usage) > 0
+
+    def _check_promotion_limit_active(self, promotion: PromotionModel, user_id: str):
+        promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", "true")
+        return lower(promotion_limit_active) != "false"
+
+    def _check_recent_usages(self, user_id: str, promotion: PromotionModel):
+        last_usages = self.__promotion_usage_repo.select_procedure(
+            function_name="get_latest_promotion_usage_per_user",
+            where={"p_user_id": user_id, "p_promotion_code": promotion.code,
+                   "p_window_seconds": int(get_config("PROMOTION_LIMIT_WINDOW_SECONDS", 60))}
+        )
+        return last_usages and len(last_usages) > 0
+
+    def _check_promotion_usage(self, user_id: str, promotion: PromotionModel):
+        promotion_usage = self.__promotion_usage_repo.list(
+            where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed"}
+        )
+        return bool(promotion_usage)
     def __validate_referral(self, user_id: str, promotion_code: str, rule_id: str, device_id: str = None):
 
         referred_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
