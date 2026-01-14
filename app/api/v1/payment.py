@@ -1,14 +1,15 @@
-
-
 from fastapi import APIRouter, Path, Request, Query
 from fastapi.responses import HTMLResponse
 from starlette import status
+import html as _py_html
 
 router = APIRouter()
 
 
 @router.get("/pay/v1/{order_id}")
 def pay(order_id: str = Path(description="order id ")):
+    # Escape order_id to prevent reflected XSS in HTML responses
+    safe_order_id = _py_html.escape(order_id)
     content = f"""
 
     <style>
@@ -18,7 +19,7 @@ def pay(order_id: str = Path(description="order id ")):
     </style>
     <form action="https://google.com" id="my-form">
         <button type="submit" id="submit-btn">Submit</button>
-        <p> order id: {order_id}</p>
+        <p> order id: {safe_order_id}</p>
     </form>
 
     <script>
@@ -84,10 +85,13 @@ def pay(order_id: str = Path(description="order id ")):
 
 @router.get("/pay/{order_id}", response_class=HTMLResponse, name="pay_page")
 def pay(request: Request, order_id: str = Path(description="order id")):
+    # Escape dynamic values to avoid reflected XSS
     base_url = str(request.url_for("pay_result", order_id=order_id))
+    safe_order_id = _py_html.escape(order_id)
+    safe_base_url = _py_html.escape(base_url)
 
-    success_url = f"{base_url}?result_status=success"
-    failed_url  = f"{base_url}?result_status=failed"
+    success_url = f"{safe_base_url}?result_status=success"
+    failed_url = f"{safe_base_url}?result_status=failed"
 
     content = f"""
     <!doctype html>
@@ -232,7 +236,7 @@ def pay(request: Request, order_id: str = Path(description="order id")):
 
           <div class="pill">
             <span>Order ID:</span>
-            <span class="orderId">{order_id}</span>
+            <span class="orderId">{safe_order_id}</span>
           </div>
         </div>
 
@@ -252,12 +256,8 @@ def pay(request: Request, order_id: str = Path(description="order id")):
     </html>
     """
 
-    return HTMLResponse(status_code=http_status.HTTP_200_OK, content=content)
+    return HTMLResponse(status_code=status.HTTP_200_OK, content=content)
 
-
-from fastapi import Request, Query
-from fastapi.responses import HTMLResponse
-from starlette import status as http_status
 
 @router.get("/pay/result/{order_id}", response_class=HTMLResponse, name="pay_result")
 def pay_result(request: Request, order_id: str, result_status: str = Query(...)):
@@ -272,6 +272,8 @@ def pay_result(request: Request, order_id: str, result_status: str = Query(...))
     glow = "rgba(34,197,94,0.25)" if is_success else "rgba(239,68,68,0.25)"
 
     back_url = str(request.url_for("pay_page", order_id=order_id))
+    safe_order_id = _py_html.escape(order_id)
+    safe_back_url = _py_html.escape(back_url)
 
     content = f"""
     <!doctype html>
@@ -395,11 +397,11 @@ def pay_result(request: Request, order_id: str, result_status: str = Query(...))
         <div class="subtitle">{subtitle}</div>
 
         <div class="order">
-          Order ID: <b>{order_id}</b>
+          Order ID: <b>{safe_order_id}</b>
         </div>
 
         <div class="actions">
-          <button class="btn btn-primary" onclick="window.location.href='{back_url}'">
+          <button class="btn btn-primary" onclick="window.location.href='{safe_back_url}'">
             🔁 Back
           </button>
           <button class="btn btn-secondary" onclick="window.close()">
@@ -411,4 +413,4 @@ def pay_result(request: Request, order_id: str, result_status: str = Query(...))
     </html>
     """
 
-    return HTMLResponse(status_code=http_status.HTTP_200_OK, content=content)
+    return HTMLResponse(status_code=status.HTTP_200_OK, content=content)
