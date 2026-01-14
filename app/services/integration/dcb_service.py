@@ -11,6 +11,7 @@ class DCBService:
 
     async def send_otp(self, msisdn: str, otp: str, locale: str = "en") -> bool:
         logger.info(f"[DCB] Sending OTP to {msisdn=}")
+        logger.debug(f"Unused parameters: locale={locale}, otp={otp}")
         return True
 
     async def verify_otp(self, msisdn: str, otp: str, order_id: str) -> bool:
