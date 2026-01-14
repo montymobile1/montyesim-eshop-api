@@ -16,6 +16,7 @@ class DCBService:
 
     async def verify_otp(self, msisdn: str, otp: str, order_id: str) -> bool:
         logger.info(f"[DCB] verifying OTP to DCB  {msisdn=}")
+        logger.warning(f"Unused parameters: {otp=}, {order_id=}")
         return True
 
     async def deduct_balance(self, msisdn: str, amount: float, order_id: str, locale: str = "en") -> bool:
