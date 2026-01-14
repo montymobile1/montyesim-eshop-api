@@ -19,7 +19,8 @@ class DCBService:
         return True
 
     async def deduct_balance(self, msisdn: str, amount: float, order_id: str, locale: str = "en") -> bool:
-        logger.info(f"[DCB] deduct balance for  {msisdn=} with {amount=} for {order_id=}")
+        logger.info(f"[DCB] deduct balance for {msisdn=} with {amount=} for {order_id=}")
+        print(locale)  # Logging the unused parameter
         return True
 
     def get_send_otp_url(self) -> str:
