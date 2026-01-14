@@ -335,11 +335,11 @@ class UserBundleService:
         if started_bundle:
             latest_started_bundle = started_bundle[-1]
             consumption = await self.__esim_hub_service.get_bundle_consumption(
-                latest_started_bundle.user_order_id
+                latest_started_bundle.esim_hub_order_id
             )
         elif active_bundle:
             consumption = await self.__esim_hub_service.get_bundle_consumption(
-                active_bundle.user_order_id
+                active_bundle.esim_hub_order_id
             )
         else:
             consumption = await self.__esim_hub_service.get_bundle_consumption(
