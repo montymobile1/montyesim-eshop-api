@@ -323,6 +323,7 @@ class PromotionService:
                                   details="promotion rule for promotion can have beneficiary user only")
 
     def __validate_promotion(self, promotion: PromotionModel, user_id: str, device_id: str = None):
+        logger.info(f"Device ID: {device_id=}")
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
 
         if not promotion.is_active:

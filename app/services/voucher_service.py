@@ -17,6 +17,7 @@ class VoucherService:
         self.__user_wallet_service = UserWalletService()
 
     def redeem(self, voucher_redeem_request: VoucherRequestRedeem, user: UserModel, x_currency: str):
+        logger.info(f"Unused parameter: x_currency={x_currency}")
         is_used = self.__voucher_repo.get_first_by(where={"is_used": True, "code": voucher_redeem_request.code})
         if is_used:
             raise CustomException(code=400, name=ErrorMessages.VOUCHER_ALREADY_USED,
@@ -48,3 +49,4 @@ class VoucherService:
             logger.error(str(ex))
             raise CustomException(code=400, name=ErrorMessages.TOPUP_FAILED,
                                   details="TopUp Failed")
+
