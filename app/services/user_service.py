@@ -51,9 +51,8 @@ class UserBundleService:
         self.__task_executor = TaskExecutor()
         self.__bundle_translation_repo = BundleTranslationRepo()
 
-    async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
-                     locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
-
+    async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str, locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
+        logger.info(f"Unused parameters: {locale=}, {request=}")
         bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id=assign_request.bundle_code)
         if not bundle or not bundle.is_active:
             raise CustomException(code=400, name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
@@ -90,11 +89,11 @@ class UserBundleService:
             if self.__promotion_service.is_referral_code(assign_request.promo_code):
                 self.__check_if_user_eligible_for_referral(user=user, promo_code=assign_request.promo_code)
             validation_response = await self.__promotion_service.validate_promo_code(code=assign_request.promo_code,
-                                                                                     user_id=user.id, bundle=bundle,
-                                                                                     device_id=device_id,
-                                                                                     currency=x_currency,
-                                                                                     apply_usage=True,
-                                                                                     order_id=order.id)
+                                                                                        user_id=user.id, bundle=bundle,
+                                                                                        device_id=device_id,
+                                                                                        currency=x_currency,
+                                                                                        apply_usage=True,
+                                                                                        order_id=order.id)
             logger.info(f"applying promo code {assign_request.promo_code} with {validation_response.message}")
             bundle = validation_response.bundle
             modified_amount = bundle.original_price
