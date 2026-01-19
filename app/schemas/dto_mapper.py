@@ -140,39 +140,50 @@ class DtoMapper:
         if len(bundles) == 1:
             return bundles[0]
 
-        def _bundle_created_at(bundle):
-            # prefer explicit bundle.created_at, but fallback to bundle.bundle_data.created_at if present
-            created = None
-            try:
-                if getattr(bundle, 'created_at', None):
-                    created = bundle.created_at
-                elif getattr(bundle, 'bundle_data', None) and isinstance(bundle.bundle_data, dict):
-                    created = bundle.bundle_data.get('created_at') or bundle.bundle_data.get('createdAt')
-                if isinstance(created, str) and created:
-                    normalized = created.replace('Z', '+00:00') if created.endswith('Z') else created
-                    return datetime.fromisoformat(normalized)
-            except Exception:
-                pass
-            return datetime.min
-
-        sorted_bundles = sorted(bundles, key=_bundle_created_at, reverse=True)
-
-        priority_bundle = next(
-            (bundle for bundle in sorted_bundles if bundle.plan_started and not bundle.bundle_expired),
-            None
-        )
+        sorted_bundles = DtoMapper._sort_bundles_by_created_at(bundles)
+        priority_bundle = DtoMapper._find_priority_bundle(sorted_bundles)
         if priority_bundle:
             return priority_bundle
 
-        unexpired_bundle = next(
-            (bundle for bundle in sorted_bundles if not bundle.bundle_expired),
-            None
-        )
+        unexpired_bundle = DtoMapper._find_unexpired_bundle(sorted_bundles)
         if unexpired_bundle:
             return unexpired_bundle
 
         return sorted_bundles[0] if sorted_bundles else None
 
+    @staticmethod
+    def _sort_bundles_by_created_at(bundles):
+        return sorted(bundles, key=DtoMapper._bundle_created_at, reverse=True)
+
+    @staticmethod
+    def _bundle_created_at(bundle):
+        # prefer explicit bundle.created_at, but fallback to bundle.bundle_data.created_at if present
+        created = None
+        try:
+            if getattr(bundle, 'created_at', None):
+                created = bundle.created_at
+            elif getattr(bundle, 'bundle_data', None) and isinstance(bundle.bundle_data, dict):
+                created = bundle.bundle_data.get('created_at') or bundle.bundle_data.get('createdAt')
+            if isinstance(created, str) and created:
+                normalized = created.replace('Z', '+00:00') if created.endswith('Z') else created
+                return datetime.fromisoformat(normalized)
+        except Exception:
+            pass
+        return datetime.min
+
+    @staticmethod
+    def _find_priority_bundle(sorted_bundles):
+        return next(
+            (bundle for bundle in sorted_bundles if bundle.plan_started and not bundle.bundle_expired),
+            None
+        )
+
+    @staticmethod
+    def _find_unexpired_bundle(sorted_bundles):
+        return next(
+            (bundle for bundle in sorted_bundles if not bundle.bundle_expired),
+            None
+        )
     @staticmethod
     def move_matching_countries_to_top(countries_dto: List[CountryDTO],
                                        searched_countries: List[CountryRequestDto]) -> List[CountryDTO]:
