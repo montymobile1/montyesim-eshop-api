@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from fastapi import HTTPException, Request
 
+
+# Now import after mocking
 from app.services.callback_service import CallbackService, SyncRequest
 from app.schemas.callback import ConsumptionLimitRequest
 from app.schemas.home import BundleDTO, BundleCategoryDTO, CountryDTO
@@ -369,7 +371,6 @@ class TestHandlePlanEventCallback(TestCallbackServiceFixtures):
 
         # Verify early return
         mock_repos.user_profile_repo.get_by_id.assert_not_called()
-
 
 
     @pytest.mark.asyncio

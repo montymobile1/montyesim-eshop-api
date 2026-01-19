@@ -22,7 +22,7 @@ from app.schemas.promotion import PromotionValidationRequest, PromotionHistoryDt
 from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
 from app.services.user_wallet_service import UserWalletService
-
+from datetime import datetime
 
 class PromotionService:
 
@@ -329,17 +329,10 @@ class PromotionService:
         if not promotion.is_active:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_NOT_ACTIVE, details="promotion not active")
 
-        from datetime import datetime
         today = datetime.now().date()
         if promotion.valid_from and promotion.valid_to:
-            def parse_date(date_str):
-                try:
-                    return datetime.strptime(date_str, "%Y-%m-%d").date()
-                except ValueError:
-                    return datetime.strptime(date_str[:10], "%Y-%m-%d").date()
-
-            start_date = parse_date(promotion.valid_from)
-            end_date = parse_date(promotion.valid_to)
+            start_date = self.__parse_date(promotion.valid_from)
+            end_date = self.__parse_date(promotion.valid_to)
             if not (start_date <= today <= end_date):
                 raise CustomException(code=400, name=ErrorMessages.PROMOTION_NOT_ACTIVE,
                                       details="Promotion is not active for current date")
@@ -358,23 +351,31 @@ class PromotionService:
 
         promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", "true")
         if lower(promotion_limit_active) == "false":
-            logger.info("promotion limit is not active, applying 1 minute rate-limit per user+promo")
-            last_usages = self.__promotion_usage_repo.select_procedure(
-                function_name="get_latest_promotion_usage_per_user",
-                where={"p_user_id": user_id, "p_promotion_code": promotion.code,
-                       "p_window_seconds": int(get_config("PROMOTION_LIMIT_WINDOW_SECONDS", 60))})
-            if last_usages and len(last_usages) > 0:
-                raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
-                                      details="Promotion code used too recently, please wait before reusing.")
-            else:
-                logger.info("no recent usage found, proceeding")
-                return
+            self.__handle_promotion_limit_inactive(user_id, promotion.code)
+            return
 
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed"})
         if promotion_usage:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_ALREADY_USED, details="Promotion Already Used")
 
+    def __parse_date(self, date_str: str) -> datetime.date:
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+
+    def __handle_promotion_limit_inactive(self, user_id: str, promotion_code: str):
+        logger.info("promotion limit is not active, applying 1 minute rate-limit per user+promo")
+        last_usages = self.__promotion_usage_repo.select_procedure(
+            function_name="get_latest_promotion_usage_per_user",
+            where={"p_user_id": user_id, "p_promotion_code": promotion_code,
+                   "p_window_seconds": int(get_config("PROMOTION_LIMIT_WINDOW_SECONDS", 60))})
+        if last_usages and len(last_usages) > 0:
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
+                                  details="Promotion code used too recently, please wait before reusing.")
+        else:
+            logger.info("no recent usage found, proceeding")
     def __validate_referral(self, user_id: str, promotion_code: str, rule_id: str, device_id: str = None):
 
         referred_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
