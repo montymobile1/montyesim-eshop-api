@@ -37,6 +37,9 @@ jobs:
           pip install pytest
           pip install coverage
 
+      - name: Copy .esim-app-sample.json to .esim-app.json
+        run: cp .esim-app-sample.json .esim-app.json
+
 
       - name: Run tests and generate coverage
         run: |
