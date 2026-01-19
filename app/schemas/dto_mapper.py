@@ -217,23 +217,10 @@ class DtoMapper:
                 searched_region = search_field.regions
         except Exception as e:
             logger.debug(f"Exception parsing RelatedSearchRequestDto: {e}")
-        if searched_countries_array and len(searched_countries_array) > 0:
-            first_country = searched_countries_array[0]
-            display_title = first_country.country_name
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(first_country.iso3_code).lower()}.png"
-
-        elif bundle_category.type.lower() == "region" and searched_region:
-            display_title = searched_region.region_name
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/{searched_region.iso_code}.png"
-        elif bundle_category.type.lower() == "global":
-            display_title = bundle_category.title
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/Global.png"
-        elif bundle_data.countries and len(bundle_data.countries) > 0:
-            country = bundle_data.countries[0]
-            display_title = country.country
-            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(country.iso3_code).lower()}.png"
-        if bundle_data.label is not None and bundle_data.label != "":
-            display_title = bundle_data.label
+        
+        display_title, icon_url = DtoMapper._determine_display_info(
+            display_title, icon_url, searched_countries_array, searched_region, bundle_category, bundle_data
+        )
 
         countries_sorted = DtoMapper.move_matching_countries_to_top(bundle_data.countries, searched_countries_array)
 
@@ -248,12 +235,7 @@ class DtoMapper:
 
             profile_current_bundle = _FallbackBundle()
 
-        if not profile_current_bundle.plan_started:
-            order_status = "Inactive"
-        elif not profile_current_bundle.bundle_expired:
-            order_status = "Active"
-        else:
-            order_status = "Expired"
+        order_status = DtoMapper._determine_order_status(profile_current_bundle)
         amount = (bundle_data.original_price * rate) + ((tax / 100) * rate)
         data = {
             "is_topup_allowed": user_profile.allow_topup,
@@ -298,6 +280,35 @@ class DtoMapper:
         }
         return EsimBundleResponse.model_validate(data)
 
+    @staticmethod
+    def _determine_display_info(display_title, icon_url, searched_countries_array, searched_region, bundle_category, bundle_data):
+        if searched_countries_array and len(searched_countries_array) > 0:
+            first_country = searched_countries_array[0]
+            display_title = first_country.country_name
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(first_country.iso3_code).lower()}.png"
+
+        elif bundle_category.type.lower() == "region" and searched_region:
+            display_title = searched_region.region_name
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/{searched_region.iso_code}.png"
+        elif bundle_category.type.lower() == "global":
+            display_title = bundle_category.title
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/region/Global.png"
+        elif bundle_data.countries and len(bundle_data.countries) > 0:
+            country = bundle_data.countries[0]
+            display_title = country.country
+            icon_url = f"{SUPABASE_URL}/storage/v1/object/public/media/country/{str(country.iso3_code).lower()}.png"
+        if bundle_data.label is not None and bundle_data.label != "":
+            display_title = bundle_data.label
+        return display_title, icon_url
+
+    @staticmethod
+    def _determine_order_status(profile_current_bundle):
+        if not profile_current_bundle.plan_started:
+            return "Inactive"
+        elif not profile_current_bundle.bundle_expired:
+            return "Active"
+        else:
+            return "Expired"
     @staticmethod
     def to_user_notification_response(notification: NotificationModel) -> UserNotificationResponse:
         data_dict = json.loads(notification.data)
