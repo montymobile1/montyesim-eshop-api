@@ -11,6 +11,7 @@ from app.api.v1.promotion import router as promotion_router
 from app.api.v1.user_bundle import router as user_bundle_routes
 from app.api.v1.user_wallet import router as user_wallet_router
 from app.api.v1.voucher import router as voucher_router
+from app.api.v1.popup_easypaisa import router as popup_easypaisa_router
 
 router = APIRouter()
 
@@ -25,3 +26,4 @@ router.include_router(user_wallet_router, prefix="/wallet", tags=["Wallet"])
 router.include_router(voucher_router, prefix="/voucher", tags=["Voucher"])
 router.include_router(promotion_router, prefix="/promotion", tags=["Promotion"])
 router.include_router(payment_router, prefix="/payment", tags=["Payment"])
+router.include_router(popup_easypaisa_router, prefix="/popup", tags=["Popup"])
