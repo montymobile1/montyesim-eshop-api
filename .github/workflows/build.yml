@@ -17,3 +17,37 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@v6
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+  test:
+    name: Test and Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for better relevancy of analysis
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install -r "requirements.txt"
+          pip install pytest
+          pip install coverage
+
+
+      - name: Run tests and generate coverage
+        run: |
+          # Run tests with coverage
+          coverage run -m pytest tests/
+          coverage report  # Show coverage in logs
+          coverage xml -o coverage.xml
+
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
