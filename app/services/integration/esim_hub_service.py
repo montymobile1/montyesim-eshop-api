@@ -307,7 +307,7 @@ class EsimHubService:
             "orderId": order_id
         }
         response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_GET_BUNDLE_CONSUMPTION,
-                                           base_url=os.getenv("ESIM_HUB_BASE_URL2"), params=params)
+                                           base_url=os.getenv("ESIM_HUB_CONSUMPTION_API_URL"), params=params)
         logger.debug(f"get bundle consumption: {response}")
         if "success" not in response:
             raise EsimHubException(response)
