@@ -1,20 +1,17 @@
 """
-Corrected conftest.py with proper Firebase and FCM mocking.
+ROBUST SOLUTION: Patch Firebase BEFORE any app imports.
 
-The key issue: @patch decorators don't work directly on pytest fixtures.
-Instead, we need to use context managers or stack the patches properly.
+This conftest sets up mocks at module load time, before pytest even starts
+collecting tests. This ensures no real Firebase initialization can happen.
 """
 
 import os
+import sys
 import base64
-from unittest.mock import MagicMock, patch
-
-import pytest
-import firebase_admin
-
+from unittest.mock import MagicMock, patch, mock_open
 
 # ============================================================================
-# ENVIRONMENT SETUP (Must be BEFORE imports)
+# CRITICAL: Environment setup FIRST
 # ============================================================================
 
 os.environ["SUPABASE_URL"] = "https://dummy.supabase.co"
@@ -23,67 +20,86 @@ os.environ["STRIPE_PUBLIC_KEY"] = "dummy"
 os.environ["STRIPE_WEBHOOK_SECRET"] = "dummy"
 os.environ["STRIPE_SECRET_KEY"] = "dummy"
 
+# Set this to prevent Firebase from trying to load a real file during imports
+os.environ["FCM_CONFIG_FILE"] = "/tmp/test-firebase-config.json"
+
 
 # ============================================================================
-# CORRECTED SESSION-SCOPED FIREBASE + FCM MOCKING
+# CRITICAL: Start patching IMMEDIATELY (before pytest imports)
+# ============================================================================
+
+# These patchers start IMMEDIATELY when conftest is loaded
+_firebase_cert_patcher = patch("firebase_admin.credentials.Certificate")
+_firebase_init_patcher = patch("firebase_admin.initialize_app")
+_file_open_patcher = patch("builtins.open", mock_open())
+
+# Start all patchers NOW (before any test collection)
+_mock_cert = _firebase_cert_patcher.start()
+_mock_init_app = _firebase_init_patcher.start()
+_mock_file_open = _file_open_patcher.start()
+
+# Configure the mocks with proper return values
+_mock_credential_obj = MagicMock()
+_mock_credential_obj.project_id = "test-project-id"
+_mock_cert.return_value = _mock_credential_obj
+
+_mock_app_obj = MagicMock()
+_mock_app_obj.name = "[DEFAULT]"
+_mock_init_app.return_value = _mock_app_obj
+
+
+# Now it's safe to import firebase_admin
+import firebase_admin
+import pytest
+
+
+# ============================================================================
+# SESSION-SCOPED FIXTURE (for FCM and other mocking)
 # ============================================================================
 
 @pytest.fixture(autouse=True, scope="session")
-def mock_firebase_and_fcm():
+def mock_fcm_service():
     """
-    Mock Firebase initialization AND FCM service for entire test session.
+    Mock FCM service operations for entire test session.
 
-    This fixture:
-    1. Mocks firebase_admin.credentials.Certificate (prevents deserialization)
-    2. Mocks firebase_admin.initialize_app (prevents actual initialization)
-    3. Mocks builtins.open (prevents file operations)
-    4. Mocks FCM service send_notification
-    5. Mocks initialize_firebase method
-
-    All mocks persist for the entire test session for efficiency.
+    Firebase core operations (Certificate, initialize_app) are already mocked
+    at module level. This fixture adds FCM-specific mocking.
     """
-    # Create a context manager stack for all patches
-    with patch("firebase_admin.credentials.Certificate") as mock_cert, \
-         patch("firebase_admin.initialize_app") as mock_init_app, \
-         patch("builtins.open", create=True) as mock_file_open, \
-         patch("app.config.push_notification_manager.initialize_firebase") as mock_fcm_init, \
-         patch("app.config.push_notification_manager.fcm_service.send_notification_to_user_from_template",
-               MagicMock(return_value=["mocked_id"])) as mock_send_notification:
+    # Try to patch FCM service - might fail if module doesn't exist yet
+    fcm_patches = []
 
-        # Configure the Certificate mock to return a proper mock credential
-        mock_credential = MagicMock()
-        mock_credential.project_id = "test-project-id"
-        mock_cert.return_value = mock_credential
+    try:
+        fcm_init_patch = patch("app.config.push_notification_manager.FCMService.initialize_firebase")
+        fcm_patches.append(fcm_init_patch)
+        mock_fcm_init = fcm_init_patch.start()
+    except (ImportError, AttributeError):
+        mock_fcm_init = None
 
-        # Configure initialize_app to return a mock app
-        mock_app = MagicMock()
-        mock_app.name = "[DEFAULT]"
-        mock_init_app.return_value = mock_app
+    try:
+        fcm_send_patch = patch(
+            "app.config.push_notification_manager.fcm_service.send_notification_to_user_from_template",
+            MagicMock(return_value=["mocked_id"])
+        )
+        fcm_patches.append(fcm_send_patch)
+        mock_fcm_send = fcm_send_patch.start()
+    except (ImportError, AttributeError):
+        mock_fcm_send = MagicMock(return_value=["mocked_id"])
 
-        # Configure file open mock
-        mock_file = MagicMock()
-        mock_file.__enter__ = MagicMock(return_value=mock_file)
-        mock_file.__exit__ = MagicMock(return_value=False)
-        mock_file.write = MagicMock()
-        mock_file_open.return_value = mock_file
+    yield {
+        "fcm_initialize": mock_fcm_init,
+        "fcm_send": mock_fcm_send
+    }
 
-        # Make mocks available to tests if needed
-        pytest.mock_firebase_cert = mock_cert
-        pytest.mock_firebase_init_app = mock_init_app
-        pytest.mock_fcm_initialize = mock_fcm_init
-        pytest.mock_fcm_send = mock_send_notification
-
-        yield {
-            "certificate": mock_cert,
-            "initialize_app": mock_init_app,
-            "file_open": mock_file_open,
-            "fcm_initialize": mock_fcm_init,
-            "fcm_send_notification": mock_send_notification
-        }
+    # Stop FCM patches
+    for patcher in fcm_patches:
+        try:
+            patcher.stop()
+        except:
+            pass
 
 
 # ============================================================================
-# FUNCTION-SCOPED FIREBASE CLEANUP
+# FUNCTION-SCOPED CLEANUP
 # ============================================================================
 
 @pytest.fixture(autouse=True)
@@ -91,9 +107,7 @@ def reset_firebase():
     """
     Reset Firebase apps before and after each test.
 
-    Ensures test isolation even with session-scoped mocks.
-    The session mocks prevent real operations, while this ensures
-    each test starts with a clean Firebase state.
+    This ensures test isolation.
     """
     # Clear before test
     if hasattr(firebase_admin, '_apps') and firebase_admin._apps:
@@ -107,43 +121,33 @@ def reset_firebase():
 
 
 # ============================================================================
-# ALTERNATIVE: SEPARATE FIXTURES (If you prefer modularity)
+# PYTEST HOOKS
 # ============================================================================
 
-@pytest.fixture(scope="session")
-def mock_firebase_certificate():
-    """Mock Firebase certificate for session."""
-    with patch("firebase_admin.credentials.Certificate") as mock_cert:
-        mock_credential = MagicMock()
-        mock_credential.project_id = "test-project-id"
-        mock_cert.return_value = mock_credential
-        yield mock_cert
+def pytest_configure(config):
+    """
+    Configure pytest - add custom markers.
+    """
+    config.addinivalue_line("markers", "firebase: Firebase-related tests")
+    config.addinivalue_line("markers", "fcm: FCM push notification tests")
 
 
-@pytest.fixture(scope="session")
-def mock_firebase_initialize_app():
-    """Mock Firebase initialize_app for session."""
-    with patch("firebase_admin.initialize_app") as mock_init:
-        mock_app = MagicMock()
-        mock_app.name = "[DEFAULT]"
-        mock_init.return_value = mock_app
-        yield mock_init
+def pytest_sessionfinish(session, exitstatus):
+    """
+    Clean up at the end of the test session.
 
-
-@pytest.fixture(scope="session")
-def mock_fcm_service():
-    """Mock FCM service operations for session."""
-    with patch("app.config.push_notification_manager.FCMService.initialize_firebase") as mock_fcm_init, \
-         patch("app.config.push_notification_manager.fcm_service.send_notification_to_user_from_template",
-               MagicMock(return_value=["mocked_id"])) as mock_send:
-        yield {
-            "initialize": mock_fcm_init,
-            "send_notification": mock_send
-        }
+    Stop all module-level patches.
+    """
+    try:
+        _firebase_cert_patcher.stop()
+        _firebase_init_patcher.stop()
+        _file_open_patcher.stop()
+    except:
+        pass
 
 
 # ============================================================================
-# HELPER FIXTURES FOR TESTS
+# HELPER FIXTURES
 # ============================================================================
 
 @pytest.fixture
@@ -171,3 +175,19 @@ def firebase_config_file(tmp_path, firebase_credentials_base64):
     decoded = base64.b64decode(firebase_credentials_base64).decode()
     config_file.write_text(decoded)
     return str(config_file)
+
+
+@pytest.fixture
+def firebase_mocks():
+    """
+    Provide access to Firebase mocks for verification in tests.
+
+    Usage:
+        def test_something(firebase_mocks):
+            assert firebase_mocks['cert'].called
+    """
+    return {
+        "cert": _mock_cert,
+        "init_app": _mock_init_app,
+        "file_open": _mock_file_open
+    }
