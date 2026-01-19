@@ -250,14 +250,7 @@ class UserBundleService:
 
         # If pydantic didn't populate profile.bundles, try to build it from the raw join payload
         if not getattr(profile, 'bundles', None):
-            raw_bundles = profile_raw.get('user_profile_bundle') if isinstance(profile_raw, dict) else None
-            if raw_bundles:
-                try:
-                    profile.bundles = [UserProfileBundleModel.model_validate(rb) for rb in raw_bundles]
-                    logger.debug(
-                        f"Populated profile.bundles from raw for user {user.id}, count={len(profile.bundles)}")
-                except Exception as e:
-                    logger.debug(f"Failed to populate profile.bundles from raw: {e}")
+            self._populate_profile_bundles_from_raw(profile, profile_raw, user.id)
 
         profile_current_bundle: UserProfileBundleModel = DtoMapper.get_profile_current_bundle(profile)
         if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
@@ -265,13 +258,7 @@ class UserBundleService:
             return None
 
         bundle_data: BundleDTO = BundleDTO.model_validate(profile_current_bundle.bundle_data)
-
-        translated_bundle = self.__bundle_translation_repo.get_first_by(where={
-            "bundle_id": bundle_data.bundle_code,
-            "locale": accept_language
-        })
-        if translated_bundle is not None:
-            bundle_data = BundleDTO.model_validate(translated_bundle.data)
+        bundle_data = self._get_translated_bundle_data(bundle_data, accept_language)
 
         # Fetch related order to obtain tax amount for display calculations
         order_for_profile: UserOrderModel = self.__user_order_repo.get_by_id(record_id=profile.user_order_id)
@@ -281,13 +268,40 @@ class UserBundleService:
                                                    tax=tax_amount, bundle_data=bundle_data)
 
         # Update display price for each transaction history item using the order's tax
+        self._update_transaction_history_prices(bundle, x_currency, rate)
+
+        # Ensure transaction history is ordered descending by created_at (newest first)
+        self._sort_transaction_history(bundle)
+
+        return bundle
+
+    def _populate_profile_bundles_from_raw(self, profile, profile_raw, user_id):
+        raw_bundles = profile_raw.get('user_profile_bundle') if isinstance(profile_raw, dict) else None
+        if raw_bundles:
+            try:
+                profile.bundles = [UserProfileBundleModel.model_validate(rb) for rb in raw_bundles]
+                logger.debug(
+                    f"Populated profile.bundles from raw for user {user_id}, count={len(profile.bundles)}")
+            except Exception as e:
+                logger.debug(f"Failed to populate profile.bundles from raw: {e}")
+
+    def _get_translated_bundle_data(self, bundle_data, accept_language):
+        translated_bundle = self.__bundle_translation_repo.get_first_by(where={
+            "bundle_id": bundle_data.bundle_code,
+            "locale": accept_language
+        })
+        if translated_bundle is not None:
+            bundle_data = BundleDTO.model_validate(translated_bundle.data)
+        return bundle_data
+
+    def _update_transaction_history_prices(self, bundle, x_currency, rate):
         for history in bundle.transaction_history:
             order: UserOrderModel = self.__user_order_repo.get_by_id(record_id=history.user_order_id)
             order_tax = getattr(order, 'tax_amount', 0) if order else 0
             amount = float(history.bundle.original_price * rate) + float((order_tax / 100) * rate)
             history.bundle.price_display = f"{round(amount, 2)} {x_currency}"
 
-        # Ensure transaction history is ordered descending by created_at (newest first)
+    def _sort_transaction_history(self, bundle):
         try:
             bundle.transaction_history = sorted(
                 bundle.transaction_history,
@@ -297,8 +311,6 @@ class UserBundleService:
         except Exception:
             # If created_at is not a timestamp yet or sorting fails, leave original order
             pass
-
-        return bundle
     async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str, accept_language: str = "en") -> \
             Response[EsimBundleResponse | None]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
