@@ -34,6 +34,8 @@ from app.services.task_executor import TaskExecutor
 from app.services.user_wallet_service import UserWalletService
 
 
+USER_PROFILE_NOT_FOUND_MESSAGE = "user profile not found"
+
 class UserBundleService:
 
     def __init__(self):
@@ -350,7 +352,7 @@ class UserBundleService:
         profile = self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
         if not profile:
             raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_NOT_FOUND,
-                                  details="user profile not found", )
+                                  details=USER_PROFILE_NOT_FOUND_MESSAGE, )
 
         if started_bundle:
             latest_started_bundle = started_bundle[-1]
@@ -367,7 +369,6 @@ class UserBundleService:
             )
 
         return ResponseHelper.success_data_response(consumption, 0)
-
     async def user_notifications(self, user: UserModel, page_index: int, page_size: int) -> Response[
         List[UserNotificationResponse]]:
         notifications = self.__notification_repo.list(where={"user_id": user.id}, limit=page_size,
