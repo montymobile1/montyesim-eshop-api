@@ -243,16 +243,7 @@ class PromotionService:
                                                               source=UserWalletTransactionSource.CASHBACK_REFERRAL,
                                                               order_currency="USD")
 
-    async def __handle_discount(self, original_price: float, discount: float, beneficiary: str,
-                                user_id: str, referrer_user_id: str, code: str, is_referral: bool,
-                                bundle: BundleDTO) -> float:
-        if beneficiary in [Beneficiary.REFERRER.value, Beneficiary.BOTH.value]:
-            self._insert_promotion_usage(user_id, discount, "pending", code, is_referral, bundle)
 
-        if beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
-            self._insert_promotion_usage(referrer_user_id, discount, "pending", code, is_referral, bundle)
-
-        return max(original_price - discount, 0)
 
     def _insert_promotion_usage(self, user_id, amount, status, code, is_referral, bundle, referred_to: str = None,
                                 device_id: str = None,
