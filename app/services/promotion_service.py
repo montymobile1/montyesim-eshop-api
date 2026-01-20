@@ -305,21 +305,7 @@ class PromotionService:
                 await self.__handle_cashback_after_success_create_order(amount, Beneficiary.REFERRER.value,
                                                                         user_id, "")
 
-    @staticmethod
-    def __validate_rule_constraints(event_id, action_id, bundle, is_referral, beneficiary):
-        if event_id == PromotionRuleEvent.CREATE_ORDER.value and not bundle:
-            raise CustomException(code=400, name=ErrorMessages.BUNDLE_MISSING, details="bundle is missing")
 
-        if action_id != PromotionRuleAction.CASHBACK_AMOUNT.value and not bundle:
-            raise CustomException(code=400, name=ErrorMessages.BUNDLE_MISSING, details="bundle is missing")
-
-        if event_id == PromotionRuleEvent.CREATE_ACCOUNT.value and action_id != PromotionRuleAction.CASHBACK_AMOUNT.value:
-            raise CustomException(code=400, name=ErrorMessages.INVALID_ACTION,
-                                  details="login event can have only cashback amount")
-
-        if not is_referral and beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
-            raise CustomException(code=400, name=ErrorMessages.INVALID_INPUT,
-                                  details="promotion rule for promotion can have beneficiary user only")
 
     def __validate_promotion(self, promotion: PromotionModel, user_id: str, device_id: str = None):
         logger.info(f"Device ID: {device_id=}")
