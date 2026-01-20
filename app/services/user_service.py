@@ -574,7 +574,7 @@ class UserBundleService:
                                              data={"payment_status": OrderStatusEnum.FAILURE})
             raise CustomException(code=400, name=ErrorMessages.PAYMENT_FAILED, details=ErrorMessages.PAYMENT_FAILED)
 
-        payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
+        payment_status = OrderStatusEnum.SUCCESS
 
         if user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
             return await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
