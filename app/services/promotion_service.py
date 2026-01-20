@@ -302,7 +302,6 @@ class PromotionService:
                         amount = float(promotion.amount)
                     else:
                         amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
-                # rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
                 await self.__handle_cashback_after_success_create_order(amount, Beneficiary.REFERRER.value,
                                                                         user_id, "")
 
