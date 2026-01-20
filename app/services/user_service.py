@@ -154,30 +154,7 @@ class UserBundleService:
         else:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
-            self.__task_executor.add_task(task)
 
-        payment_type = assign_request.payment_type
-
-        if modified_amount == 0:
-            self.__user_order_repo.update_by({"id": order.id}, data={"modified_amount": 0})
-            await self.__bundle_service.buy_bundle(user_order=order, bundle=bundle, user_id=user.id,
-                                                   payment_status=OrderStatusEnum.SUCCESS, rule_id=rule_id
-                                                   , payment_type=payment_type)
-            response = PaymentIntentResponse(order_id=order.id, payment_status=PaymentStatusEnum.COMPLETED)
-            return ResponseHelper.success_data_response(response, 0)
-
-        if payment_type == PaymentTypeEnum.WALLET:
-            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order, rule_id=rule_id,
-                                                      modified_amount=modified_amount)
-        elif payment_type == PaymentTypeEnum.DCB:
-            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
-        elif payment_type == PaymentTypeEnum.CARD:
-            return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
-                                                    assign_request=assign_request, rule_id=rule_id, request=request,
-                                                    x_currency=x_currency)
-        else:
-            raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
-                                  details=f"Payment type {payment_type} is not supported")
 
     async def assign_top_up(self, user: UserModel, assign_top_up_request: AssignTopUpRequest, device_id: str,
                             request: Request, x_currency: str, locale: str) -> Response:
