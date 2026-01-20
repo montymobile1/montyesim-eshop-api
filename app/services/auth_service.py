@@ -290,7 +290,7 @@ class AuthService:
         if verify_otp_request.user_email == "test.apple@example.com" and verify_otp_request.verification_pin == "123123":
             response = supabase_client().auth.sign_in_with_password({
                 "email": verify_otp_request.user_email,
-                "password": "esim_oss@2025"
+                "password": os.getenv("TEST_USER_PASSWORD", "esim_oss@2025")
             })
             return ResponseHelper.success_data_response(DtoMapper.to_auth_response(response), 0)
         try:

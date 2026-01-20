@@ -243,16 +243,7 @@ class PromotionService:
                                                               source=UserWalletTransactionSource.CASHBACK_REFERRAL,
                                                               order_currency="USD")
 
-    async def __handle_discount(self, original_price: float, discount: float, beneficiary: str,
-                                user_id: str, referrer_user_id: str, code: str, is_referral: bool,
-                                bundle: BundleDTO) -> float:
-        if beneficiary in [Beneficiary.REFERRER.value, Beneficiary.BOTH.value]:
-            self._insert_promotion_usage(user_id, discount, "pending", code, is_referral, bundle)
 
-        if beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
-            self._insert_promotion_usage(referrer_user_id, discount, "pending", code, is_referral, bundle)
-
-        return max(original_price - discount, 0)
 
     def _insert_promotion_usage(self, user_id, amount, status, code, is_referral, bundle, referred_to: str = None,
                                 device_id: str = None,
@@ -302,25 +293,10 @@ class PromotionService:
                         amount = float(promotion.amount)
                     else:
                         amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
-                # rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
                 await self.__handle_cashback_after_success_create_order(amount, Beneficiary.REFERRER.value,
                                                                         user_id, "")
 
-    @staticmethod
-    def __validate_rule_constraints(event_id, action_id, bundle, is_referral, beneficiary):
-        if event_id == PromotionRuleEvent.CREATE_ORDER.value and not bundle:
-            raise CustomException(code=400, name=ErrorMessages.BUNDLE_MISSING, details="bundle is missing")
 
-        if action_id != PromotionRuleAction.CASHBACK_AMOUNT.value and not bundle:
-            raise CustomException(code=400, name=ErrorMessages.BUNDLE_MISSING, details="bundle is missing")
-
-        if event_id == PromotionRuleEvent.CREATE_ACCOUNT.value and action_id != PromotionRuleAction.CASHBACK_AMOUNT.value:
-            raise CustomException(code=400, name=ErrorMessages.INVALID_ACTION,
-                                  details="login event can have only cashback amount")
-
-        if not is_referral and beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
-            raise CustomException(code=400, name=ErrorMessages.INVALID_INPUT,
-                                  details="promotion rule for promotion can have beneficiary user only")
 
     def __validate_promotion(self, promotion: PromotionModel, user_id: str, device_id: str = None):
         logger.info(f"Device ID: {device_id=}")
