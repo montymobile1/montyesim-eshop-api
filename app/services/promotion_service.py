@@ -24,6 +24,8 @@ from app.services.currency_service import CurrencyService
 from app.services.user_wallet_service import UserWalletService
 from datetime import datetime
 
+PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE = "Promo Code Can not be used for this bundle"
+
 class PromotionService:
 
     def __init__(self):
@@ -32,7 +34,6 @@ class PromotionService:
         self.__promotion_usage_repo = PromotionUsageRepo()
         self.__user_repo = UserRepo()
         self.__user_wallet_service = UserWalletService()
-        self.__bundle_repo = BundleRepo()
         self.__currency_service = CurrencyService()
         self.__user_profile_repo = UserProfileRepo()
 
@@ -63,7 +64,7 @@ class PromotionService:
         bundle: BundleDTO = bundle_response.data
         if 0.5 > bundle.original_price > 0:
             raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
-                                  details="Promo Code Can not be used for this bundle")
+                                  details=PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE)
         validation_response = await self.validate_promo_code(code=promotion_validation_request.promo_code,
                                                              bundle=bundle, user_id=user_id, device_id=device_id,
                                                              currency=x_currency,
@@ -95,7 +96,7 @@ class PromotionService:
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if 0.5 > bundle.original_price > 0:
                     raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
-                                          details="Promo Code Can not be used for this bundle")
+                                          details=PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE)
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                                  user_id=referred_by_user.id, referrer_user_id=referred_to_user.id,
@@ -121,7 +122,7 @@ class PromotionService:
                 bundle.original_price = max(bundle.original_price - discounted, 0)
                 if 0.5 > bundle.original_price > 0:
                     raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
-                                          details="Promo Code Can not be used for this bundle")
+                                          details=PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
@@ -180,7 +181,7 @@ class PromotionService:
                 bundle.original_price = max(bundle.original_price - promotion.amount, 0)
                 if 0.5 > bundle.original_price > 0:
                     raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
-                                          details="Promo Code Can not be used for this bundle")
+                                          details=PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=promotion.amount, status="pending", code=code,
@@ -195,7 +196,7 @@ class PromotionService:
                 bundle.original_price = max(bundle.original_price - discounted, 0)
                 if 0.5 > bundle.original_price > 0:
                     raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
-                                          details="Promo Code Can not be used for this bundle")
+                                          details=PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=discounted, status="pending", code=code,
@@ -218,7 +219,6 @@ class PromotionService:
                                                  device_id=device_id, order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule.id,
                                                    message=message)
-
     async def __handle_cashback(self, amount: float, beneficiary: str, user_id: str, referrer_user_id: str,
                                 code: str, is_referral: bool, event_id, bundle: BundleDTO, order_id: str | None,
                                 referred_to: str = None, device_id: str = None):

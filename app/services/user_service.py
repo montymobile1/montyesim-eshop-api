@@ -34,6 +34,8 @@ from app.services.task_executor import TaskExecutor
 from app.services.user_wallet_service import UserWalletService
 
 
+USER_PROFILE_NOT_FOUND_MESSAGE = "user profile not found"
+
 class UserBundleService:
 
     def __init__(self):
@@ -89,11 +91,11 @@ class UserBundleService:
             if self.__promotion_service.is_referral_code(assign_request.promo_code):
                 self.__check_if_user_eligible_for_referral(user=user, promo_code=assign_request.promo_code)
             validation_response = await self.__promotion_service.validate_promo_code(code=assign_request.promo_code,
-                                                                                        user_id=user.id, bundle=bundle,
-                                                                                        device_id=device_id,
-                                                                                        currency=x_currency,
-                                                                                        apply_usage=True,
-                                                                                        order_id=order.id)
+                                                                                     user_id=user.id, bundle=bundle,
+                                                                                     device_id=device_id,
+                                                                                     currency=x_currency,
+                                                                                     apply_usage=True,
+                                                                                     order_id=order.id)
             logger.info(f"applying promo code {assign_request.promo_code} with {validation_response.message}")
             bundle = validation_response.bundle
             modified_amount = bundle.original_price
@@ -178,7 +180,7 @@ class UserBundleService:
             where={"user_id": user.id},
             as_model=False)
         logger.debug(f"Fetched raw user profiles joined rows count={len(user_profiles_raw)} for user {user.id}")
-        
+
         # Fallback: if the joined select returned nothing, try fetching bundles directly and synthesize profiles
         if not user_profiles_raw:
             user_profiles_raw = self._synthesize_profiles_from_bundles(user)
@@ -194,7 +196,7 @@ class UserBundleService:
             except Exception as e:
                 logger.error(
                     f"Failed to map profile (raw keys: {list(profile_raw.keys()) if isinstance(profile_raw, dict) else 'unknown'}): {e}")
-        
+
         # Sort overall response by bundle payment_date descending (newest bundles first)
         try:
             esim_bundle_response = sorted(
@@ -311,18 +313,18 @@ class UserBundleService:
         except Exception:
             # If created_at is not a timestamp yet or sorting fails, leave original order
             pass
-    async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str, accept_language: str = "en") -> \
-            Response[EsimBundleResponse | None]:
+
+    async def get_user_esim(self, iccid: str, user: UserModel, x_currency: str, accept_language: str = "en") -> Response[EsimBundleResponse | None]:
         user_profiles = self.__user_profile_repo.select(tables={DatabaseTables.TABLE_USER_PROFILE_BUNDLE: "*"},
                                                         where={"user_id": user.id, "iccid": iccid})
         if len(user_profiles) == 0:
-            raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
+            raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details=USER_PROFILE_NOT_FOUND_MESSAGE)
         rate = self.__currency_service.get_rate_by_currency(x_currency)
         profile = user_profiles[0]
         # Ensure we have the current bundle and bundle_data
         profile_current_bundle = DtoMapper.get_profile_current_bundle(profile)
         if profile_current_bundle is None or profile_current_bundle.bundle_data is None:
-            raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details="user profile not found")
+            raise CustomException(code=404, name=ErrorMessages.USER_PROFILE_NOT_FOUND, details=USER_PROFILE_NOT_FOUND_MESSAGE)
         bundle_data = BundleDTO.model_validate(profile_current_bundle.bundle_data)
         # Apply translation for requested locale when available
         translated_bundle = self.__bundle_translation_repo.get_first_by(where={"bundle_id": bundle_data.bundle_code,
@@ -350,7 +352,7 @@ class UserBundleService:
         profile = self.__user_profile_repo.get_first_by({"user_id": user.id, "iccid": iccid})
         if not profile:
             raise CustomException(code=400, name=ErrorMessages.USER_PROFILE_NOT_FOUND,
-                                  details="user profile not found", )
+                                  details=USER_PROFILE_NOT_FOUND_MESSAGE, )
 
         if started_bundle:
             latest_started_bundle = started_bundle[-1]
@@ -367,7 +369,6 @@ class UserBundleService:
             )
 
         return ResponseHelper.success_data_response(consumption, 0)
-
     async def user_notifications(self, user: UserModel, page_index: int, page_size: int) -> Response[
         List[UserNotificationResponse]]:
         notifications = self.__notification_repo.list(where={"user_id": user.id}, limit=page_size,
@@ -573,7 +574,7 @@ class UserBundleService:
                                              data={"payment_status": OrderStatusEnum.FAILURE})
             raise CustomException(code=400, name=ErrorMessages.PAYMENT_FAILED, details=ErrorMessages.PAYMENT_FAILED)
 
-        payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
+        payment_status = OrderStatusEnum.SUCCESS
 
         if user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
             return await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
