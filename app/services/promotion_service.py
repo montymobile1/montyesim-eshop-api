@@ -34,7 +34,6 @@ class PromotionService:
         self.__promotion_usage_repo = PromotionUsageRepo()
         self.__user_repo = UserRepo()
         self.__user_wallet_service = UserWalletService()
-        self.__bundle_repo = BundleRepo()
         self.__currency_service = CurrencyService()
         self.__user_profile_repo = UserProfileRepo()
 
