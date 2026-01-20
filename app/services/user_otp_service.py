@@ -5,7 +5,7 @@ from app.config.helper import get_config
 from app.exceptions import CustomException
 from app.models.app import UserOtpModel
 from app.repo.user_otp_repo import UserOtpRepo
-
+import secrets
 
 class UserOtpService:
     def __init__(self):
@@ -15,7 +15,6 @@ class UserOtpService:
         """
         Generate a 6-digit OTP for the given mobile number and store it in the database with an expiration time of 5 minutes.
         """
-        import random
         from datetime import datetime, timedelta, timezone as dt_timezone
 
         # Limit: max 3 OTPs/hour per mobile
@@ -26,7 +25,7 @@ class UserOtpService:
             raise CustomException(code=429, name=ErrorMessages.OTP_STILL_ACTIVE,
                                   details="An active OTP already exists. Please use the existing OTP or wait for it to expire.")
 
-        otp = f"{random.randint(100000, 999999)}"
+        otp = f"{secrets.randbelow(900000) + 100000}"
         # Check if OTP already exists for this mobile
         existing_otps = self.__user_otp_repo.list(where={"mobile": mobile, "is_used": False, "otp": otp})
         if existing_otps or len(existing_otps) > 0:
