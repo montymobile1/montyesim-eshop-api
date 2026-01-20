@@ -56,14 +56,11 @@ class UserBundleService:
     async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str, locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
         logger.info(f"Unused parameters: {locale=}, {request=}")
         bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id=assign_request.bundle_code)
-        if not bundle or not bundle.is_active:
-            raise CustomException(code=400, name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
-                                  details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
+        self._validate_bundle(bundle)
+        
         if not bundle.is_stockable:
-            check_bundle_available = await self.__esim_hub_service.check_bundle_applicable(bundle.bundle_info_code)
-            if not check_bundle_available:
-                raise CustomException(code=400, name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
-                                      details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
+            await self._check_bundle_availability(bundle)
+            
         modified_amount = bundle.original_price
         amount = bundle.original_price
         rule_id = "0"
@@ -81,6 +78,7 @@ class UserBundleService:
             "promo_code": assign_request.promo_code or None,
             "payment_type": assign_request.payment_type,
         }
+        
         if assign_request.promo_code and self.__promotion_service.is_referral_code(assign_request.promo_code):
             data.setdefault("referral_code", assign_request.promo_code)
             data.pop("promo_code")
@@ -88,15 +86,7 @@ class UserBundleService:
         order = self.__user_order_repo.create(data)
 
         if assign_request.promo_code:
-            if self.__promotion_service.is_referral_code(assign_request.promo_code):
-                self.__check_if_user_eligible_for_referral(user=user, promo_code=assign_request.promo_code)
-            validation_response = await self.__promotion_service.validate_promo_code(code=assign_request.promo_code,
-                                                                                     user_id=user.id, bundle=bundle,
-                                                                                     device_id=device_id,
-                                                                                     currency=x_currency,
-                                                                                     apply_usage=True,
-                                                                                     order_id=order.id)
-            logger.info(f"applying promo code {assign_request.promo_code} with {validation_response.message}")
+            validation_response = await self._handle_promo_code(user, assign_request, bundle, device_id, x_currency, order)
             bundle = validation_response.bundle
             modified_amount = bundle.original_price
             rule_id = validation_response.rule_id
@@ -111,6 +101,59 @@ class UserBundleService:
                     bundle=bundle
                 )
 
+            self.__task_executor.add_task(task)
+
+        payment_type = assign_request.payment_type
+
+        if modified_amount == 0:
+            return await self._handle_free_bundle(order, bundle, user, rule_id, payment_type)
+
+        return await self._handle_payment(assign_request, user, bundle, order, device_id, rule_id, request, x_currency, payment_type)
+
+    def _validate_bundle(self, bundle):
+        if not bundle or not bundle.is_active:
+            raise CustomException(code=400, name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
+                                  details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
+
+    async def _check_bundle_availability(self, bundle):
+        check_bundle_available = await self.__esim_hub_service.check_bundle_applicable(bundle.bundle_info_code)
+        if not check_bundle_available:
+            raise CustomException(code=400, name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
+                                  details=ErrorMessages.BUNDLE_NOT_AVAILABLE)
+
+    async def _handle_promo_code(self, user, assign_request, bundle, device_id, x_currency, order):
+        if self.__promotion_service.is_referral_code(assign_request.promo_code):
+            self.__check_if_user_eligible_for_referral(user=user, promo_code=assign_request.promo_code)
+        validation_response = await self.__promotion_service.validate_promo_code(code=assign_request.promo_code,
+                                                                                 user_id=user.id, bundle=bundle,
+                                                                                 device_id=device_id,
+                                                                                 currency=x_currency,
+                                                                                 apply_usage=True,
+                                                                                 order_id=order.id)
+        logger.info(f"applying promo code {assign_request.promo_code} with {validation_response.message}")
+        return validation_response
+
+    async def _handle_free_bundle(self, order, bundle, user, rule_id, payment_type):
+        self.__user_order_repo.update_by({"id": order.id}, data={"modified_amount": 0})
+        await self.__bundle_service.buy_bundle(user_order=order, bundle=bundle, user_id=user.id,
+                                               payment_status=OrderStatusEnum.SUCCESS, rule_id=rule_id
+                                               , payment_type=payment_type)
+        response = PaymentIntentResponse(order_id=order.id, payment_status=PaymentStatusEnum.COMPLETED)
+        return ResponseHelper.success_data_response(response, 0)
+
+    async def _handle_payment(self, assign_request, user, bundle, order, device_id, rule_id, request, x_currency, payment_type):
+        if payment_type == PaymentTypeEnum.WALLET:
+            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order, rule_id=rule_id,
+                                                      modified_amount=bundle.original_price)
+        elif payment_type == PaymentTypeEnum.DCB:
+            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
+        elif payment_type == PaymentTypeEnum.CARD:
+            return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
+                                                    assign_request=assign_request, rule_id=rule_id, request=request,
+                                                    x_currency=x_currency)
+        else:
+            raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
+                                  details=f"Payment type {payment_type} is not supported")
             self.__task_executor.add_task(task)
 
         payment_type = assign_request.payment_type
