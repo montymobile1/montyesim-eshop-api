@@ -180,8 +180,9 @@ def get_email_template(template_name: str) -> Template | None:
     Load an email template from the template's directory.
     """
     try:
-        env = Environment(loader=FileSystemLoader(os.getenv("EMAIL_TEMPLATES_PATH", "app/email_templates")))
+        env = Environment(loader=FileSystemLoader(os.getenv("EMAIL_TEMPLATES_PATH", "app/email_templates")), autoescape=True)
         return env.get_template(template_name)
     except Exception as e:
         logger.error(f"Error loading email template {template_name}: {str(e)}")
         return None
+
