@@ -41,6 +41,7 @@
   "REFERRAL_CODE_ALREADY_USED": "تم استخدام رمز الإحالة بالفعل.",
   "PROMOTION_RULE_NOT_FOUND": "لم يتم العثور على قاعدة الترويج.",
   "PROMOTION_MAX_USAGE_VALIDATION": "تم الوصول إلى الحد الأقصى المسموح به لاستخدام الترويج.",
+  "PROMOTION_ALREADY_IN_USE": "الترويج قيد الاستخدام بالفعل.",
   "VERIFY_FAILED": "فشلت عملية التحقق.",
   "DELETE_ACCOUNT_FAILED": "فشل في حذف الحساب.",
   "REQUEST_FAILED": "فشل الطلب. يرجى المحاولة مرة أخرى.",
