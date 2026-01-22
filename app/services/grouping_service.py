@@ -39,7 +39,6 @@ class GroupingService:
             tags = await self.__get_all_tags_by_group_id(group_id=1)
         else:
             tags = await self.__get_all_tags_by_group_id_with_language(group_id=1, locale=locale)
-        tags = sorted(tags, key=lambda tag: tag.name)
         for tag in tags:
             tag.data["country"] = tag.name
         return [CountryDTO.model_validate(tag.data) for tag in tags]
