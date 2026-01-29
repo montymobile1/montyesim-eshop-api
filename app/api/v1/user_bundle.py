@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.params import Query
 
 from app.dependencies.security import bearer_token, device_token, bearer_token_anonymous
-from app.exceptions import CustomException
+from app.exceptions import CustomException, EsimHubException
 from app.models.user import UserModel
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
@@ -26,7 +26,7 @@ service = UserBundleService()
 async def consumption(iccid: str, user: Annotated[UserModel, Depends(bearer_token)]):
     try:
         return await service.consumption(user, iccid.strip())
-    except OSError as exc:
+    except (OSError, EsimHubException) as exc:
         # Surface DNS/host resolution issues as a controlled client error
         raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
                               details="eSIM hub host unreachable") from exc
