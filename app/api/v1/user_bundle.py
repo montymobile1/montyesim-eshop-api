@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.params import Query
 
 from app.dependencies.security import bearer_token, device_token, bearer_token_anonymous
+from app.exceptions import CustomException
 from app.models.user import UserModel
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
@@ -13,6 +14,7 @@ from app.schemas.bundle import UpdateBundleLabelRequest
 from app.schemas.home import BundleDTO
 from app.schemas.response import Response
 from app.services.user_service import UserBundleService
+from app.config.constants import ErrorMessages
 
 router = APIRouter()
 
@@ -20,9 +22,14 @@ service = UserBundleService()
 
 
 @router.get("/consumption/{iccid}", response_model=Response[ConsumptionResponse],
-            dependencies=[Depends(bearer_token), Depends(device_token)])
+            dependencies=[Depends(device_token)])
 async def consumption(iccid: str, user: Annotated[UserModel, Depends(bearer_token)]):
-    return await service.consumption(user, iccid)
+    try:
+        return await service.consumption(user, iccid.strip())
+    except OSError as exc:
+        # Surface DNS/host resolution issues as a controlled client error
+        raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
+                              details="eSIM hub host unreachable") from exc
 
 
 @router.post("/bundle/assign", response_model=Response[PaymentIntentResponse] | Response[bool],
