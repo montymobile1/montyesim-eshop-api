@@ -334,14 +334,17 @@ class UserBundleService:
 
         if started_bundle:
             latest_started_bundle = started_bundle[-1]
+            logger.info(f"get started bundle consumption Order_id: { latest_started_bundle.esim_hub_order_id}")
             consumption = await self.__esim_hub_service.get_bundle_consumption(
                 latest_started_bundle.esim_hub_order_id
             )
         elif active_bundle:
+            logger.info(f"get started active bundle consumption Order_id: { active_bundle.esim_hub_order_id}")
             consumption = await self.__esim_hub_service.get_bundle_consumption(
                 active_bundle.esim_hub_order_id
             )
         else:
+            logger.info(f"get started bundle consumption Order_id: { profile.esim_hub_order_id}")
             consumption = await self.__esim_hub_service.get_bundle_consumption(
                 profile.esim_hub_order_id
             )

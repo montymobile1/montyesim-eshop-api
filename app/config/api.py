@@ -17,7 +17,7 @@ class EsimHubEndpoint(StrEnum):
     API_GET_CONTENT_TAG = "/catalog/api/reseller/v1/Content/get-latest"
     API_GET_CONTENT_TAGS = "/catalog/api/reseller/v1/Content/get-all-content"
     API_GET_GLOBAL_CONFIGURATIONS = "/configuration/api/v1/globalconfiguration/get-by-keys"
-    API_GET_BUNDLE_CONSUMPTION = "/core/api/v1/order/consumption"
+    API_GET_BUNDLE_CONSUMPTION = "/api/v1/order/consumption"
 
     API_CREATE_RESELLER_TOPUP = "/core/api/v1/order/topup"
     API_CREATE_RESELLER_ORDER = "/core/api/v1/order/create"
