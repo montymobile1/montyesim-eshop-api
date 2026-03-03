@@ -1,0 +1,81 @@
+name: "Fix Sonar Issues"
+description: "Fix Sonar Issues using DevDox Sonar"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Pull Request number to fix'
+        required: true
+        type: number
+      source_branch:
+        description: 'Source branch to target the fix PR against'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  devdox-sonar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.inputs.source_branch }}
+
+      - name: Run DevDox Sonar (PR)
+        uses: montymobile1/devdox-ai-sonar@0.0.5
+        with:
+          command: fix_multiple
+          # ── SonarCloud ──────────────────────────────────────────────────────
+          sonar-token: ${{ secrets.SONAR_TOKEN }}
+          sonar-org: ${{ secrets.SONAR_ORG }}
+          sonar-project: ${{ secrets.SONAR_PROJ }}
+          project-path: /github/workspace
+
+          # ── Analysis mode ───────────────────────────────────────────────────
+          pull-request: ${{ github.event.inputs.pr_number }}
+
+          # ── LLM ─────────────────────────────────────────────────────────────
+          llm-provider: ${{ secrets.LLM_API_PROVIDER }}
+          llm-api-key: ${{ secrets.LLM_API_KEY }}
+          llm-default-model: ${{ secrets.LLM_MODEL }}
+
+          # ── Optional tuning ─────────────────────────────────────────────────
+          max-fixes: "10"
+          apply: 1
+
+      - name: Commit fixes to new branch
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="devdox-sonar-fixes/run-${{ github.run_id }}"
+          SOURCE_BRANCH="${{ github.event.inputs.source_branch }}"
+          git checkout -b "$BRANCH"
+
+          git add -A
+          if git diff --cached --quiet; then
+            echo "⚠️ No changes to commit, skipping PR creation."
+            exit 0
+          fi
+
+          git commit -m "fix: apply devdox sonar fixes [run ${{ github.run_id }}]"
+          git push origin "$BRANCH"
+          echo "✅ Fixes pushed to branch: $BRANCH"
+
+          gh pr create \
+            --base "$SOURCE_BRANCH" \
+            --head "$BRANCH" \
+            --title "fix: DevDox Sonar fixes [run ${{ github.run_id }}]" \
+            --body "Automated Sonar issue fixes by DevDox sonar AI.
+          - Run: [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          - Source branch: \`$SOURCE_BRANCH\`
+          - Triggered by: \`${{ github.actor }}\`"
