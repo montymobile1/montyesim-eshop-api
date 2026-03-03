@@ -9,6 +9,8 @@ from app.config.i18n import I18n
 from app.services.integration.dcb_service import DCBService
 
 
+CONTENT_TYPE_JSON = "application/json"
+
 class HubDcbService(DCBService):
 
     def __init__(self):
@@ -33,8 +35,8 @@ class HubDcbService(DCBService):
                     "deliveryReceipt": False
                 }
                 headers = {
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
+                    "Content-Type": CONTENT_TYPE_JSON,
+                    "Accept": CONTENT_TYPE_JSON,
                     "Api-Key": self.get_api_key(),
                     "Tenant": os.getenv("ESIM_HUB_TENANT_KEY"),
                     "LanguageCode": "en"
@@ -82,8 +84,8 @@ class HubDcbService(DCBService):
                     "BusinessType": get_config("DCB_HUB_BUSINESS_TYPE", "CO019")
                 }
                 headers = {
-                    "Content-Type": "application/json",
-                    "Accept": "application/json",
+                    "Content-Type": CONTENT_TYPE_JSON,
+                    "Accept": CONTENT_TYPE_JSON,
                     "Api-Key": self.get_api_key(),
                     "Tenant": os.getenv("ESIM_HUB_TENANT_KEY"),
                     "LanguageCode": locale

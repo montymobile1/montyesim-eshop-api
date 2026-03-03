@@ -22,7 +22,9 @@ from app.schemas.promotion import PromotionValidationRequest, PromotionHistoryDt
 from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
 from app.services.user_wallet_service import UserWalletService
+from datetime import datetime
 
+PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE = "Promo Code Can not be used for this bundle"
 
 class PromotionService:
 
@@ -32,7 +34,6 @@ class PromotionService:
         self.__promotion_usage_repo = PromotionUsageRepo()
         self.__user_repo = UserRepo()
         self.__user_wallet_service = UserWalletService()
-        self.__bundle_repo = BundleRepo()
         self.__currency_service = CurrencyService()
         self.__user_profile_repo = UserProfileRepo()
 
@@ -63,7 +64,7 @@ class PromotionService:
         bundle: BundleDTO = bundle_response.data
         if 0.5 > bundle.original_price > 0:
             raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
-                                  details="Promo Code Can not be used for this bundle")
+                                  details=PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE)
         validation_response = await self.validate_promo_code(code=promotion_validation_request.promo_code,
                                                              bundle=bundle, user_id=user_id, device_id=device_id,
                                                              currency=x_currency,
@@ -95,7 +96,7 @@ class PromotionService:
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if 0.5 > bundle.original_price > 0:
                     raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
-                                          details="Promo Code Can not be used for this bundle")
+                                          details=PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE)
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
                                                  user_id=referred_by_user.id, referrer_user_id=referred_to_user.id,
@@ -121,7 +122,7 @@ class PromotionService:
                 bundle.original_price = max(bundle.original_price - discounted, 0)
                 if 0.5 > bundle.original_price > 0:
                     raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
-                                          details="Promo Code Can not be used for this bundle")
+                                          details=PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     await self.__handle_cashback(amount=amount, beneficiary=str(rule.beneficiary),
@@ -180,7 +181,7 @@ class PromotionService:
                 bundle.original_price = max(bundle.original_price - promotion.amount, 0)
                 if 0.5 > bundle.original_price > 0:
                     raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
-                                          details="Promo Code Can not be used for this bundle")
+                                          details=PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=promotion.amount, status="pending", code=code,
@@ -195,7 +196,7 @@ class PromotionService:
                 bundle.original_price = max(bundle.original_price - discounted, 0)
                 if 0.5 > bundle.original_price > 0:
                     raise CustomException(code=400, name=ErrorMessages.PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE,
-                                          details="Promo Code Can not be used for this bundle")
+                                          details=PROMO_CODE_CANNOT_BE_USED_FOR_THIS_BUNDLE_MESSAGE)
                 bundle.price_display = f'{round(bundle.original_price, 2):.2f} {currency}'
                 if apply_usage:
                     self._insert_promotion_usage(user_id=user_id, amount=discounted, status="pending", code=code,
@@ -218,7 +219,6 @@ class PromotionService:
                                                  device_id=device_id, order_id=order_id)
                 return PromotionValidationResponse(bundle=bundle, rule_id=rule.id,
                                                    message=message)
-
     async def __handle_cashback(self, amount: float, beneficiary: str, user_id: str, referrer_user_id: str,
                                 code: str, is_referral: bool, event_id, bundle: BundleDTO, order_id: str | None,
                                 referred_to: str = None, device_id: str = None):
@@ -243,16 +243,7 @@ class PromotionService:
                                                               source=UserWalletTransactionSource.CASHBACK_REFERRAL,
                                                               order_currency="USD")
 
-    async def __handle_discount(self, original_price: float, discount: float, beneficiary: str,
-                                user_id: str, referrer_user_id: str, code: str, is_referral: bool,
-                                bundle: BundleDTO) -> float:
-        if beneficiary in [Beneficiary.REFERRER.value, Beneficiary.BOTH.value]:
-            self._insert_promotion_usage(user_id, discount, "pending", code, is_referral, bundle)
 
-        if beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
-            self._insert_promotion_usage(referrer_user_id, discount, "pending", code, is_referral, bundle)
-
-        return max(original_price - discount, 0)
 
     def _insert_promotion_usage(self, user_id, amount, status, code, is_referral, bundle, referred_to: str = None,
                                 device_id: str = None,
@@ -302,43 +293,22 @@ class PromotionService:
                         amount = float(promotion.amount)
                     else:
                         amount = float(get_config(ConfigKeysEnum.REFERRAL_CODE_AMOUNT))
-                # rate = self.__currency_service.get_rate_by_currency(os.getenv("DEFAULT_CURRENCY"))
                 await self.__handle_cashback_after_success_create_order(amount, Beneficiary.REFERRER.value,
                                                                         user_id, "")
 
-    @staticmethod
-    def __validate_rule_constraints(event_id, action_id, bundle, is_referral, beneficiary):
-        if event_id == PromotionRuleEvent.CREATE_ORDER.value and not bundle:
-            raise CustomException(code=400, name=ErrorMessages.BUNDLE_MISSING, details="bundle is missing")
 
-        if action_id != PromotionRuleAction.CASHBACK_AMOUNT.value and not bundle:
-            raise CustomException(code=400, name=ErrorMessages.BUNDLE_MISSING, details="bundle is missing")
-
-        if event_id == PromotionRuleEvent.CREATE_ACCOUNT.value and action_id != PromotionRuleAction.CASHBACK_AMOUNT.value:
-            raise CustomException(code=400, name=ErrorMessages.INVALID_ACTION,
-                                  details="login event can have only cashback amount")
-
-        if not is_referral and beneficiary in [Beneficiary.REFERRED.value, Beneficiary.BOTH.value]:
-            raise CustomException(code=400, name=ErrorMessages.INVALID_INPUT,
-                                  details="promotion rule for promotion can have beneficiary user only")
 
     def __validate_promotion(self, promotion: PromotionModel, user_id: str, device_id: str = None):
+        logger.info(f"Device ID: {device_id=}")
         rule: PromotionRuleModel = self.__promotion_rule_repo.get_first_by(where={"id": promotion.rule_id})
 
         if not promotion.is_active:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_NOT_ACTIVE, details="promotion not active")
 
-        from datetime import datetime
         today = datetime.now().date()
         if promotion.valid_from and promotion.valid_to:
-            def parse_date(date_str):
-                try:
-                    return datetime.strptime(date_str, "%Y-%m-%d").date()
-                except ValueError:
-                    return datetime.strptime(date_str[:10], "%Y-%m-%d").date()
-
-            start_date = parse_date(promotion.valid_from)
-            end_date = parse_date(promotion.valid_to)
+            start_date = self.__parse_date(promotion.valid_from)
+            end_date = self.__parse_date(promotion.valid_to)
             if not (start_date <= today <= end_date):
                 raise CustomException(code=400, name=ErrorMessages.PROMOTION_NOT_ACTIVE,
                                       details="Promotion is not active for current date")
@@ -357,23 +327,31 @@ class PromotionService:
 
         promotion_limit_active = get_config("PROMOTION_LIMIT_ACTIVE", "true")
         if lower(promotion_limit_active) == "false":
-            logger.info("promotion limit is not active, applying 1 minute rate-limit per user+promo")
-            last_usages = self.__promotion_usage_repo.select_procedure(
-                function_name="get_latest_promotion_usage_per_user",
-                where={"p_user_id": user_id, "p_promotion_code": promotion.code,
-                       "p_window_seconds": int(get_config("PROMOTION_LIMIT_WINDOW_SECONDS", 60))})
-            if last_usages and len(last_usages) > 0:
-                raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
-                                      details="Promotion code used too recently, please wait before reusing.")
-            else:
-                logger.info("no recent usage found, proceeding")
-                return
+            self.__handle_promotion_limit_inactive(user_id, promotion.code)
+            return
 
         promotion_usage = self.__promotion_usage_repo.list(
             where={"user_id": user_id, "promotion_code": promotion.code, "status": "completed"})
         if promotion_usage:
             raise CustomException(code=400, name=ErrorMessages.PROMOTION_ALREADY_USED, details="Promotion Already Used")
 
+    def __parse_date(self, date_str: str) -> datetime.date:
+        try:
+            return datetime.strptime(date_str, "%Y-%m-%d").date()
+        except ValueError:
+            return datetime.strptime(date_str[:10], "%Y-%m-%d").date()
+
+    def __handle_promotion_limit_inactive(self, user_id: str, promotion_code: str):
+        logger.info("promotion limit is not active, applying 1 minute rate-limit per user+promo")
+        last_usages = self.__promotion_usage_repo.select_procedure(
+            function_name="get_latest_promotion_usage_per_user",
+            where={"p_user_id": user_id, "p_promotion_code": promotion_code,
+                   "p_window_seconds": int(get_config("PROMOTION_LIMIT_WINDOW_SECONDS", 60))})
+        if last_usages and len(last_usages) > 0:
+            raise CustomException(code=400, name=ErrorMessages.PROMOTION_MAX_USAGE_VALIDATION,
+                                  details="Promotion code used too recently, please wait before reusing.")
+        else:
+            logger.info("no recent usage found, proceeding")
     def __validate_referral(self, user_id: str, promotion_code: str, rule_id: str, device_id: str = None):
 
         referred_user: UsersCopyModel = self.__user_repo.get_first_by(where={},

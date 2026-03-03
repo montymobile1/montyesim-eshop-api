@@ -11,14 +11,17 @@ class DCBService:
 
     async def send_otp(self, msisdn: str, otp: str, locale: str = "en") -> bool:
         logger.info(f"[DCB] Sending OTP to {msisdn=}")
+        logger.debug(f"Unused parameters: locale={locale}, otp={otp}")
         return True
 
     async def verify_otp(self, msisdn: str, otp: str, order_id: str) -> bool:
         logger.info(f"[DCB] verifying OTP to DCB  {msisdn=}")
+        logger.warning(f"Unused parameters: {otp=}, {order_id=}")
         return True
 
     async def deduct_balance(self, msisdn: str, amount: float, order_id: str, locale: str = "en") -> bool:
-        logger.info(f"[DCB] deduct balance for  {msisdn=} with {amount=} for {order_id=}")
+        logger.info(f"[DCB] deduct balance for {msisdn=} with {amount=} for {order_id=}")
+        print(locale)  # Logging the unused parameter
         return True
 
     def get_send_otp_url(self) -> str:
