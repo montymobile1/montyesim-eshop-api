@@ -128,6 +128,7 @@ class AppService:
             <h1>Received New Email Message</h1>
             <p><b>From</b>: {contact_us_request.email}</p>
             <p><b>Content</b>: {contact_us_request.content}</p>
+            <p><b>Sent from</b>: {get_config("BASE_URL", "-")}</p>
         """
         try:
             send_email(subject="New Email Received", html_content=content, recipients=get_config("SUPPORT_EMAIL"))
@@ -192,8 +193,8 @@ class AppService:
 
     from typing import List
 
-    def banners(self,locale: str = "en", x_platform: str = "web") -> Response[List[BannerResponse]]:
-        banners = self.__banner_repo.get_banners(platform=x_platform,locale=locale)
+    def banners(self, locale: str = "en", x_platform: str = "web") -> Response[List[BannerResponse]]:
+        banners = self.__banner_repo.get_banners(platform=x_platform, locale=locale)
         logger.info(f"banners {banners=} {locale=}")
         response = [BannerResponse(**banner.model_dump()) for banner in banners]
         return ResponseHelper.success_data_response(response, len(banners))

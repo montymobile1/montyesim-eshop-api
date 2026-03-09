@@ -7,8 +7,8 @@ from fastapi import Request
 from loguru import logger
 from soupsieve.util import lower
 
-from app.config.config import authenticate, supabase_client, dcb_service_instance
-from app.config.constants import ErrorMessages
+from app.config.config import authenticate, supabase_client, dcb_service_instance, get_email_template, send_email
+from app.config.constants import ErrorMessages, OtpChannelEnum
 from app.config.db import ConfigKeysEnum
 from app.config.helper import get_config
 from app.config.utils import truncate_two_decimals_decimal
@@ -20,6 +20,7 @@ from app.schemas.auth import LoginRequest, VerifyOtpRequest, UpdateUserInfoReque
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import ResponseHelper, Response
 from app.schemas.user_wallet import UserWalletRequestDto, UserWalletResponse
+from app.services.task_executor import TaskExecutor
 from app.services.user_otp_service import UserOtpService
 from app.services.user_wallet_service import UserWalletService
 
@@ -27,6 +28,7 @@ from app.services.user_wallet_service import UserWalletService
 class AuthService:
 
     def __init__(self):
+        self.__task_executor = TaskExecutor()
         self.__device_repo = DeviceRepo()
         self.__user_repo = UserRepo()
         self.__user_wallet_service = UserWalletService()
@@ -281,7 +283,20 @@ class AuthService:
             })
             logging.info(f"created new user: {user}")
         logger.info(f"sending otp to phone number {user_otp_language=} {login_request.phone=}")
-        await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone, locale=user_otp_language)
+        login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
+        if login_request.otp_channel is None:
+            login_request.otp_channel = OtpChannelEnum.SMS if login_type in ["email_phone",
+                                                                             "phone"] else OtpChannelEnum.EMAIL
+        if login_request.otp_channel == OtpChannelEnum.SMS:
+            await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone, locale=user_otp_language)
+        elif login_request.otp_channel == OtpChannelEnum.EMAIL:
+            def task():
+                self.__send_otp_email(otp=otp, email=user_email, locale=user_otp_language)
+
+            self.__task_executor.add_task(task)
+        else:
+            logger.error(f"invalid otp channel: {login_request.otp_channel}")
+            raise BadRequestException("Invalid OTP channel")
         return ResponseHelper.success_data_response(data={"otp_expiration": otp_expiration_time}, total_count=0)
 
     async def __handle_email_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
@@ -343,3 +358,19 @@ class AuthService:
         else:
             data["timestamp_logout"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
         self.__device_repo.upsert(data=data, on_conflict="device_id,user_id")
+
+    def __send_otp_email(self, otp, email, locale):
+
+        try:
+            template = get_email_template(f"otp_email.htm")
+            data = {
+                "otp": otp,
+                "base_url": get_config("BASE_URL", "http://localhost:8000"),
+                "esim_name": get_config("ESIM_NAME", "Monty Esim"),
+            }
+            html_content = template.render(data=data)
+            send_email(subject="Activate Your Esim", html_content=html_content,
+                       recipients=email)
+        except Exception as e:
+            logger.error(f"Error loading email template: {e}")
+            return False
