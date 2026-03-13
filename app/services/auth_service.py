@@ -64,6 +64,23 @@ class AuthService:
             logger.error(f"Exception on temporary login: {e}")
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
+    async def resend_otp(self, login_request: LoginRequest):
+        otp = self.__user_otp_service.get_active_otp(login_request.phone)
+        if otp is None:
+            otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=login_request.email)
+
+        if login_request.otp_channel == OtpChannelEnum.SMS:
+            await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone, locale="en")
+        elif login_request.otp_channel == OtpChannelEnum.EMAIL:
+            def task():
+                self.__send_otp_email(otp=otp, email=login_request.email, locale="en")
+
+            self.__task_executor.add_task(task)
+        else:
+            logger.error(f"invalid otp channel: {login_request.otp_channel}")
+            raise BadRequestException("Invalid OTP channel")
+        return ResponseHelper.success_response()
+
     async def create_wallet_if_not_exists(self, user_id: str, currency_code: str) -> UserWalletResponse | None:
         user_wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user_id,
                                                                                   currency_code=currency_code)
