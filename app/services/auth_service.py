@@ -232,31 +232,41 @@ class AuthService:
 
         referral_code = self.__generate_referral_code()
         logger.info(f"login request received: {login_request}")
-        if user_exists:
-            authenticate(email=login_request.email,
-                         data={
-                             "display_email": login_request.email,
-                             "login_type": "email",
-                             "language": language
-                         })
-            return ResponseHelper.success_response()
-        else:
-            user = self.__user_repo.get_first_by(where={"email": login_request.email}, filters={
-                "metadata->>email": login_request.email})
-            if user:
-                supabase_client().auth.admin.update_user_by_id(uid=user["id"], attributes={
-                    "email": login_request.email,
-                })
-            authenticate(email=login_request.email,
-                         data={
-                             "referral_code": referral_code,
-                             "display_email": login_request.email,
-                             "should_notify": False,
-                             "login_type": "email",
-                             "language": language,
-                             "currency": os.getenv("DEFAULT_CURRENCY", "USD"),
-                         })
-            return ResponseHelper.success_response()
+        try:
+            if user_exists:
+                authenticate(email=login_request.email,
+                             data={
+                                 "display_email": login_request.email,
+                                 "login_type": "email",
+                                 "language": language
+                             })
+                return ResponseHelper.success_response()
+            else:
+                user = self.__user_repo.get_first_by(where={"email": login_request.email}, filters={
+                    "metadata->>email": login_request.email})
+                if user:
+                    supabase_client().auth.admin.update_user_by_id(uid=user["id"], attributes={
+                        "email": login_request.email,
+                    })
+                authenticate(email=login_request.email,
+                             data={
+                                 "referral_code": referral_code,
+                                 "display_email": login_request.email,
+                                 "should_notify": False,
+                                 "login_type": "email",
+                                 "language": language,
+                                 "currency": os.getenv("DEFAULT_CURRENCY", "USD"),
+                             })
+                return ResponseHelper.success_response()
+        except Exception as e:
+            error_message = str(e)
+            if "you can only request this after" in error_message.lower():
+                logger.warning(f"OTP request rate limited for email {login_request.email}: {error_message}")
+                raise CustomException(code=429, name=ErrorMessages.OTP_REQUEST_TOO_FREQUENT, 
+                                    details="Too many login attempts. Please try again after some time.")
+            else:
+                logger.error(f"Exception on email login: {error_message}")
+                raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=error_message)
 
     async def __handle_phone_login(self, login_request: LoginRequest, language: str = "en") -> Response:
         old_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
