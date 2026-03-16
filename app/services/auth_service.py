@@ -64,7 +64,10 @@ class AuthService:
             logger.error(f"Exception on temporary login: {e}")
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
-    async def resend_otp(self, login_request: LoginRequest):
+    async def resend_otp(self, login_request: LoginRequest, language: str = "en") -> Response:
+        login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
+        if login_type != "email_phone_both":
+            return await self.login(login_request=login_request, language=language)
         otp = self.__user_otp_service.get_active_otp(login_request.phone)
         if otp is None:
             otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=login_request.email)
