@@ -7,8 +7,8 @@ from fastapi import Request
 from loguru import logger
 from soupsieve.util import lower
 
-from app.config.config import authenticate, supabase_client, dcb_service_instance
-from app.config.constants import ErrorMessages
+from app.config.config import authenticate, supabase_client, dcb_service_instance, get_email_template, send_email
+from app.config.constants import ErrorMessages, OtpChannelEnum
 from app.config.db import ConfigKeysEnum
 from app.config.helper import get_config
 from app.config.utils import truncate_two_decimals_decimal
@@ -20,6 +20,7 @@ from app.schemas.auth import LoginRequest, VerifyOtpRequest, UpdateUserInfoReque
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import ResponseHelper, Response
 from app.schemas.user_wallet import UserWalletRequestDto, UserWalletResponse
+from app.services.task_executor import TaskExecutor
 from app.services.user_otp_service import UserOtpService
 from app.services.user_wallet_service import UserWalletService
 
@@ -27,6 +28,7 @@ from app.services.user_wallet_service import UserWalletService
 class AuthService:
 
     def __init__(self):
+        self.__task_executor = TaskExecutor()
         self.__device_repo = DeviceRepo()
         self.__user_repo = UserRepo()
         self.__user_wallet_service = UserWalletService()
@@ -61,6 +63,26 @@ class AuthService:
         except Exception as e:
             logger.error(f"Exception on temporary login: {e}")
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=str(e))
+
+    async def resend_otp(self, login_request: LoginRequest, language: str = "en") -> Response:
+        login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
+        if login_type != "email_phone_both":
+            return await self.login(login_request=login_request, language=language)
+        otp = self.__user_otp_service.get_active_otp(login_request.phone)
+        if otp is None:
+            otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=login_request.email)
+
+        if login_request.otp_channel == OtpChannelEnum.SMS:
+            await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone, locale="en")
+        elif login_request.otp_channel == OtpChannelEnum.EMAIL:
+            def task():
+                self.__send_otp_email(otp=otp, email=login_request.email, locale="en")
+
+            self.__task_executor.add_task(task)
+        else:
+            logger.error(f"invalid otp channel: {login_request.otp_channel}")
+            raise BadRequestException("Invalid OTP channel")
+        return ResponseHelper.success_response()
 
     async def create_wallet_if_not_exists(self, user_id: str, currency_code: str) -> UserWalletResponse | None:
         user_wallet = await self.__user_wallet_service.get_user_wallet_by_user_id(user_id=user_id,
@@ -210,31 +232,41 @@ class AuthService:
 
         referral_code = self.__generate_referral_code()
         logger.info(f"login request received: {login_request}")
-        if user_exists:
-            authenticate(email=login_request.email,
-                         data={
-                             "display_email": login_request.email,
-                             "login_type": "email",
-                             "language": language
-                         })
-            return ResponseHelper.success_response()
-        else:
-            user = self.__user_repo.get_first_by(where={"email": login_request.email}, filters={
-                "metadata->>email": login_request.email})
-            if user:
-                supabase_client().auth.admin.update_user_by_id(uid=user["id"], attributes={
-                    "email": login_request.email,
-                })
-            authenticate(email=login_request.email,
-                         data={
-                             "referral_code": referral_code,
-                             "display_email": login_request.email,
-                             "should_notify": False,
-                             "login_type": "email",
-                             "language": language,
-                             "currency": os.getenv("DEFAULT_CURRENCY", "USD"),
-                         })
-            return ResponseHelper.success_response()
+        try:
+            if user_exists:
+                authenticate(email=login_request.email,
+                             data={
+                                 "display_email": login_request.email,
+                                 "login_type": "email",
+                                 "language": language
+                             })
+                return ResponseHelper.success_response()
+            else:
+                user = self.__user_repo.get_first_by(where={"email": login_request.email}, filters={
+                    "metadata->>email": login_request.email})
+                if user:
+                    supabase_client().auth.admin.update_user_by_id(uid=user["id"], attributes={
+                        "email": login_request.email,
+                    })
+                authenticate(email=login_request.email,
+                             data={
+                                 "referral_code": referral_code,
+                                 "display_email": login_request.email,
+                                 "should_notify": False,
+                                 "login_type": "email",
+                                 "language": language,
+                                 "currency": os.getenv("DEFAULT_CURRENCY", "USD"),
+                             })
+                return ResponseHelper.success_response()
+        except Exception as e:
+            error_message = str(e)
+            if "you can only request this after" in error_message.lower():
+                logger.warning(f"OTP request rate limited for email {login_request.email}: {error_message}")
+                raise CustomException(code=429, name=ErrorMessages.OTP_REQUEST_TOO_FREQUENT, 
+                                    details="Too many login attempts. Please try again after some time.")
+            else:
+                logger.error(f"Exception on email login: {error_message}")
+                raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED, details=error_message)
 
     async def __handle_phone_login(self, login_request: LoginRequest, language: str = "en") -> Response:
         old_user: UsersCopyModel = self.__user_repo.get_first_by(where={},
@@ -281,7 +313,20 @@ class AuthService:
             })
             logging.info(f"created new user: {user}")
         logger.info(f"sending otp to phone number {user_otp_language=} {login_request.phone=}")
-        await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone, locale=user_otp_language)
+        login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
+        if login_request.otp_channel is None:
+            login_request.otp_channel = OtpChannelEnum.SMS if login_type in ["email_phone",
+                                                                             "phone"] else OtpChannelEnum.EMAIL
+        if login_request.otp_channel == OtpChannelEnum.SMS:
+            await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone, locale=user_otp_language)
+        elif login_request.otp_channel == OtpChannelEnum.EMAIL:
+            def task():
+                self.__send_otp_email(otp=otp, email=user_email, locale=user_otp_language)
+
+            self.__task_executor.add_task(task)
+        else:
+            logger.error(f"invalid otp channel: {login_request.otp_channel}")
+            raise BadRequestException("Invalid OTP channel")
         return ResponseHelper.success_data_response(data={"otp_expiration": otp_expiration_time}, total_count=0)
 
     async def __handle_email_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
@@ -343,3 +388,19 @@ class AuthService:
         else:
             data["timestamp_logout"] = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S.%f')
         self.__device_repo.upsert(data=data, on_conflict="device_id,user_id")
+
+    def __send_otp_email(self, otp, email, locale):
+
+        try:
+            template = get_email_template(f"otp_email.htm")
+            data = {
+                "otp": otp,
+                "base_url": get_config("BASE_URL", "http://localhost:8000"),
+                "esim_name": get_config("ESIM_NAME", "Monty Esim"),
+            }
+            html_content = template.render(data=data)
+            send_email(subject="Activate Your Esim", html_content=html_content,
+                       recipients=email)
+        except Exception as e:
+            logger.error(f"Error loading email template: {e}")
+            return False

@@ -3,12 +3,13 @@ from typing import Optional
 
 from pydantic import BaseModel, EmailStr, ConfigDict, field_validator
 
-from app.config.constants import ErrorMessages
+from app.config.constants import ErrorMessages, OtpChannelEnum
 
 
 class LoginRequest(BaseModel):
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
+    otp_channel: Optional[OtpChannelEnum] = None
 
     @field_validator("email", mode="before")
     def extract_email(cls, value):

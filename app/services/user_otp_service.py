@@ -115,3 +115,16 @@ class UserOtpService:
         if len(results.data) == 0:
             return None
         return UserOtpModel(**results.data[0])
+
+    def get_active_otp(self, mobile) -> str | None:
+        from datetime import datetime, timezone
+        now = datetime.now(tz=timezone.utc).isoformat()
+        results = (supabase_client().table(DatabaseTables.TABLE_USER_OTP)
+                   .select("*")
+                   .eq("mobile", mobile)
+                   .eq("is_used", False)
+                   .gt("expire_at", now)
+                   .execute())
+        if len(results.data) == 0:
+            return None
+        return results.data[0]["otp"]
