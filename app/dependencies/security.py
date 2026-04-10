@@ -18,13 +18,30 @@ security = HTTPBearer()
 
 def refresh_token(x_refresh_token: str = Header(..., description=ErrorMessages.REFRESH_TOKEN_MISSING)) -> str:
     if not x_refresh_token:
-        raise CustomException(code=401, name=ErrorMessages.REFRESH_TOKEN_MISSING, details=ErrorMessages.REFRESH_TOKEN_MISSING)
+        raise CustomException(code=401, name=ErrorMessages.REFRESH_TOKEN_MISSING,
+                              details=ErrorMessages.REFRESH_TOKEN_MISSING)
     return x_refresh_token
 
 
 def bearer_token(credentials: HTTPAuthorizationCredentials = Security(security)) -> UserModel:
     if not credentials or not credentials.credentials:
         raise HTTPException(status_code=401, detail=ErrorMessages.BEARER_TOKEN_REQUIRED)
+
+    if os.getenv("SUPABASE_JWT_SECRET", None) is None:
+        try:
+            response: AuthResponse = supabase_client().auth.get_user(jwt=credentials.credentials)
+            if response.user.is_anonymous and not response.user.email:
+                raise HTTPException(status_code=401, detail="Anonymous user is not allowed")
+            user = UserModel(id=response.user.id, email=response.user.email,
+                             token=credentials.credentials,
+                             msisdn=response.user.user_metadata.get("msisdn", None),
+                             is_verified=response.user.user_metadata.get("email_verified", False),
+                             is_anonymous=response.user.is_anonymous
+                             )
+            auth_user_context.set(user)
+            return user
+        except Exception:
+            raise HTTPException(status_code=401, detail=ErrorMessages.BEARER_TOKEN_REQUIRED)
     try:
         decoded_token = jwt.decode(jwt=credentials.credentials, key=os.getenv("SUPABASE_JWT_SECRET"),
                                    algorithms=["HS256"], audience="authenticated")
@@ -49,7 +66,8 @@ def bearer_token(credentials: HTTPAuthorizationCredentials = Security(security))
 
 def bearer_token_anonymous(credentials: HTTPAuthorizationCredentials = Security(security)) -> UserModel:
     if not credentials or not credentials.credentials:
-        raise CustomException(code=401, name=ErrorMessages.TOKEN_IS_REQUIRED, details="Bearer Token is required for this operation")
+        raise CustomException(code=401, name=ErrorMessages.TOKEN_IS_REQUIRED,
+                              details="Bearer Token is required for this operation")
     try:
         response: AuthResponse = supabase_client().auth.get_user(jwt=credentials.credentials)
         metadata = response.user.user_metadata
@@ -102,7 +120,9 @@ def device_token(x_device_id: str = Header(..., description=ErrorMessages.DEVICE
         raise CustomException(code=400, name=ErrorMessages.DEVICE_ID_MISSING, details=ErrorMessages.DEVICE_ID_MISSING)
     return x_device_id
 
+
 def platform_header(x_platform: str = Header(..., description=ErrorMessages.PLATFORM_HEADER_MISSING)) -> str:
     if not x_platform:
-        raise CustomException(code=400, name=ErrorMessages.PLATFORM_HEADER_MISSING, details=ErrorMessages.PLATFORM_HEADER_MISSING)
+        raise CustomException(code=400, name=ErrorMessages.PLATFORM_HEADER_MISSING,
+                              details=ErrorMessages.PLATFORM_HEADER_MISSING)
     return x_platform
