@@ -986,6 +986,27 @@ create table banner
 alter table banner
     owner to postgres;
 
+
+create table banner_translation
+(
+    id          bigint      not null
+        primary key,
+    banner_id   integer     not null
+        constraint banner_translation_banner_fk
+            references banner
+            on delete cascade,
+    locale      varchar(10) not null,
+    title       varchar(255),
+    description varchar(500),
+    created_at  timestamp default now(),
+    updated_at  timestamp default now(),
+    constraint banner_translation_unique
+        unique (banner_id, locale)
+);
+
+alter table banner_translation
+    owner to postgres;
+
 create function update_timestamp() returns trigger
     language plpgsql
 as
