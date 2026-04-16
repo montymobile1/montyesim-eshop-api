@@ -21,7 +21,7 @@ chardet==3.0.4
 charset-normalizer==3.4.1
 click==8.1.8
 coverage==7.6.12
-cryptography>=45.0.0
+cryptography>=46.0.7
 DateTime==6.0
 deep-translator==1.11.4
 deprecation==2.1.0
@@ -42,7 +42,7 @@ google-auth-httplib2==0.2.0
 google-cloud-core==2.4.1
 google-cloud-firestore==2.20.0
 google-cloud-storage==3.0.0
-google-crc32c==1.6.0
+google-crc32c==1.8.0
 google-genai==1.60.0
 google-resumable-media==2.7.2
 googleapis-common-protos==1.67.0
@@ -79,7 +79,7 @@ openai==2.15.0
 orjson==3.11.7
 packaging==24.2
 passlib==1.7.4
-pillow==11.1.0
+pillow==12.2.0
 pluggy==1.5.0
 postgrest==0.19.3
 prompt_toolkit==3.0.52
@@ -97,7 +97,7 @@ psycopg-pool==3.2.8
 greenlet>=3.3.0
 pydantic_core==2.27.2
 Pygments==2.19.2
-PyJWT==2.10.1
+PyJWT==2.12.0
 pyparsing==3.2.1
 pytest==8.3.5
 pytest-asyncio==0.25.3
@@ -111,7 +111,7 @@ questionary==2.1.1
 RapidFuzz==3.14.3
 readchar==4.2.1
 realtime==2.3.0
-requests==2.32.3
+requests==2.33.0
 requests-toolbelt==1.0.0
 rfc3986==1.5.0
 rich==14.3.3
@@ -147,7 +147,7 @@ typing_extensions==4.12.2
 tzdata==2025.3
 tzlocal==5.3
 uritemplate==4.1.1
-urllib3==2.3.0
+urllib3==2.6.3
 uuid_utils==0.14.1
 uvicorn==0.34.0
 wcwidth==0.6.0
