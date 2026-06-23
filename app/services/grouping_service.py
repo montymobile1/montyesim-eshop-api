@@ -53,70 +53,49 @@ class GroupingService:
         return [RegionDTO.model_validate(tag.data) for tag in tags]
 
     async def get_cruise_bundle(self, rate: float, currency_name: str, locale: str) -> List[BundleDTO]:
-        tags = await self.__get_all_tags_by_group_id(group_id=3)
-
-        tag_id = tags[0].id if tags else 0
-        bundles: List[BundleDTO] = []
-
-        if tag_id:
-            bundler_tags = self.__bundle_tag_repo.list(
-                where={"tag_id": tag_id}
-            )
-
-            for bundle_tag in bundler_tags:
-                bundles_list = self.__bundle_repo.list(where={"id": bundle_tag.bundle_id, "is_active": True})
-                if len(bundles_list) == 0:
-                    continue
-                bundle = bundles_list[0]
-                if bundle and bundle.data:
-                    bundle_dto = BundleDTO(**bundle.data)
-                    if locale != os.getenv("DEFAULT_LOCALE", "en"):
-                        tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
-                        country_tags = self.__tag_repo.select_procedure(
-                            function_name="get_translated_tag_by_tag_id_list",
-                            where={"tag_ids": tags_id,
-                                   "locale_param": locale})
-                        for country_tag in country_tags:
-                            country_tag.data["country"] = country_tag.name
-                        countries = [tag.data for tag in country_tags]
-                        bundle_dto.countries = countries
-                    bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency_name, rate))
-
-        return bundles
+        return await self.__get_group_bundles(group_id=3, rate=rate, currency_name=currency_name, locale=locale)
 
     async def get_global_bundle(self, rate: float, currency_name: str, locale: str) -> List[BundleDTO]:
-        tags = await self.__get_all_tags_by_group_id(group_id=4)
-        if not tags:
+        return await self.__get_group_bundles(group_id=4, rate=rate, currency_name=currency_name, locale=locale)
+
+    async def __get_group_bundles(self, group_id: int, rate: float, currency_name: str, locale: str) -> List[BundleDTO]:
+        tags = await self.__get_all_tags_by_group_id(group_id=group_id)
+        tag_ids = [str(tag.id) for tag in tags if tag.id]
+        if not tag_ids:
             return []
 
-        tag_id = tags[0].id if tags else 0
+        bundles = self.__bundle_repo.get_bundles_by_tags(",".join(tag_ids), locale)
+        bundle_dtos: List[BundleDTO] = []
+        seen_bundle_codes = set()
 
-        bundles: List[BundleDTO] = []
+        for bundle in bundles:
+            if not bundle or not bundle.data:
+                continue
 
-        if tag_id:
-            bundler_tags = self.__bundle_tag_repo.list(
-                where={"tag_id": tag_id}
-            )
+            bundle_dto = BundleDTO(**bundle.data)
+            if bundle_dto.bundle_code in seen_bundle_codes:
+                continue
 
-            for bundle_tag in bundler_tags:
-                bundles_list = self.__bundle_repo.list(where={"id": bundle_tag.bundle_id, "is_active": True})
-                if len(bundles_list) == 0:
-                    continue
-                bundle = bundles_list[0]
-                if bundle and bundle.data:
-                    bundle_dto = BundleDTO(**bundle.data)
-                    if locale != os.getenv("DEFAULT_LOCALE", "en"):
-                        tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
-                        country_tags = self.__tag_repo.select_procedure(
-                            function_name="get_translated_tag_by_tag_id_list",
-                            where={"tag_ids": tags_id,
-                                   "locale_param": locale})
-                        for country_tag in country_tags:
-                            country_tag.data["country"] = country_tag.name
-                        countries = [tag.data for tag in country_tags]
-                        bundle_dto.countries = countries
-                    bundles.append(DtoMapper.bundle_currency_update(bundle_dto, currency_name, rate))
-        return bundles
+            if locale != os.getenv("DEFAULT_LOCALE", "en"):
+                bundle_dto.countries = await self.__get_localized_countries(bundle_dto, locale)
+
+            seen_bundle_codes.add(bundle_dto.bundle_code)
+            bundle_dtos.append(DtoMapper.bundle_currency_update(bundle_dto, currency_name, rate))
+
+        return bundle_dtos
+
+    async def __get_localized_countries(self, bundle_dto: BundleDTO, locale: str):
+        tags_id = [bundle_country.id for bundle_country in bundle_dto.countries]
+        if not tags_id:
+            return bundle_dto.countries
+
+        country_tags = self.__tag_repo.select_procedure(
+            function_name="get_translated_tag_by_tag_id_list",
+            where={"tag_ids": tags_id, "locale_param": locale}
+        )
+        for country_tag in country_tags:
+            country_tag.data["country"] = country_tag.name
+        return [tag.data for tag in country_tags]
 
     def translate_tags(self, locale: str):
 

@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import patch, AsyncMock
+from unittest.mock import patch, AsyncMock, MagicMock
 
 from app.schemas.home import HomeResponseDto
 from app.schemas.response import Response
@@ -36,6 +36,24 @@ class TestHomeService(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(home_data.regions, get_region_mocks())
         self.assertEqual(home_data.cruise_bundles, get_bundle_mocks())
         self.assertEqual(home_data.global_bundles, get_bundle_mocks())
+
+    async def test_get_cruise_bundles_populates_all_sections(self):
+        self.home_service._HomeService__get_countries_v2 = AsyncMock(return_value=get_country_mocks())
+        self.home_service._HomeService__get_regions_v2 = AsyncMock(return_value=get_region_mocks())
+        self.home_service._HomeService__currency_service = MagicMock()
+        self.home_service._HomeService__currency_service.get_rate_by_currency.return_value = 1.0
+        self.home_service._HomeService__grouping_service = MagicMock()
+        self.home_service._HomeService__grouping_service.get_cruise_bundle = AsyncMock(return_value=get_bundle_mocks())
+        self.home_service._HomeService__grouping_service.get_global_bundle = AsyncMock(return_value=get_bundle_mocks())
+
+        response = await self.home_service.get_cruise_bundles(currency="USD", locale="en")
+
+        self.assertIsInstance(response, Response)
+        self.assertEqual(response.status, "success")
+        self.assertEqual(response.data.countries, get_country_mocks())
+        self.assertEqual(response.data.regions, get_region_mocks())
+        self.assertEqual(response.data.cruise_bundles, get_bundle_mocks())
+        self.assertEqual(response.data.global_bundles, get_bundle_mocks())
 
 
 if __name__ == "__main__":

@@ -75,15 +75,22 @@ class HomeService:
         return ResponseHelper.success_data_response(home_dto, 0)
 
     async def get_cruise_bundles(self, currency: str, locale: str) -> Response[HomeResponseDto]:
+        all_countries = await self.__get_countries_v2(locale)
+        regions = await self.__get_regions_v2(locale)
         rate = self.__currency_service.get_rate_by_currency(currency)
         cruise_bundles = await self.__grouping_service.get_cruise_bundle(rate=rate, currency_name=currency,
                                                                          locale=locale)
         cruise_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
+        all_global_bundles = await self.__grouping_service.get_global_bundle(rate=rate, currency_name=currency,
+                                                                             locale=locale)
+        all_global_bundles.sort(key=lambda bundle: bundle.price or 0, reverse=False)
+        global_bundles = [bundle for bundle in all_global_bundles
+                          if len(bundle.countries) >= int(os.getenv("GLOBAL_COUNTRIES_COUNT", 50))]
         home_response = {
-            "countries": [],
-            "regions": [],
+            "countries": all_countries,
+            "regions": regions,
             "cruise_bundles": cruise_bundles,
-            "global_bundles": []
+            "global_bundles": global_bundles
         }
         return ResponseHelper.success_data_response(HomeResponseDto(**home_response), 0)
 

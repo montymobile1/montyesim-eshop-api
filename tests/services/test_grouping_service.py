@@ -1,6 +1,5 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-import asyncio
 from app.services.grouping_service import GroupingService
 
 @pytest.fixture
@@ -40,17 +39,15 @@ async def test_get_all_regions(grouping_service):
 
 @pytest.mark.asyncio
 async def test_get_cruise_bundle(grouping_service):
-    mock_tag = MagicMock()
-    mock_tag.id = 1
-    grouping_service._GroupingService__tag_repo.select_procedure.return_value = [mock_tag]
-
-    mock_bundle_tag = MagicMock()
-    mock_bundle_tag.bundle_id = 10
-    grouping_service._GroupingService__bundle_tag_repo.list.return_value = [mock_bundle_tag]
+    mock_tag_1 = MagicMock()
+    mock_tag_1.id = 1
+    mock_tag_2 = MagicMock()
+    mock_tag_2.id = 2
+    grouping_service._GroupingService__tag_repo.select_procedure.return_value = [mock_tag_1, mock_tag_2]
 
     mock_bundle = MagicMock()
-    mock_bundle.data = {'countries': [{'id': 1}], 'other': 'data'}
-    grouping_service._GroupingService__bundle_repo.list.return_value = [mock_bundle]
+    mock_bundle.data = {'countries': [{'id': 1}], 'bundle_code': 'B1', 'other': 'data'}
+    grouping_service._GroupingService__bundle_repo.get_bundles_by_tags.return_value = [mock_bundle]
 
     with patch('app.services.grouping_service.BundleDTO') as mock_bundle_dto, \
          patch('app.services.grouping_service.DtoMapper.bundle_currency_update') as mock_update, \
@@ -63,6 +60,7 @@ async def test_get_cruise_bundle(grouping_service):
 
         result = await grouping_service.get_cruise_bundle(1.0, 'USD', 'en')
         assert len(result) == 1
+        grouping_service._GroupingService__bundle_repo.get_bundles_by_tags.assert_called_once_with('1,2', 'en')
         mock_update.assert_called_with(mock_bundle_dto_instance, 'USD', 1.0)
 
 @pytest.mark.asyncio
@@ -71,13 +69,9 @@ async def test_get_global_bundle(grouping_service):
     mock_tag.id = 1
     grouping_service._GroupingService__tag_repo.select_procedure.return_value = [mock_tag]
 
-    mock_bundle_tag = MagicMock()
-    mock_bundle_tag.bundle_id = 10
-    grouping_service._GroupingService__bundle_tag_repo.list.return_value = [mock_bundle_tag]
-
     mock_bundle = MagicMock()
-    mock_bundle.data = {'countries': [{'id': 1}], 'other': 'data'}
-    grouping_service._GroupingService__bundle_repo.list.return_value = [mock_bundle]
+    mock_bundle.data = {'countries': [{'id': 1}], 'bundle_code': 'B1', 'other': 'data'}
+    grouping_service._GroupingService__bundle_repo.get_bundles_by_tags.return_value = [mock_bundle]
 
     with patch('app.services.grouping_service.BundleDTO') as mock_bundle_dto, \
          patch('app.services.grouping_service.DtoMapper.bundle_currency_update') as mock_update, \
@@ -90,7 +84,37 @@ async def test_get_global_bundle(grouping_service):
 
         result = await grouping_service.get_global_bundle(1.0, 'USD', 'en')
         assert len(result) == 1
+        grouping_service._GroupingService__bundle_repo.get_bundles_by_tags.assert_called_once_with('1', 'en')
         mock_update.assert_called_with(mock_bundle_dto_instance, 'USD', 1.0)
+
+@pytest.mark.asyncio
+async def test_get_cruise_bundle_deduplicates_same_bundle_from_multiple_tags(grouping_service):
+    mock_tag_1 = MagicMock()
+    mock_tag_1.id = 1
+    mock_tag_2 = MagicMock()
+    mock_tag_2.id = 2
+    grouping_service._GroupingService__tag_repo.select_procedure.return_value = [mock_tag_1, mock_tag_2]
+
+    duplicate_bundle_1 = MagicMock()
+    duplicate_bundle_1.data = {'countries': [{'id': 1}], 'bundle_code': 'B1', 'other': 'data'}
+    duplicate_bundle_2 = MagicMock()
+    duplicate_bundle_2.data = {'countries': [{'id': 1}], 'bundle_code': 'B1', 'other': 'data'}
+    grouping_service._GroupingService__bundle_repo.get_bundles_by_tags.return_value = [duplicate_bundle_1,
+                                                                                         duplicate_bundle_2]
+
+    with patch('app.services.grouping_service.BundleDTO') as mock_bundle_dto, \
+         patch('app.services.grouping_service.DtoMapper.bundle_currency_update') as mock_update, \
+         patch('os.getenv', return_value='en'):
+        mock_bundle_dto_instance = MagicMock()
+        mock_bundle_dto_instance.countries = [MagicMock(id=1)]
+        mock_bundle_dto_instance.bundle_code = 'B1'
+        mock_bundle_dto.return_value = mock_bundle_dto_instance
+        mock_update.return_value = mock_bundle_dto_instance
+
+        result = await grouping_service.get_cruise_bundle(1.0, 'USD', 'en')
+
+        assert len(result) == 1
+        assert mock_update.call_count == 1
 
 @pytest.mark.asyncio
 async def test_translate_tags(grouping_service):
