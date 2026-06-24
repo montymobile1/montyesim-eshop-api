@@ -145,6 +145,7 @@ class EsimBundleResponse(BaseModel):
     activity_policy: str
     bundle_message: List[BundleMessage]
     countries: List[CountryDTO]
+    supported_ships: List[CountryDTO] = []
     icon: Optional[str]
     transaction_history: List[TransactionHistoryResponse]
 

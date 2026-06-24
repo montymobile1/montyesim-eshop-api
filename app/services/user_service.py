@@ -21,11 +21,12 @@ from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrder
     UserProfileModel, UserProfileBundleModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
 from app.repo.bundle_repo import BundleTranslationRepo
+from app.repo.tag_repo import TagRepo
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
     ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest, VerifyOtpRequestDto
 from app.schemas.dto_mapper import DtoMapper
-from app.schemas.home import BundleDTO
+from app.schemas.home import BundleDTO, CountryDTO
 from app.schemas.response import Response, ResponseHelper
 from app.services.bundle_service import BundleService
 from app.services.currency_service import CurrencyService
@@ -50,6 +51,7 @@ class UserBundleService:
         self.__user_repo = UserRepo()
         self.__task_executor = TaskExecutor()
         self.__bundle_translation_repo = BundleTranslationRepo()
+        self.__tag_repo = TagRepo()
 
     async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
                      locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
@@ -137,17 +139,38 @@ class UserBundleService:
 
     async def assign_top_up(self, user: UserModel, assign_top_up_request: AssignTopUpRequest, device_id: str,
                             request: Request, x_currency: str, locale: str) -> Response:
-        bundle_response = self.__bundle_service.get_bundle(bundle_id=assign_top_up_request.bundle_code,
-                                                           currency_name=x_currency, locale=locale)
-        bundle = bundle_response.data
+        bundle = await self.__esim_hub_service.get_bundle_by_id(
+            bundle_id=assign_top_up_request.bundle_code
+        )
+
+        if not bundle or not bundle.is_active:
+            raise CustomException(
+                code=400,
+                name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
+                details=ErrorMessages.BUNDLE_NOT_AVAILABLE
+            )
+
+        if not bundle.is_stockable:
+            check_bundle_available = await self.__esim_hub_service.check_bundle_applicable(
+                bundle.bundle_info_code
+            )
+            if not check_bundle_available:
+                raise CustomException(
+                    code=400,
+                    name=ErrorMessages.BUNDLE_NOT_AVAILABLE,
+                    details=ErrorMessages.BUNDLE_NOT_AVAILABLE
+                )
+
+        amount = bundle.original_price
+        modified_amount = bundle.original_price
 
         order = self.__user_order_repo.create({
             "user_id": user.id,
             "bundle_id": assign_top_up_request.bundle_code,
             "order_type": UserOrderType.BUNDLE_TOP_UP,
-            "amount": round(bundle.original_price * 100),
-            "modified_amount": round(bundle.original_price * 100),
-            "currency": os.getenv("DEFAULT_CURRENCY"),
+            "amount": int(round(amount * 100)),
+            "modified_amount": int(round(modified_amount * 100)),
+            "currency": "USD",
             "bundle_data": bundle.model_dump_json(),
             "searched_countries": None,
             "payment_type": assign_top_up_request.payment_type
@@ -156,21 +179,40 @@ class UserBundleService:
         payment_type = assign_top_up_request.payment_type
 
         if payment_type == PaymentTypeEnum.WALLET:
-            return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order,
-                                                      iccid=assign_top_up_request.iccid,
-                                                      modified_amount=bundle.original_price,
-                                                      rule_id="")
-        elif payment_type == PaymentTypeEnum.DCB:
-            return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
-        elif payment_type == PaymentTypeEnum.CARD:
-            return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
-                                                    assign_request=None, rule_id="0", request=request,
-                                                    iccid=assign_top_up_request.iccid,
-                                                    x_currency=x_currency)
-        else:
-            raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
-                                  details=f"Payment type {payment_type} is not supported")
+            return await self.__handle_wallet_payment(
+                user=user,
+                bundle=bundle,
+                user_order=order,
+                iccid=assign_top_up_request.iccid,
+                modified_amount=modified_amount,
+                rule_id=""
+            )
 
+        elif payment_type == PaymentTypeEnum.DCB:
+            return await self.__handle_dcb_payment(
+                user=user,
+                bundle=bundle,
+                user_order=order
+            )
+
+        elif payment_type == PaymentTypeEnum.CARD:
+            return await self.__handle_card_payment(
+                user=user,
+                order=order,
+                device_id=device_id,
+                assign_request=None,
+                rule_id="0",
+                request=request,
+                iccid=assign_top_up_request.iccid,
+                x_currency=x_currency
+            )
+
+        else:
+            raise CustomException(
+                code=400,
+                name=ErrorMessages.INVALID_PAYMENT_TYPE,
+                details=f"Payment type {payment_type} is not supported"
+            )
     async def get_user_esims(self, user: UserModel, x_currency: str, accept_language: str = "en") -> Response[
         List[EsimBundleResponse]]:
         # Fetch raw profile rows including joined bundles so we can robustly handle mapping
@@ -255,6 +297,17 @@ class UserBundleService:
 
                 bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, x_currency=x_currency, rate=rate,
                                                            tax=tax_amount, bundle_data=bundle_data)
+
+                try:
+                    supported_chips = self.__tag_repo.select_procedure(
+                        function_name="get_bundle_tags_by_group_name",
+                        where={"p_bundle_id": bundle.bundle_code, "p_group_name": "ships"}
+                    )
+                    for chip in supported_chips:
+                        chip.data["country"] = chip.name
+                    bundle.supported_ships = [CountryDTO.model_validate(chip.data) for chip in supported_chips]
+                except Exception as e:
+                    logger.error(f"Failed to fetch supported ships for bundle {bundle.bundle_code}: {e}")
 
                 # Update display price for each transaction history item using the order's tax
                 for history in bundle.transaction_history:
