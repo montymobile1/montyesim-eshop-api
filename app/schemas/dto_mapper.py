@@ -278,6 +278,7 @@ class DtoMapper:
             "activity_policy": "",
             "bundle_message": [],
             "countries": countries_sorted,
+            "supported_ships": [],
             "icon": icon_url,
             "transaction_history": [
                 DtoMapper.to_transaction_history_response(user_profile_bundle=bundle, rate=rate, x_currency=x_currency)

@@ -21,11 +21,12 @@ from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrder
     UserProfileModel, UserProfileBundleModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
 from app.repo.bundle_repo import BundleTranslationRepo
+from app.repo.tag_repo import TagRepo
 from app.schemas.app import UserNotificationResponse
 from app.schemas.bundle import AssignRequest, AssignTopUpRequest, PaymentIntentResponse, EsimBundleResponse, \
     ConsumptionResponse, UserOrderHistoryResponse, UpdateBundleLabelRequest, VerifyOtpRequestDto
 from app.schemas.dto_mapper import DtoMapper
-from app.schemas.home import BundleDTO
+from app.schemas.home import BundleDTO, CountryDTO
 from app.schemas.response import Response, ResponseHelper
 from app.services.bundle_service import BundleService
 from app.services.currency_service import CurrencyService
@@ -50,6 +51,7 @@ class UserBundleService:
         self.__user_repo = UserRepo()
         self.__task_executor = TaskExecutor()
         self.__bundle_translation_repo = BundleTranslationRepo()
+        self.__tag_repo = TagRepo()
 
     async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
                      locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
@@ -255,6 +257,17 @@ class UserBundleService:
 
                 bundle = DtoMapper.to_esim_bundle_response(user_profile=profile, x_currency=x_currency, rate=rate,
                                                            tax=tax_amount, bundle_data=bundle_data)
+
+                try:
+                    supported_chips = self.__tag_repo.select_procedure(
+                        function_name="get_bundle_tags_by_group_name",
+                        where={"p_bundle_id": bundle.bundle_code, "p_group_name": "ships"}
+                    )
+                    for chip in supported_chips:
+                        chip.data["country"] = chip.name
+                    bundle.supported_ships = [CountryDTO.model_validate(chip.data) for chip in supported_chips]
+                except Exception as e:
+                    logger.error(f"Failed to fetch supported ships for bundle {bundle.bundle_code}: {e}")
 
                 # Update display price for each transaction history item using the order's tax
                 for history in bundle.transaction_history:
