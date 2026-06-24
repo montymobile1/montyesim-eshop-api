@@ -78,8 +78,9 @@ class GroupingService:
                             })
                         bundle_dto.supported_cruise = []
                         for chip in supported_chips:
-                            chip.data["country"] = chip.name
-                        bundle_dto.supported_ships = [CountryDTO.model_validate(chip.data) for chip in supported_chips]
+                            if chip.data is not None:
+                                chip.data["country"] = chip.name
+                        bundle_dto.supported_ships = [CountryDTO.model_validate(chip.data) for chip in supported_chips if chip.data is not None]
                     except Exception as e:
                         logger.error(f"Failed to support chips: {e}")
                     if locale != os.getenv("DEFAULT_LOCALE", "en"):

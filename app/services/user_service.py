@@ -304,8 +304,9 @@ class UserBundleService:
                         where={"p_bundle_id": bundle.bundle_code, "p_group_name": "ships"}
                     )
                     for chip in supported_chips:
-                        chip.data["country"] = chip.name
-                    bundle.supported_ships = [CountryDTO.model_validate(chip.data) for chip in supported_chips]
+                        if chip.data is not None:
+                            chip.data["country"] = chip.name
+                    bundle.supported_ships = [CountryDTO.model_validate(chip.data) for chip in supported_chips if chip.data is not None]
                 except Exception as e:
                     logger.error(f"Failed to fetch supported ships for bundle {bundle.bundle_code}: {e}")
 
