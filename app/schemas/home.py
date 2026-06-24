@@ -51,7 +51,6 @@ class BundleDTO(BaseModel):
     activity_policy: str = "The validity period starts when the eSIM connects to any supported networks."
     validity_display: str
     countries: List[CountryDTO]
-    supported_cruise: List[CountryDTO] = []
     supported_ships: List[CountryDTO] = []
     icon: Optional[str] = "https://placehold.co/400x400"
     label: Optional[str] = None
