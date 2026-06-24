@@ -78,7 +78,7 @@ class GroupingService:
                                 "p_bundle_id": bundle.id,
                                 "p_group_name": "ships"
                             })
-                        bundle_dto.supported_ships = [CountryDTO(id=chip.id,country_code="", alternative_country="",country=chip.name,iso3_code="",zone_name="",icon=(chip.data.get("icon") if chip.data else None),operator_list=[]) for chip in supported_ships]
+                        bundle_dto.supported_ships = [CountryDTO(id=chip.id,country_code="", alternative_country="",country=chip.name,iso3_code="",zone_name="",icon=chip.icon,operator_list=[]) for chip in supported_ships]
                     except Exception as e:
                         logger.error(f"Failed to support chips: {e}")
                     if locale != os.getenv("DEFAULT_LOCALE", "en"):
