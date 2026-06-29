@@ -213,6 +213,7 @@ class UserBundleService:
                 name=ErrorMessages.INVALID_PAYMENT_TYPE,
                 details=f"Payment type {payment_type} is not supported"
             )
+
     async def get_user_esims(self, user: UserModel, x_currency: str, accept_language: str = "en") -> Response[
         List[EsimBundleResponse]]:
         # Fetch raw profile rows including joined bundles so we can robustly handle mapping
@@ -299,14 +300,16 @@ class UserBundleService:
                                                            tax=tax_amount, bundle_data=bundle_data)
 
                 try:
-                    supported_chips = self.__tag_repo.select_procedure(
+                    supported_ships = self.__tag_repo.select_procedure(
                         function_name="get_bundle_tags_by_group_name",
                         where={"p_bundle_id": bundle.bundle_code, "p_group_name": "ships"}
                     )
-                    for chip in supported_chips:
+                    for chip in supported_ships:
                         if chip.data is not None:
                             chip.data["country"] = chip.name
-                    bundle.supported_ships = [CountryDTO(id=chip.id,country_code="", alternative_country="",country=chip.name,iso3_code="",zone_name="",icon=chip.icon,operator_list=[]) for chip in supported_chips]
+                    bundle.supported_ships = [
+                        CountryDTO(id=chip.id, country_code="", alternative_country="", country=chip.name, iso3_code="",
+                                   zone_name="", icon=chip.icon, operator_list=[]) for chip in supported_ships]
                 except Exception as e:
                     logger.error(f"Failed to fetch supported ships for bundle {bundle.bundle_code}: {e}")
 
@@ -388,17 +391,17 @@ class UserBundleService:
 
         if started_bundle:
             latest_started_bundle = started_bundle[-1]
-            logger.info(f"get started bundle consumption Order_id: { latest_started_bundle.esim_hub_order_id}")
+            logger.info(f"get started bundle consumption Order_id: {latest_started_bundle.esim_hub_order_id}")
             consumption = await self.__esim_hub_service.get_bundle_consumption(
                 latest_started_bundle.esim_hub_order_id
             )
         elif active_bundle:
-            logger.info(f"get started active bundle consumption Order_id: { active_bundle.esim_hub_order_id}")
+            logger.info(f"get started active bundle consumption Order_id: {active_bundle.esim_hub_order_id}")
             consumption = await self.__esim_hub_service.get_bundle_consumption(
                 active_bundle.esim_hub_order_id
             )
         else:
-            logger.info(f"get started bundle consumption Order_id: { profile.esim_hub_order_id}")
+            logger.info(f"get started bundle consumption Order_id: {profile.esim_hub_order_id}")
             consumption = await self.__esim_hub_service.get_bundle_consumption(
                 profile.esim_hub_order_id
             )
