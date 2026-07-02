@@ -278,8 +278,28 @@ async def test_verify_otp_phone_test_apple_static_pin(auth_service):
 
         assert response.status == "success"
         mock_supabase.return_value.auth.sign_in_with_password.assert_called_once()
-        # Static bypass runs before any DB lookup or OTP verification.
-        auth_service._AuthService__user_repo.get_first_by.assert_not_called()
+        # Static bypass runs before normal OTP verification.
+        auth_service._AuthService__user_otp_service.verify_otp.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_verify_otp_phone_test_apple_email_from_db(auth_service):
+    """Phone-only verify request (no user_email): test.apple is resolved from the stored user."""
+    verify_request = VerifyOtpRequest(phone="+961234567890", user_email=None, verification_pin="123123")
+    auth_service._AuthService__user_repo.get_first_by.return_value = UsersCopyModel(
+        id="123", email="test.apple@example.com", metadata={"msisdn": "+961234567890"})
+
+    with patch("app.services.auth_service.supabase_client") as mock_supabase, \
+            patch("app.services.auth_service.get_config") as mock_get_config, \
+            patch("app.schemas.dto_mapper.DtoMapper.to_auth_response") as mock_dto_mapper:
+        mock_get_config.return_value = "phone"
+        mock_supabase.return_value.auth.sign_in_with_password.return_value = MagicMock()
+        mock_dto_mapper.return_value = MagicMock()
+
+        response = await auth_service._AuthService__handle_phone_otp_verify(verify_request, "device123")
+
+        assert response.status == "success"
+        mock_supabase.return_value.auth.sign_in_with_password.assert_called_once()
         auth_service._AuthService__user_otp_service.verify_otp.assert_not_called()
 
 

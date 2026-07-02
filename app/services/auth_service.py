@@ -370,15 +370,18 @@ class AuthService:
     async def __handle_phone_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
         logger.info(f"verify_otp phone request received: {verify_otp_request}")
+        user = self.__user_repo.get_first_by(filters={"metadata ->> msisdn ": verify_otp_request.phone}, where={})
+        # Static test account: accept OTP 123123 without any OTP record or normal validation.
+        # The email may come on the request, or be resolved from the stored user (phone-only request).
+        test_email = verify_otp_request.user_email or (user.email if user else None)
         if (get_config(ConfigKeysEnum.LOGIN_TYPE, "email") == "phone"
-                and verify_otp_request.user_email == "test.apple@example.com"
+                and test_email == "test.apple@example.com"
                 and verify_otp_request.verification_pin == "123123"):
             response = supabase_client().auth.sign_in_with_password({
-                "email": verify_otp_request.user_email,
+                "email": "test.apple@example.com",
                 "password": "esim_oss@2025"
             })
             return ResponseHelper.success_data_response(DtoMapper.to_auth_response(response), 0)
-        user = self.__user_repo.get_first_by(filters={"metadata ->> msisdn ": verify_otp_request.phone}, where={})
         if not user:
             raise CustomException(code=400, name=ErrorMessages.USER_NOT_FOUND,
                                   details=f"User {verify_otp_request.phone} not found")
