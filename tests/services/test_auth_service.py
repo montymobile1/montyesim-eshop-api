@@ -237,6 +237,28 @@ async def test_phone_login_test_apple_skips_otp(auth_service):
 
 
 @pytest.mark.asyncio
+async def test_phone_login_test_apple_existing_user_resets_password(auth_service):
+    """An existing test.apple account must have its password reset to the known static value."""
+    login_request = LoginRequest(email="test.apple@example.com", phone="+961234567890")
+    auth_service._AuthService__user_repo.get_first_by.return_value = UsersCopyModel(
+        id="apple-123", email="test.apple@example.com", metadata={"msisdn": "+961234567890"})
+
+    with patch("app.services.auth_service.supabase_client") as mock_supabase, \
+            patch("app.services.auth_service.get_config") as mock_get_config:
+        mock_get_config.return_value = "phone"
+
+        response = await auth_service._AuthService__handle_phone_login(login_request)
+
+        assert response.status == "success"
+        # Existing account: password is repaired via admin API, not re-created.
+        mock_supabase.return_value.auth.admin.update_user_by_id.assert_called_once_with(
+            uid="apple-123", attributes={"password": "esim_oss@2025"})
+        mock_supabase.return_value.auth.sign_up.assert_not_called()
+        auth_service._AuthService__user_otp_service.generate_otp.assert_not_called()
+        auth_service._AuthService__dcb_service.send_otp.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_phone_login_test_apple_wrong_login_type_uses_normal_flow(auth_service):
     """When login_type is not 'phone', the test.apple bypass must NOT trigger; normal OTP flow runs."""
     from app.config.db import ConfigKeysEnum
@@ -263,43 +285,17 @@ async def test_phone_login_test_apple_wrong_login_type_uses_normal_flow(auth_ser
 
 @pytest.mark.asyncio
 async def test_verify_otp_phone_test_apple_static_pin(auth_service):
-    """test.apple phone verify accepts static 123123 without any OTP lookup/verification."""
+    """test.apple + 123123 returns success immediately: no Supabase, no OTP lookup/validation."""
     verify_request = VerifyOtpRequest(phone="+961234567890", user_email="test.apple@example.com",
                                       verification_pin="123123")
 
-    with patch("app.services.auth_service.supabase_client") as mock_supabase, \
-            patch("app.services.auth_service.get_config") as mock_get_config, \
-            patch("app.schemas.dto_mapper.DtoMapper.to_auth_response") as mock_dto_mapper:
-        mock_get_config.return_value = "phone"
-        mock_supabase.return_value.auth.sign_in_with_password.return_value = MagicMock()
-        mock_dto_mapper.return_value = MagicMock()
-
+    with patch("app.services.auth_service.supabase_client") as mock_supabase:
         response = await auth_service._AuthService__handle_phone_otp_verify(verify_request, "device123")
 
         assert response.status == "success"
-        mock_supabase.return_value.auth.sign_in_with_password.assert_called_once()
-        # Static bypass runs before normal OTP verification.
-        auth_service._AuthService__user_otp_service.verify_otp.assert_not_called()
-
-
-@pytest.mark.asyncio
-async def test_verify_otp_phone_test_apple_email_from_db(auth_service):
-    """Phone-only verify request (no user_email): test.apple is resolved from the stored user."""
-    verify_request = VerifyOtpRequest(phone="+961234567890", user_email=None, verification_pin="123123")
-    auth_service._AuthService__user_repo.get_first_by.return_value = UsersCopyModel(
-        id="123", email="test.apple@example.com", metadata={"msisdn": "+961234567890"})
-
-    with patch("app.services.auth_service.supabase_client") as mock_supabase, \
-            patch("app.services.auth_service.get_config") as mock_get_config, \
-            patch("app.schemas.dto_mapper.DtoMapper.to_auth_response") as mock_dto_mapper:
-        mock_get_config.return_value = "phone"
-        mock_supabase.return_value.auth.sign_in_with_password.return_value = MagicMock()
-        mock_dto_mapper.return_value = MagicMock()
-
-        response = await auth_service._AuthService__handle_phone_otp_verify(verify_request, "device123")
-
-        assert response.status == "success"
-        mock_supabase.return_value.auth.sign_in_with_password.assert_called_once()
+        # No Supabase interaction, no user lookup, no OTP validation for the test account.
+        mock_supabase.assert_not_called()
+        auth_service._AuthService__user_repo.get_first_by.assert_not_called()
         auth_service._AuthService__user_otp_service.verify_otp.assert_not_called()
 
 
@@ -310,27 +306,30 @@ async def test_verify_otp_phone_test_apple_wrong_pin_falls_through(auth_service)
                                       verification_pin="000000")
     auth_service._AuthService__user_repo.get_first_by.return_value = None  # normal flow -> user not found
 
-    with patch("app.services.auth_service.supabase_client"), \
-            patch("app.services.auth_service.get_config") as mock_get_config:
-        mock_get_config.return_value = "phone"
-
+    with patch("app.services.auth_service.supabase_client"):
         with pytest.raises(CustomException):
             await auth_service._AuthService__handle_phone_otp_verify(verify_request, "device123")
 
 
 @pytest.mark.asyncio
-async def test_verify_otp_phone_test_apple_wrong_login_type_falls_through(auth_service):
-    """Static 123123 must NOT be accepted when login_type is not 'phone'."""
-    verify_request = VerifyOtpRequest(phone="+961234567890", user_email="test.apple@example.com",
+async def test_verify_otp_phone_normal_user_unchanged(auth_service):
+    """A normal (non test.apple) user still goes through normal OTP validation."""
+    verify_request = VerifyOtpRequest(phone="+961234567890", user_email="real@example.com",
                                       verification_pin="123123")
-    auth_service._AuthService__user_repo.get_first_by.return_value = None  # normal flow -> user not found
+    auth_service._AuthService__user_repo.get_first_by.return_value = UsersCopyModel(
+        id="9", email="real@example.com", metadata={"msisdn": "+961234567890"})
 
-    with patch("app.services.auth_service.supabase_client"), \
-            patch("app.services.auth_service.get_config") as mock_get_config:
-        mock_get_config.return_value = "email"
+    with patch("app.services.auth_service.supabase_client") as mock_supabase, \
+            patch("app.schemas.dto_mapper.DtoMapper.to_auth_response") as mock_dto_mapper, \
+            patch.object(auth_service, "create_wallet_if_not_exists", new_callable=AsyncMock) as mock_wallet:
+        mock_supabase.return_value.auth.sign_in_with_password.return_value = MagicMock()
+        mock_dto_mapper.return_value = MagicMock()
+        mock_wallet.return_value = MagicMock()
 
-        with pytest.raises(CustomException):
-            await auth_service._AuthService__handle_phone_otp_verify(verify_request, "device123")
+        await auth_service._AuthService__handle_phone_otp_verify(verify_request, "device123")
+
+        # Static bypass must NOT apply to normal users -> normal validation runs.
+        auth_service._AuthService__user_otp_service.verify_otp.assert_called_once()
 
 
 @pytest.mark.asyncio

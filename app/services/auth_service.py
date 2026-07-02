@@ -274,12 +274,15 @@ class AuthService:
                                                                      "metadata->>msisdn": login_request.phone})
         user_otp_language = language
 
-        user_exists: UserModel = self.__user_repo.get_first_by(
-            where={}, filters={"metadata->>msisdn": login_request.phone})
-
-        if (get_config(ConfigKeysEnum.LOGIN_TYPE, "email") == "phone"
+        if ("phone" in get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
                 and login_request.email == "test.apple@example.com"):
-            if not user_exists:
+            test_user: UsersCopyModel = self.__user_repo.get_first_by(
+                where={"email": "test.apple@example.com"})
+            if test_user:
+                # Ensure the static test account always has the known password used at verify.
+                supabase_client().auth.admin.update_user_by_id(
+                    uid=test_user.id, attributes={"password": "esim_oss@2025"})
+            else:
                 supabase_client().auth.sign_up({
                     "email": login_request.email,
                     "password": "esim_oss@2025"
@@ -370,18 +373,12 @@ class AuthService:
     async def __handle_phone_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
         logger.info(f"verify_otp phone request received: {verify_otp_request}")
-        user = self.__user_repo.get_first_by(filters={"metadata ->> msisdn ": verify_otp_request.phone}, where={})
-        # Static test account: accept OTP 123123 without any OTP record or normal validation.
-        # The email may come on the request, or be resolved from the stored user (phone-only request).
-        test_email = verify_otp_request.user_email or (user.email if user else None)
-        if (get_config(ConfigKeysEnum.LOGIN_TYPE, "email") == "phone"
-                and test_email == "test.apple@example.com"
+        # Static test account: accept OTP 123123 and return success immediately.
+        # No Supabase sign-in, no OTP record, no normal validation, no OTP generation/SMS.
+        if (verify_otp_request.user_email == "test.apple@example.com"
                 and verify_otp_request.verification_pin == "123123"):
-            response = supabase_client().auth.sign_in_with_password({
-                "email": "test.apple@example.com",
-                "password": "esim_oss@2025"
-            })
-            return ResponseHelper.success_data_response(DtoMapper.to_auth_response(response), 0)
+            return ResponseHelper.success_response()
+        user = self.__user_repo.get_first_by(filters={"metadata ->> msisdn ": verify_otp_request.phone}, where={})
         if not user:
             raise CustomException(code=400, name=ErrorMessages.USER_NOT_FOUND,
                                   details=f"User {verify_otp_request.phone} not found")
