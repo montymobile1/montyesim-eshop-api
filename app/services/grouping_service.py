@@ -73,12 +73,15 @@ class GroupingService:
                     bundle_dto = BundleDTO(**bundle.data)
                     try:
                         logger.info(f"getting supported ships for {bundle.id}")
-                        supported_chips = self.__tag_repo.select_procedure(
+                        supported_ships = self.__tag_repo.select_procedure(
                             function_name="get_bundle_tags_by_group_name", where={
                                 "p_bundle_id": bundle.id,
                                 "p_group_name": "ships"
                             })
-                        bundle_dto.supported_ships = [CountryDTO(id=chip.id,country_code="", alternative_country="",country=chip.name,iso3_code="",zone_name="",icon=chip.icon,operator_list=[]) for chip in supported_chips]
+                        bundle_dto.supported_ships = [
+                            CountryDTO(id=chip.id, country_code="", alternative_country="", country=chip.name,
+                                       iso3_code="", zone_name="", icon=chip.icon, operator_list=[]) for chip in
+                            supported_ships]
                     except Exception as e:
                         logger.error(f"Failed to support chips: {e}")
                     if locale != os.getenv("DEFAULT_LOCALE", "en"):
