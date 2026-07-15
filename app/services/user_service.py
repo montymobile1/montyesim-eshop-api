@@ -635,7 +635,7 @@ class UserBundleService:
         usermodel = self.__user_repo.get_by_id(user.id)
 
         language = lower(usermodel.metadata.get("language", "en"))
-        await self.__dcb_service.send_otp(msisdn=user.msisdn, otp=order.otp,
+        await self.__dcb_service.send_otp(msisdn=user.msisdn, otp=otp,
                                           locale=language)
         return ResponseHelper.success_response()
 
