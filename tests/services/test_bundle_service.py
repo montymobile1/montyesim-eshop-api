@@ -252,6 +252,55 @@ class TestBundleService(unittest.IsolatedAsyncioTestCase):
         response = await self.bundle_service.top_up_bundle(bundle, user_order, "test_iccid", "user123", "completed")
         self.assertEqual(response.status, "success")
 
+    def test_send_purchase_admin_email(self):
+        from app.config.db import PaymentTypeEnum
+
+        bundle = get_bundle_mock()
+        user = MagicMock(email='john@doe.com', metadata={'first_name': 'John', 'last_name': 'Doe'})
+        user_order = MagicMock(id='order-1', user_id='user123', currency='EUR', amount=1000,
+                               modified_amount=0, tax_amount=0, payment_intent_code='pi_999')
+        wallet = MagicMock(id='wid', amount=15.0, currency='USD')
+
+        mock_currency_service = MagicMock()
+        mock_currency_service.get_currency_rate.return_value = 1.1
+        self.bundle_service._BundleService__currency_service = mock_currency_service
+        mock_wallet_repo = MagicMock()
+        mock_wallet_repo.get_first_by.return_value = wallet
+        self.bundle_service._BundleService__user_wallet_repo = mock_wallet_repo
+
+        mock_template = MagicMock()
+        mock_template.render.return_value = '<html/>'
+        with patch.dict(os.environ, {'SEND_ESIM_PURCHASE_NOTIFICATION': 'true'}), \
+             patch('app.services.bundle_service.get_email_template', return_value=mock_template), \
+             patch('app.services.bundle_service.get_config',
+                   side_effect=lambda key, default=None: 'sara.yaghoubi@montymobile.com,charbel.haddad@montymobile.com'
+                   if key == 'WALLET_TOP_UP_ALERT_RECIPIENTS' else (default or 'Monty eSIM')), \
+             patch('app.services.bundle_service.send_email') as mock_send:
+            self.bundle_service._BundleService__send_purchase_admin_email(
+                user=user, user_order=user_order, bundle=bundle, payment_type=PaymentTypeEnum.WALLET)
+
+        mock_send.assert_called_once()
+        self.assertIn('sara.yaghoubi@montymobile.com', mock_send.call_args.kwargs['recipients'])
+        data = mock_template.render.call_args.kwargs['data']
+        self.assertEqual(data['transaction_id'], 'pi_999')
+        self.assertEqual(data['user_name'], 'John Doe')
+        self.assertEqual(data['user_email'], 'john@doe.com')
+        self.assertEqual(data['bundle_name'], 'Bundle Name')
+        self.assertEqual(data['currency'], 'USD')
+        self.assertEqual(data['transaction_amount'], '11.00')
+        self.assertEqual(data['balance_before'], '26.00')
+        self.assertEqual(data['current_balance'], '15.00')
+
+    def test_send_purchase_admin_email_disabled_by_default(self):
+        from app.config.db import PaymentTypeEnum
+
+        os.environ.pop('SEND_ESIM_PURCHASE_NOTIFICATION', None)
+        with patch('app.services.bundle_service.send_email') as mock_send:
+            self.bundle_service._BundleService__send_purchase_admin_email(
+                user=MagicMock(), user_order=MagicMock(), bundle=get_bundle_mock(),
+                payment_type=PaymentTypeEnum.CARD)
+        mock_send.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

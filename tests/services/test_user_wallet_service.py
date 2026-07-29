@@ -1,3 +1,4 @@
+import os
 import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -67,3 +68,73 @@ def test_add_wallet_transaction_wallet_not_found(user_wallet_service):
     user_wallet_service._UserWalletService__user_wallet_repo.get_first_by.return_value = None
     with pytest.raises(Exception):
         asyncio.run(user_wallet_service.add_wallet_transaction(5, 'uid', 'voucher'))
+
+def test_send_top_up_admin_email(user_wallet_service):
+    wallet = MagicMock(id='wid', amount=40.0, currency='USD')
+    user = MagicMock(email='john@doe.com', metadata={})
+    tx1 = MagicMock(id='tx-1', wallet_id='wid', amount=10.0, source='TOP-UP-WALLET', status='success',
+                    created_at='2026-07-29T08:02:11+00:00')
+    tx2 = MagicMock(id='tx-2', wallet_id='wid', amount=25.0, source='TOP-UP-WALLET', status='success',
+                    created_at='2026-07-29T10:15:00+00:00')
+    user_wallet_service._UserWalletService__user_wallet_transaction_repo.list_since.return_value = [tx1, tx2]
+    user_wallet_service._UserWalletService__user_wallet_repo.list_in.return_value = [wallet]
+
+    mock_template = MagicMock()
+    mock_template.render.return_value = '<html/>'
+    with patch('app.services.user_wallet_service.get_email_template', return_value=mock_template), \
+         patch('app.services.user_wallet_service.get_config',
+               return_value='sara.yaghoubi@montymobile.com,charbel.haddad@montymobile.com') as mock_config, \
+         patch('app.services.user_wallet_service.send_email') as mock_send:
+        user_wallet_service._UserWalletService__send_top_up_admin_email(user, wallet, tx2, 'pi_123')
+
+    mock_send.assert_called_once()
+    recipients = mock_send.call_args.kwargs['recipients']
+    assert 'sara.yaghoubi@montymobile.com' in recipients
+    assert 'charbel.haddad@montymobile.com' in recipients
+
+    data = mock_template.render.call_args.kwargs['data']
+    assert data['user_email'] == 'john@doe.com'
+    assert data['transaction_id'] == 'pi_123'
+    assert data['top_up_amount'] == '25.00'
+    assert data['current_balance'] == '40.00'
+    assert data['top_up_count_today'] == 2
+    assert data['total_top_up_amount_today'] == '35.00'
+    rows = data['today_top_ups']
+    assert [r['transaction_id'] for r in rows] == ['tx-1', 'tx-2']
+    assert rows[0]['balance_after'] == '15.00'
+    assert rows[1]['balance_after'] == '40.00'
+
+def test_send_top_up_admin_email_failure_is_swallowed(user_wallet_service):
+    user_wallet_service._UserWalletService__user_wallet_transaction_repo.list_since.side_effect = Exception('db down')
+    with patch('app.services.user_wallet_service.send_email') as mock_send:
+        user_wallet_service._UserWalletService__send_top_up_admin_email(
+            MagicMock(metadata={}), MagicMock(amount=1.0, currency='USD'), MagicMock(), None)
+    mock_send.assert_not_called()
+
+def test_add_wallet_transaction_succeeds_even_if_email_dispatch_fails(user_wallet_service):
+    from app.config.constants import UserWalletTransactionSource
+    import os as _os
+
+    user_wallet_service._UserWalletService__user_repo = MagicMock()
+    user_wallet_service._UserWalletService__user_repo.get_first_by.return_value = MagicMock(
+        metadata={'currency': 'USD'}, email='a@b.c')
+    mock_wallet = MagicMock(amount=10, id='wid', currency='USD')
+    user_wallet_service._UserWalletService__user_wallet_repo.get_first_by.return_value = mock_wallet
+    user_wallet_service._UserWalletService__user_wallet_transaction_repo.create.return_value = MagicMock(id='tx')
+
+    call_count = {'n': 0}
+
+    def flaky_thread(*args, **kwargs):
+        call_count['n'] += 1
+        if call_count['n'] >= 2:
+            raise RuntimeError('thread creation failed')
+        return MagicMock()
+
+    with patch.dict(os.environ, {'SEND_WALLET_TOPUP_NOTIFICATION': 'true'}), \
+         patch('app.services.user_wallet_service.threading.Thread', side_effect=flaky_thread), \
+         patch('app.services.user_wallet_service.DtoMapper.to_user_wallet_response', return_value='dto'), \
+         patch('app.services.user_wallet_service.ResponseHelper.success_data_response', return_value='resp'):
+        resp = user_wallet_service.add_wallet_transaction(
+            5, 'uid', UserWalletTransactionSource.TOP_UP_WALLET, order_currency='USD')
+    assert resp == 'resp'
+    assert call_count['n'] == 2

@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Literal
 
 from loguru import logger
@@ -14,7 +14,7 @@ from app.config.utils import truncate_two_decimals_decimal
 from app.exceptions import BadRequestException
 from app.models.app import BundleModel
 from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel, UserProfileBundleModel
-from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo
+from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserWalletRepo
 from app.repo.bundle_repo import BundleRepo
 from app.repo.bundle_tage_repo import BundleTagRepo
 from app.repo.tag_repo import TagRepo
@@ -44,6 +44,7 @@ class BundleService:
         self.__user_profile_bundle_repo = UserProfileBundleRepo()
         self.__promotion_service = PromotionService()
         self.__task_executor = TaskExecutor()
+        self.__user_wallet_repo = UserWalletRepo()
 
     def bundle_exists(self, bundle_id: str) -> bool:
         try:
@@ -254,6 +255,15 @@ class BundleService:
             self.__send_email(user=user, user_profile=user_profile, bundle=bundle, user_order=user_order)
 
         self.__task_executor.add_task(task)
+
+        try:
+            def admin_email_task():
+                self.__send_purchase_admin_email(user=user, user_order=user_order, bundle=bundle,
+                                                 payment_type=payment_type)
+
+            self.__task_executor.add_task(admin_email_task)
+        except Exception as e:
+            logger.error(f"error while dispatching esim purchase admin email: {str(e)}")
         return ResponseHelper.success_response()
 
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,
@@ -305,7 +315,64 @@ class BundleService:
         })
         await self.__send_topup_notification(bundle_name=bundle.bundle_name, iccid=iccid,
                                              user_id=user_order.user_id)
+
+        try:
+            def admin_email_task():
+                self.__send_purchase_admin_email(user=user, user_order=user_order, bundle=bundle,
+                                                 payment_type=payment_type)
+
+            self.__task_executor.add_task(admin_email_task)
+        except Exception as e:
+            logger.error(f"error while dispatching esim purchase admin email: {str(e)}")
         return ResponseHelper.success_response()
+
+    def __send_purchase_admin_email(self, user: UsersCopyModel, user_order: UserOrderModel, bundle: BundleDTO,
+                                    payment_type: str):
+        try:
+            send_notification = os.getenv("SEND_ESIM_PURCHASE_NOTIFICATION", "false").lower() in ("true", "1", "yes")
+            if not send_notification:
+                return
+            system_currency = os.getenv("SYSTEM_CURRENCY", "USD")
+            rate = self.__currency_service.get_currency_rate(from_currency=user_order.currency,
+                                                             to_currency=system_currency)
+            amount_cents = user_order.modified_amount if user_order.modified_amount else user_order.amount
+            amount_cents += user_order.tax_amount or 0
+            transaction_amount = round((amount_cents / 100) * rate, 2)
+
+            wallet = self.__user_wallet_repo.get_first_by(where={"user_id": user_order.user_id})
+            currency = wallet.currency if wallet else system_currency
+            current_balance = float(wallet.amount) if wallet else 0.0
+            balance_before = current_balance + transaction_amount if payment_type == PaymentTypeEnum.WALLET \
+                else current_balance
+
+            metadata = user.metadata or {}
+            user_name = f"{metadata.get('first_name', '')} {metadata.get('last_name', '')}".strip() or "-"
+            destination = ", ".join(c.country for c in bundle.countries) if bundle.countries else "-"
+            data = {
+                "transaction_id": user_order.payment_intent_code or user_order.id,
+                "transaction_datetime": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "bundle_name": bundle.bundle_name,
+                "destination": destination,
+                "reseller_name": get_config("RESELLER_NAME", os.getenv("MERCHANT_DISPLAY_NAME", "-")),
+                "user_name": user_name,
+                "user_email": metadata.get("email", user.email),
+                "currency": currency,
+                "transaction_amount": f"{transaction_amount:.2f}",
+                "balance_before": f"{balance_before:.2f}",
+                "current_balance": f"{current_balance:.2f}",
+            }
+            recipients = get_config("WALLET_TOP_UP_ALERT_RECIPIENTS")
+            if not recipients:
+                logger.error("WALLET_TOP_UP_ALERT_RECIPIENTS is not configured, skipping purchase admin email")
+                return
+            template = get_email_template("esim_purchase_admin_email_en.htm")
+            if template is None:
+                logger.error("esim purchase admin email template not found")
+                return
+            html_content = template.render(data=data)
+            send_email(subject="New eSIM Transaction Completed", html_content=html_content, recipients=recipients)
+        except Exception as e:
+            logger.error(f"error while sending esim purchase admin email: {str(e)}")
 
     def __send_email(self, user: UsersCopyModel, user_profile: UserProfileModel, bundle: BundleDTO,
                      user_order: UserOrderModel):

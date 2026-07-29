@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title></title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style type="text/css">*{box-sizing:border-box}body{margin:0;padding:0}p{line-height:inherit}</style>
+</head>
+<body style="background-color:#293B7D;margin:0;padding:0;-webkit-text-size-adjust:none;text-size-adjust:none">
+<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#293B7D" width="100%">
+<tbody>
+<tr>
+<td>
+<table align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fff;color:#000;width:640px;margin:20px auto;border-radius:4px" width="640">
+<tbody>
+<tr>
+<td style="padding:25px 30px;font-family:Verdana,Geneva,sans-serif;color:#293B7D;font-size:14px;line-height:1.6">
+
+<p style="margin:0 0 20px;font-size:15px;">A new top-up has been successfully completed.</p>
+
+<h2 style="margin:0 0 10px;font-size:17px;color:#293B7D;">Top-Up Details</h2>
+<table border="0" cellpadding="4" cellspacing="0" role="presentation" style="font-size:14px;color:#293B7D;margin-bottom:20px" width="100%">
+<tbody>
+<tr><td style="width:220px;"><strong>User Email:</strong></td><td>{{ data.user_email }}</td></tr>
+<tr><td><strong>Top-Up Value:</strong></td><td>{{ data.currency }} {{ data.top_up_amount }}</td></tr>
+<tr><td><strong>Transaction ID:</strong></td><td>{{ data.transaction_id }}</td></tr>
+<tr><td><strong>Top-Up Date and Time:</strong></td><td>{{ data.top_up_datetime }}</td></tr>
+<tr><td><strong>Current Balance:</strong></td><td>{{ data.currency }} {{ data.current_balance }}</td></tr>
+</tbody>
+</table>
+
+<h2 style="margin:0 0 10px;font-size:17px;color:#293B7D;">Today&rsquo;s Top-Up Summary</h2>
+<table border="0" cellpadding="4" cellspacing="0" role="presentation" style="font-size:14px;color:#293B7D;margin-bottom:20px" width="100%">
+<tbody>
+<tr><td style="width:220px;"><strong>Number of Top-Ups Today:</strong></td><td>{{ data.top_up_count_today }}</td></tr>
+<tr><td><strong>Total Top-Up Value Today:</strong></td><td>{{ data.currency }} {{ data.total_top_up_amount_today }}</td></tr>
+</tbody>
+</table>
+
+<h2 style="margin:0 0 10px;font-size:17px;color:#293B7D;">All Top-Ups Completed Today</h2>
+<table border="0" cellpadding="6" cellspacing="0" style="font-size:13px;color:#293B7D;border-collapse:collapse;width:100%">
+<thead>
+<tr style="background-color:#293B7D;color:#ffffff;">
+<th align="left" style="padding:8px;border:1px solid #C3D2EE;">Time</th>
+<th align="left" style="padding:8px;border:1px solid #C3D2EE;">Transaction ID</th>
+<th align="left" style="padding:8px;border:1px solid #C3D2EE;">Top-Up Value</th>
+<th align="left" style="padding:8px;border:1px solid #C3D2EE;">Balance After Top-Up</th>
+</tr>
+</thead>
+<tbody>
+{% for t in data.today_top_ups %}
+<tr style="background-color:{{ '#F4F7FC' if loop.index is even else '#ffffff' }};">
+<td style="padding:8px;border:1px solid #C3D2EE;">{{ t.time }}</td>
+<td style="padding:8px;border:1px solid #C3D2EE;">{{ t.transaction_id }}</td>
+<td style="padding:8px;border:1px solid #C3D2EE;">{{ data.currency }} {{ t.amount }}</td>
+<td style="padding:8px;border:1px solid #C3D2EE;">{{ data.currency }} {{ t.balance_after }}</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+</td>
+</tr>
+<tr>
+<td style="background-color:#C3D2EE;padding:10px 30px;font-family:Verdana,Geneva,sans-serif;font-size:10px;color:#293B7D;text-align:center;border-radius:0 0 4px 4px;">
+This is an automated notification from Monty eSIM.
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

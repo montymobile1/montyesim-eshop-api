@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title></title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style type="text/css">*{box-sizing:border-box}body{margin:0;padding:0}p{line-height:inherit}</style>
+</head>
+<body style="background-color:#293B7D;margin:0;padding:0;-webkit-text-size-adjust:none;text-size-adjust:none">
+<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#293B7D" width="100%">
+<tbody>
+<tr>
+<td>
+<table align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fff;color:#000;width:640px;margin:20px auto;border-radius:4px" width="640">
+<tbody>
+<tr>
+<td style="padding:25px 30px;font-family:Verdana,Geneva,sans-serif;color:#293B7D;font-size:14px;line-height:1.6">
+
+<p style="margin:0 0 20px;font-size:15px;">A new eSIM transaction has been successfully completed.</p>
+
+<h2 style="margin:0 0 10px;font-size:17px;color:#293B7D;">Transaction Details</h2>
+<table border="0" cellpadding="4" cellspacing="0" role="presentation" style="font-size:14px;color:#293B7D;margin-bottom:20px" width="100%">
+<tbody>
+<tr><td style="width:260px;"><strong>Transaction ID:</strong></td><td>{{ data.transaction_id }}</td></tr>
+<tr><td><strong>Transaction Date and Time:</strong></td><td>{{ data.transaction_datetime }}</td></tr>
+<tr><td><strong>Bundle Name:</strong></td><td>{{ data.bundle_name }}</td></tr>
+<tr><td><strong>Destination:</strong></td><td>{{ data.destination }}</td></tr>
+<tr><td><strong>Reseller Name:</strong></td><td>{{ data.reseller_name }}</td></tr>
+<tr><td><strong>User Name:</strong></td><td>{{ data.user_name }}</td></tr>
+<tr><td><strong>User Email:</strong></td><td>{{ data.user_email }}</td></tr>
+</tbody>
+</table>
+
+<h2 style="margin:0 0 10px;font-size:17px;color:#293B7D;">Financial Details</h2>
+<table border="0" cellpadding="4" cellspacing="0" role="presentation" style="font-size:14px;color:#293B7D;margin-bottom:20px" width="100%">
+<tbody>
+<tr><td style="width:260px;"><strong>Transaction Amount:</strong></td><td>{{ data.currency }} {{ data.transaction_amount }}</td></tr>
+<tr><td><strong>Wallet Balance Before Transaction:</strong></td><td>{{ data.currency }} {{ data.balance_before }}</td></tr>
+<tr><td><strong>Wallet Balance After Transaction:</strong></td><td>{{ data.currency }} {{ data.current_balance }}</td></tr>
+</tbody>
+</table>
+
+</td>
+</tr>
+<tr>
+<td style="background-color:#C3D2EE;padding:10px 30px;font-family:Verdana,Geneva,sans-serif;font-size:10px;color:#293B7D;text-align:center;border-radius:0 0 4px 4px;">
+This is an automated notification from Monty eSIM.
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>
