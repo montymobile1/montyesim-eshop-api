@@ -1,15 +1,19 @@
 import os
 import threading
+from datetime import datetime, timezone
 from typing import List
 
 from fastapi import Request
 from loguru import logger
 
-from app.config.constants import ErrorMessages
+from app.config.config import get_email_template, send_email
+from app.config.constants import ErrorMessages, UserWalletTransactionSource
 from app.config.db import UserOrderType
+from app.config.helper import get_config
 from app.config.notification_types import send_wallet_top_up_succeeded_notification
 from app.config.push_notification_manager import fcm_service
-from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral, truncate_two_decimals_decimal
+from app.config.utils import create_wallet_top_up_intent, create_payment_ephemeral, parse_iso_datetime, \
+    truncate_two_decimals_decimal
 from app.exceptions import CustomException
 from app.models.user import UserWalletModel, UserModel, UserWalletTransactionModel, UsersCopyModel
 from app.repo import UserWalletRepo, UserOrderRepo, UserWalletTransactionRepo, UserRepo
@@ -56,7 +60,8 @@ class UserWalletService:
         wallet: UserWalletModel = self.__user_wallet_repo.get_first_by({"user_id": user_id})
         return wallet
 
-    def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp", order_currency: str = None) -> \
+    def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp", order_currency: str = None,
+                               payment_reference: str = None) -> \
             Response[
                 UserWalletResponse]:
         try:
@@ -84,7 +89,7 @@ class UserWalletService:
             self.__user_wallet_repo.update_by(where={"user_id": user_id},
                                               data=user_wallet.model_dump())
 
-            self.__user_wallet_transaction_repo.create(data={
+            transaction = self.__user_wallet_transaction_repo.create(data={
                 "wallet_id": user_wallet.id,
                 "amount": add_amount,
                 "source": source,
@@ -94,6 +99,15 @@ class UserWalletService:
                 thread = threading.Thread(target=self.__send_push,
                                           args=(notification_amount, transaction_currency, user_id))
                 thread.start()
+            try:
+                send_notification = os.getenv("SEND_WALLET_TOPUP_NOTIFICATION", "false").lower() in (
+                    "true", "1", "yes")
+                if send_notification and source == UserWalletTransactionSource.TOP_UP_WALLET and transaction is not None:
+                    email_thread = threading.Thread(target=self.__send_top_up_admin_email,
+                                                    args=(user, user_wallet, transaction, payment_reference))
+                    email_thread.start()
+            except Exception as e:
+                logger.error(f"error while dispatching wallet top-up admin email: {str(e)}")
             dto = DtoMapper.to_user_wallet_response(user_wallet)
             return ResponseHelper.success_data_response(dto, 1)
         except Exception as e:
@@ -178,3 +192,59 @@ class UserWalletService:
     def __send_push(self, amount: float, currency: str, user_id: str):
         content = send_wallet_top_up_succeeded_notification(f"{amount} {currency}")
         fcm_service.send_notification_to_user_from_template(content, user_id=user_id)
+
+    def __send_top_up_admin_email(self, user: UsersCopyModel, user_wallet: UserWalletModel,
+                                  transaction: UserWalletTransactionModel, payment_reference: str = None):
+        try:
+            day_start = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00+00:00")
+            transactions = self.__user_wallet_transaction_repo.list_since(where={"status": "success"},
+                                                                          since=day_start)
+            top_ups = [t for t in transactions if t.source == UserWalletTransactionSource.TOP_UP_WALLET]
+            if transaction.id not in {t.id for t in top_ups}:
+                top_ups.append(transaction)
+
+            wallet_ids = list({t.wallet_id for t in top_ups})
+            wallets = self.__user_wallet_repo.list_in(where={}, filter={"id": wallet_ids})
+            running_balances = {w.id: float(w.amount) for w in wallets}
+
+            balance_after = {}
+            for t in sorted(transactions, key=lambda x: x.created_at or "", reverse=True):
+                if t.wallet_id in running_balances:
+                    balance_after[t.id] = running_balances[t.wallet_id]
+                    running_balances[t.wallet_id] -= float(t.amount)
+
+            today_top_ups = []
+            for t in top_ups:
+                created_at = parse_iso_datetime(t.created_at)
+                today_top_ups.append({
+                    "time": created_at.strftime("%H:%M:%S") if created_at else "-",
+                    "transaction_id": t.id,
+                    "amount": f"{float(t.amount):.2f}",
+                    "balance_after": f"{balance_after.get(t.id, float(user_wallet.amount)):.2f}",
+                })
+
+            transaction_time = parse_iso_datetime(transaction.created_at) or datetime.now(timezone.utc)
+            metadata = user.metadata or {}
+            data = {
+                "user_email": metadata.get("email", user.email),
+                "currency": user_wallet.currency,
+                "top_up_amount": f"{float(transaction.amount):.2f}",
+                "transaction_id": payment_reference or transaction.id,
+                "top_up_datetime": transaction_time.strftime("%Y-%m-%d %H:%M:%S UTC"),
+                "current_balance": f"{float(user_wallet.amount):.2f}",
+                "top_up_count_today": len(top_ups),
+                "total_top_up_amount_today": f"{sum(float(t.amount) for t in top_ups):.2f}",
+                "today_top_ups": today_top_ups,
+            }
+            recipients = get_config("WALLET_TOP_UP_ALERT_RECIPIENTS")
+            if not recipients:
+                logger.error("WALLET_TOP_UP_ALERT_RECIPIENTS is not configured, skipping top-up admin email")
+                return
+            template = get_email_template("wallet_top_up_admin_email_en.htm")
+            if template is None:
+                logger.error("wallet top-up admin email template not found")
+                return
+            html_content = template.render(data=data)
+            send_email(subject="New Wallet Top-Up Completed", html_content=html_content, recipients=recipients)
+        except Exception as e:
+            logger.error(f"error while sending wallet top-up admin email: {str(e)}")

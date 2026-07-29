@@ -390,7 +390,8 @@ class CallbackService:
                 def task():
                     self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
                                                                       source=UserWalletTransactionSource.TOP_UP_WALLET,
-                                                                      order_currency="USD")
+                                                                      order_currency="USD",
+                                                                      payment_reference=order.payment_intent_code)
                     return
 
                 self.__task_executor.add_task(task)
