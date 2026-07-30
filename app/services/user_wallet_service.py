@@ -1,6 +1,6 @@
 import os
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List
 
 from fastapi import Request
@@ -123,6 +123,10 @@ class UserWalletService:
         if not user_wallet:
             user_wallet = self.__create_wallet(user_id=user.user_id, amount=0)
 
+        if self.__top_up_limit_reached(user_wallet.id):
+            raise CustomException(code=400, name=ErrorMessages.TOP_UP_LIMIT_REACHED,
+                                  details="You have reached the top-up limit for today")
+
         order_amount = amount
         if x_currency != user_wallet.currency:
             order_amount = self.__currency_service.convert(from_currency=x_currency,
@@ -132,6 +136,11 @@ class UserWalletService:
         if order_amount <= 0.5:
             raise CustomException(code=400, name=ErrorMessages.INVALID_TOP_UP_AMOUNT,
                                   details="Top up amount must be greater than 0.5")
+
+        if order_amount > 100:
+            raise CustomException(code=400, name=ErrorMessages.TOP_UP_AMOUNT_LIMIT_EXCEEDED,
+                                  details="Top up amount must not exceed 100 USD")
+
         order = self.__user_order_repo.create(data={
             "user_id": user.id,
             "bundle_id": None,
@@ -179,6 +188,13 @@ class UserWalletService:
         transactions = self.__user_wallet_transaction_repo.list(where={"wallet_id": user_wallet.id},
                                                                 order_by="created_at", desc=True)
         return transactions
+
+    def __top_up_limit_reached(self, wallet_id: str, max_allowed: int = 2) -> bool:
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        transactions = self.__user_wallet_transaction_repo.list_since(
+            where={"wallet_id": wallet_id, "status": "success", "source": UserWalletTransactionSource.TOP_UP_WALLET},
+            since=since)
+        return len(transactions) > max_allowed
 
     def __create_wallet(self, user_id: str, amount: float):
         wallet = self.__user_wallet_repo.create(data={
