@@ -1,13 +1,16 @@
-from typing import Any
+from typing import Any, Dict, Optional
 
 from app.config.constants import ErrorMessages
 
 
 class CustomException(Exception):
-    def __init__(self, name: ErrorMessages | str, details: str, code: int):
+    def __init__(self, name: ErrorMessages | str, details: str, code: int,
+                 params: Optional[Dict[str, Any]] = None):
         self.name = name
         self.details = details
         self.code = code
+        # optional values used to fill the `{placeholder}` of the translated message
+        self.params = params
         super().__init__(f"{name}: {details}")
 
 

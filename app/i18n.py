@@ -46,13 +46,16 @@ def get_locale() -> str:
     return _current_lang.get()
 
 
-def translate(key: str, lang: Optional[str] = None, default: Optional[str] = None) -> str:
+def translate(key: str, lang: Optional[str] = None, default: Optional[str] = None,
+              params: Optional[Dict[str, object]] = None) -> str:
     """Return translated message for key in the specified or current language.
 
     Usage:
       from app.i18n import translate
       msg = translate('BUNDLE_ACTIVITY_POLICY')
+      msg = translate('DAILY_TOP_UP_AMOUNT_LIMIT_EXCEEDED', params={"amount": "100"})
 
+    `params` fills the `{placeholder}` values of the translated template.
     This function never raises; it returns `default` or the key when no translation found.
     """
     if lang:
@@ -63,4 +66,11 @@ def translate(key: str, lang: Optional[str] = None, default: Optional[str] = Non
     messages = _load_locale_file(lang)
     if not messages:
         messages = _load_locale_file("en")
-    return messages.get(key, default if default is not None else key)
+    message = messages.get(key, default if default is not None else key)
+    if params:
+        try:
+            message = message.format(**params)
+        except Exception:
+            # keep the untranslated/unformatted message rather than failing the response
+            pass
+    return message

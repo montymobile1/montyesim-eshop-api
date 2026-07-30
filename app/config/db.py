@@ -89,6 +89,8 @@ class DatabaseTables(StrEnum):
     TABLE_USER_OTP = "user_otp"
     TABLE_USER_WALLET = "user_wallet"
     TABLE_USER_WALLET_TRANSACTION = "user_wallet_transaction"
+    TABLE_USER_WALLET_TOP_UP_RESERVATION = "user_wallet_top_up_reservation"
+    TABLE_USER_WALLET_TOP_UP_REFUND = "user_wallet_top_up_refund"
     TABLE_USER_ORDER = "user_order"
     TABLE_USER_PROFILE_BUNDLE = "user_profile_bundle"
     TABLE_USER_PROFILE = "user_profile"

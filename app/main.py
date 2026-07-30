@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from starlette.responses import JSONResponse
 
 from app.api.v1 import router
+from app.config.settings import validate_settings
 from app.exceptions import CustomException
 from app.schemas.response import ResponseHelper
 from app.i18n import translate, get_locale, set_locale
@@ -20,6 +21,8 @@ from app.services.scheduler_service import SchedulerService
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # fail fast when the typed settings hold invalid values
+    app.state.settings = validate_settings()
     app.state.scheduler_service = SchedulerService()
     app.state.scheduler_service.start_scheduler()
     try:
@@ -69,7 +72,7 @@ async def global_exception_handler(request: Request, exc: CustomException):
     logger.error(f"CustomException: {exc} {request.url.path}")
     try:
         # middleware already sets the locale for this request; use translate() to fetch message
-        title = translate(exc.name)
+        title = translate(exc.name, params=getattr(exc, "params", None))
         response_data = ResponseHelper.error_response(status_code=exc.code, title=title,
                                                       error=title, developer_message=exc.details)
         return JSONResponse(

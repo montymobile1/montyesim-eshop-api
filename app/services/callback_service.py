@@ -10,7 +10,7 @@ from loguru import logger
 from soupsieve.util import lower
 
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email, get_email_template
-from app.config.constants import PaymentIntentEvents, UserWalletTransactionSource
+from app.config.constants import PaymentIntentEvents
 from app.config.db import PaymentTypeEnum
 from app.config.helper import get_config
 from app.config.notification_types import send_consumption_80_bundle_notification, \
@@ -388,10 +388,9 @@ class CallbackService:
                 logger.info(f"updating user wallet: {user_wallet} with new {amount=}")
 
                 def task():
-                    self.__user_wallet_service.add_wallet_transaction(amount=amount, user_id=user_id,
-                                                                      source=UserWalletTransactionSource.TOP_UP_WALLET,
-                                                                      order_currency="USD",
-                                                                      payment_reference=order.payment_intent_code)
+                    self.__user_wallet_service.add_wallet_top_up_transaction(
+                        amount=amount, user_id=user_id, order_currency="USD",
+                        payment_reference=order.payment_intent_code, order_id=order_id)
                     return
 
                 self.__task_executor.add_task(task)
@@ -401,6 +400,9 @@ class CallbackService:
                 return ResponseHelper.success_response()
             else:
                 self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.FAILURE})
+                # the payment will never succeed, give its daily capacity back to the user
+                self.__user_wallet_service.release_top_up_reservation(
+                    order_id=order_id, payment_reference=order.payment_intent_code)
                 logger.info(
                     f"Payment Failed for Wallet Top-Up for user {user_id} with amount {order.amount} {order.currency}")
                 content = send_wallet_top_up_failed_notification()

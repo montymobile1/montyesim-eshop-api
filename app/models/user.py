@@ -137,4 +137,41 @@ class UserWalletTransactionModel(BaseModel):
     amount: float = Field(None, alias="amount")
     status: str = Field(None, alias="status")
     source: str = Field(None, alias="source")
+    payment_reference: Optional[str] = Field(None, alias="payment_reference")
     created_at: Optional[str] = Field(None, alias="created_at")
+
+
+class UserWalletTopUpRefundModel(BaseModel):
+    """Reconciliation record of a paid top-up that must be refunded instead of credited."""
+    id: Optional[str] = Field(None, alias="id")
+    user_id: str = Field(None, alias="user_id")
+    wallet_id: Optional[str] = Field(None, alias="wallet_id")
+    order_id: Optional[str] = Field(None, alias="order_id")
+    reservation_id: Optional[str] = Field(None, alias="reservation_id")
+    payment_reference: Optional[str] = Field(None, alias="payment_reference")
+    provider_refund_reference: Optional[str] = Field(None, alias="provider_refund_reference")
+    amount: float = Field(None, alias="amount")
+    currency: str = Field(None, alias="currency")
+    status: str = Field(None, alias="status")
+    reason: Optional[str] = Field(None, alias="reason")
+    attempt_count: int = Field(0, alias="attempt_count")
+    last_error: Optional[str] = Field(None, alias="last_error")
+    last_attempt_at: Optional[str] = Field(None, alias="last_attempt_at")
+    created_at: Optional[str] = Field(None, alias="created_at")
+    updated_at: Optional[str] = Field(None, alias="updated_at")
+
+
+class UserWalletTopUpReservationModel(BaseModel):
+    """Daily top-up capacity held while a top-up payment is pending."""
+    id: Optional[str] = Field(None, alias="id")
+    user_id: str = Field(None, alias="user_id")
+    wallet_id: str = Field(None, alias="wallet_id")
+    order_id: Optional[str] = Field(None, alias="order_id")
+    amount: float = Field(None, alias="amount")
+    currency: str = Field(None, alias="currency")
+    status: str = Field(None, alias="status")
+    payment_reference: Optional[str] = Field(None, alias="payment_reference")
+    transaction_id: Optional[str] = Field(None, alias="transaction_id")
+    expires_at: Optional[str] = Field(None, alias="expires_at")
+    created_at: Optional[str] = Field(None, alias="created_at")
+    updated_at: Optional[str] = Field(None, alias="updated_at")

@@ -62,6 +62,8 @@
   "USER_WITH_EMAIL_ALREADY_EXISTS": "يوجد مستخدم بهذا البريد الإلكتروني بالفعل.",
   "INSUFFICIENT_WALLET_BALANCE": "ليس لديك رصيد كافٍ في محفظتك لإتمام هذه المعاملة.",
   "INVALID_TOP_UP_AMOUNT": "تم تقديم مبلغ شحن غير صالح.",
+  "TOP_UP_COUNT_LIMIT_REACHED": "لقد وصلت إلى الحد الأقصى لعدد عمليات الشحن المسموح بها يوميًا.",
+  "DAILY_TOP_UP_AMOUNT_LIMIT_EXCEEDED": "لا يمكن إتمام هذه المعاملة لأنه سيتم تجاوز الحد الأقصى اليومي للشحن البالغ {amount} دولار أمريكي.",
   "REFERRAL_MESSAGE_CASHBACK_AMOUNT": "احصل على رصيد بقيمة {amount} {currency} مقابل كل صديق يقوم بالتسجيل ويكمل عملية شراء. ويحصل أصدقاؤك على رصيد بقيمة {amount} {currency} في أول عملية شراء لهم.",
   "REFERRAL_MESSAGE_DISCOUNT_PERCENTAGE": "احصل على رصيد بقيمة {amount} {currency} مقابل كل صديق يقوم بالتسجيل ويكمل عملية شراء. ويحصل أصدقاؤك على خصم بنسبة {percentage}% على أول عملية شراء لهم.",
   "REFERRAL_MESSAGE_DISCOUNT_AMOUNT": "احصل على رصيد بقيمة {amount} {currency} مقابل كل صديق يقوم بالتسجيل ويكمل عملية شراء. ويحصل أصدقاؤك على خصم بقيمة {amount} {currency} على أول عملية شراء لهم.",

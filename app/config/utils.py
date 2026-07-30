@@ -145,6 +145,28 @@ def create_payment_ephemeral(customer_id: str):
                               details=f"Error while creating ephemeral key: {str(e)}")
 
 
+def refund_payment_intent(payment_intent_id: str, idempotency_key: str, reason: str = None):
+    """Refund a payment intent in full.
+
+    The idempotency key makes the call safe to retry: Stripe returns the very same refund
+    instead of creating a second one.
+    """
+    logger.info(f"refunding payment intent {payment_intent_id} ({reason})")
+    return stripe.Refund.create(payment_intent=payment_intent_id, idempotency_key=idempotency_key,
+                                metadata={"reason": reason} if reason else None)
+
+
+def stripe_get_payment_intent_status(payment_intent_id: str) -> str | None:
+    """Current provider status of a payment intent, or None when it cannot be read."""
+    if not payment_intent_id:
+        return None
+    try:
+        return stripe.PaymentIntent.retrieve(payment_intent_id).status
+    except stripe.error.StripeError as e:
+        logger.error(f"unable to read payment intent {payment_intent_id}: {str(e)}")
+        return None
+
+
 def stripe_get_payment_details(intent_code) -> PaymentDetailsDTO | None:
     if not intent_code:
         return None

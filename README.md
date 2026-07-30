@@ -134,6 +134,27 @@ The project uses a `.env` file for configuration. Copy `.env.example` to `.env` 
 - **ENVIRONMENT**: The environment type (DEV, QA, PROD).
 - **PAYMENT_METHODS**: Comma-separated list of enabled payment methods (e.g., otp, card).
 
+### Daily Wallet Top-Up Limits
+- **DAILY_TOP_LIMIT**: Enables the daily wallet top-up limits (`false` by default). When it is `false` the
+  top-up flow is unchanged and no daily validation is applied.
+- **DAILY_TOP_UP_MAX_COUNT**: Maximum number of successful top-ups allowed per user per day (default `2`).
+- **DAILY_TOP_UP_MAX_AMOUNT_USD**: Maximum total successful top-up amount per user per day, in USD (default `100`).
+- **DAILY_TOP_UP_LIMIT_TIMEZONE**: Timezone used to compute the daily window (default `UTC`).
+- **DAILY_TOP_UP_RESERVATION_TTL_MINUTES**: How long a top-up reservation holds its daily capacity before it
+  is reconciled (default `30`). A reservation whose payment intent is still payable at the provider is never
+  released just because this delay passed.
+- **TOP_UP_REFUND_RETRY_INTERVAL_SECONDS**: How often the automatic refunds that failed at the provider are
+  retried (default `900`). The retry job only runs when `DAILY_TOP_LIMIT` is enabled.
+
+  Daily capacity is `successful top-ups + pending reservations` of the current day, and resets on its own
+  when a new day starts. The request reserves its capacity before the payment is created, so a customer is
+  never charged for a top-up the limits would reject. If a payment still succeeds without valid capacity
+  (expired, cancelled or missing reservation) the wallet is not credited past the limits: the payment is
+  refunded automatically and tracked in `user_wallet_top_up_refund` until the refund succeeds. Enabling the
+  feature requires the `user_wallet_top_up_reservation` and `user_wallet_top_up_refund` tables, the
+  `reserve_wallet_top_up_daily_limit` and `complete_wallet_top_up_reservation` functions and the
+  `user_wallet_transaction.payment_reference` column from `supabase_ddl.sql`.
+
 #### Example: How to get Stripe and Supabase keys
 - **Supabase**: Go to https://supabase.com/dashboard/project/{project_id}/settings/api-keys
 - **Stripe**: Go to https://dashboard.stripe.com/apikeys for API keys, and https://dashboard.stripe.com/webhooks for webhook secrets.

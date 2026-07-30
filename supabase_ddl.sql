@@ -3383,3 +3383,404 @@ BEGIN
     LIMIT 1;
 END;
 $$;
+
+-- ---------------------------------------------------------------------------
+-- Daily wallet top-up limits (feature flag: DAILY_TOP_LIMIT)
+-- ---------------------------------------------------------------------------
+
+-- provider payment reference of a wallet transaction, used to keep the payment
+-- callbacks idempotent (the same payment can never be credited twice)
+alter table user_wallet_transaction
+    add column if not exists payment_reference varchar(255);
+
+create unique index if not exists user_wallet_transaction_payment_reference_key
+    on user_wallet_transaction (payment_reference)
+    where payment_reference is not null;
+
+-- supports the daily usage aggregation (per wallet, per source/status, per day)
+create index if not exists user_wallet_transaction_daily_usage_idx
+    on user_wallet_transaction (wallet_id, source, status, created_at);
+
+
+-- Daily top-up capacity held while a top-up payment is pending. A reservation is taken
+-- before the payment intent is created and is completed, cancelled or expired, so a
+-- customer can never be charged for a top-up that the limits would then reject.
+create table if not exists user_wallet_top_up_reservation
+(
+    id                uuid      default gen_random_uuid() not null
+        primary key,
+    user_id           uuid                                not null
+        references auth.users (id)
+            on delete cascade,
+    wallet_id         uuid                                not null
+        references user_wallet
+            on delete cascade,
+    order_id          uuid
+        references user_order
+            on delete set null,
+    amount            numeric                             not null,
+    currency          varchar(10)                         not null,
+    status            varchar(20)                         not null default 'pending'
+        constraint user_wallet_top_up_reservation_status_check
+            check ((status)::text = ANY
+                   ((ARRAY ['pending'::character varying, 'completed'::character varying,
+                       'cancelled'::character varying, 'expired'::character varying])::text[])),
+    payment_reference varchar(255),
+    transaction_id    uuid
+        references user_wallet_transaction
+            on delete set null,
+    expires_at        timestamp                           not null,
+    created_at        timestamp default now(),
+    updated_at        timestamp default now()
+);
+
+alter table user_wallet_top_up_reservation
+    owner to postgres;
+
+-- one reservation per provider payment, so a replayed callback cannot complete twice
+create unique index if not exists user_wallet_top_up_reservation_payment_reference_key
+    on user_wallet_top_up_reservation (payment_reference)
+    where payment_reference is not null;
+
+create unique index if not exists user_wallet_top_up_reservation_order_key
+    on user_wallet_top_up_reservation (order_id)
+    where order_id is not null;
+
+-- supports the "pending reservations of the day" aggregation and the stale sweep
+create index if not exists user_wallet_top_up_reservation_daily_idx
+    on user_wallet_top_up_reservation (wallet_id, status, created_at, expires_at);
+
+grant delete, insert, references, select, trigger, truncate, update
+    on user_wallet_top_up_reservation to anon;
+
+grant delete, insert, references, select, trigger, truncate, update
+    on user_wallet_top_up_reservation to authenticated;
+
+grant delete, insert, references, select, trigger, truncate, update
+    on user_wallet_top_up_reservation to service_role;
+
+
+-- Reconciliation record of a payment that succeeded at the provider but cannot be
+-- credited without breaking the daily limits: it is written in the same transaction that
+-- refuses the credit, and drives the automatic (retryable) refund.
+create table if not exists user_wallet_top_up_refund
+(
+    id                        uuid      default gen_random_uuid() not null
+        primary key,
+    user_id                   uuid                                not null
+        references auth.users (id)
+            on delete cascade,
+    wallet_id                 uuid
+        references user_wallet
+            on delete set null,
+    order_id                  uuid
+        references user_order
+            on delete set null,
+    reservation_id            uuid
+        references user_wallet_top_up_reservation
+            on delete set null,
+    payment_reference         varchar(255),
+    provider_refund_reference varchar(255),
+    amount                    numeric                             not null,
+    currency                  varchar(10)                         not null,
+    status                    varchar(20)                         not null default 'pending'
+        constraint user_wallet_top_up_refund_status_check
+            check ((status)::text = ANY
+                   ((ARRAY ['pending'::character varying, 'succeeded'::character varying,
+                       'failed'::character varying])::text[])),
+    reason                    varchar(50),
+    attempt_count             integer                             not null default 0,
+    last_error                text,
+    last_attempt_at           timestamp,
+    created_at                timestamp default now(),
+    updated_at                timestamp default now()
+);
+
+alter table user_wallet_top_up_refund
+    owner to postgres;
+
+-- one refund per provider payment: the same payment can never be refunded twice
+create unique index if not exists user_wallet_top_up_refund_payment_reference_key
+    on user_wallet_top_up_refund (payment_reference)
+    where payment_reference is not null;
+
+-- supports the retry sweep of the refunds that did not succeed yet
+create index if not exists user_wallet_top_up_refund_retry_idx
+    on user_wallet_top_up_refund (status, created_at);
+
+grant delete, insert, references, select, trigger, truncate, update
+    on user_wallet_top_up_refund to anon;
+
+grant delete, insert, references, select, trigger, truncate, update
+    on user_wallet_top_up_refund to authenticated;
+
+grant delete, insert, references, select, trigger, truncate, update
+    on user_wallet_top_up_refund to service_role;
+
+
+-- Validates the daily limits and reserves one count slot plus p_amount of daily capacity
+-- before the external payment is created. Locks the user's wallet row, so concurrent
+-- requests are serialized and can never reserve more than the configured limits.
+-- Completed top-ups and pending reservations both consume capacity. Reservations that
+-- expired before a payment intent was ever attached are released in place, which removes
+-- the need for a scheduler; reservations that already carry a payment reference are only
+-- released once the provider confirms the payment is not payable anymore (see the
+-- application side reconciliation). p_amount / p_max_amount are in the wallet currency and
+-- p_window_start / p_window_end are UTC bounds, start inclusive and end exclusive.
+create or replace function reserve_wallet_top_up_daily_limit(p_user_id uuid, p_amount numeric, p_currency text,
+                                                             p_source text, p_window_start timestamp,
+                                                             p_window_end timestamp, p_expires_at timestamp,
+                                                             p_max_count integer, p_max_amount numeric,
+                                                             p_order_id uuid DEFAULT NULL,
+                                                             p_success_status text DEFAULT 'success') returns json
+    language plpgsql
+as
+$$
+DECLARE
+    v_wallet         user_wallet%ROWTYPE;
+    v_done_count     integer;
+    v_done_amount    numeric;
+    v_pending_count  integer;
+    v_pending_amount numeric;
+    v_reservation_id uuid;
+BEGIN
+    -- serialize every concurrent top-up request of the same user on the wallet row
+    SELECT * INTO v_wallet FROM user_wallet WHERE user_id = p_user_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN json_build_object('status', 'wallet_not_found');
+    END IF;
+
+    -- requests abandoned before their payment intent existed stop holding capacity
+    UPDATE user_wallet_top_up_reservation
+    SET status     = 'expired',
+        updated_at = now()
+    WHERE wallet_id = v_wallet.id
+      AND status = 'pending'
+      AND payment_reference IS NULL
+      AND expires_at <= now();
+
+    SELECT count(*), coalesce(sum(t.amount), 0)
+    INTO v_done_count, v_done_amount
+    FROM user_wallet_transaction t
+    WHERE t.wallet_id = v_wallet.id
+      AND t.source = p_source
+      AND t.status = p_success_status
+      AND t.created_at >= p_window_start
+      AND t.created_at < p_window_end;
+
+    SELECT count(*), coalesce(sum(r.amount), 0)
+    INTO v_pending_count, v_pending_amount
+    FROM user_wallet_top_up_reservation r
+    WHERE r.wallet_id = v_wallet.id
+      AND r.status = 'pending'
+      AND r.created_at >= p_window_start
+      AND r.created_at < p_window_end;
+
+    IF v_done_count + v_pending_count >= p_max_count THEN
+        RETURN json_build_object('status', 'count_limit_reached',
+                                 'successful_topup_count', v_done_count,
+                                 'successful_topup_amount', v_done_amount,
+                                 'pending_reservation_count', v_pending_count,
+                                 'pending_reservation_amount', v_pending_amount);
+    END IF;
+
+    IF v_done_amount + v_pending_amount + p_amount > p_max_amount THEN
+        RETURN json_build_object('status', 'amount_limit_exceeded',
+                                 'successful_topup_count', v_done_count,
+                                 'successful_topup_amount', v_done_amount,
+                                 'pending_reservation_count', v_pending_count,
+                                 'pending_reservation_amount', v_pending_amount);
+    END IF;
+
+    INSERT INTO user_wallet_top_up_reservation (user_id, wallet_id, order_id, amount, currency, status, expires_at)
+    VALUES (p_user_id, v_wallet.id, p_order_id, p_amount, p_currency, 'pending', p_expires_at)
+    RETURNING id INTO v_reservation_id;
+
+    RETURN json_build_object('status', 'reserved',
+                             'reservation_id', v_reservation_id,
+                             'successful_topup_count', v_done_count,
+                             'successful_topup_amount', v_done_amount,
+                             'pending_reservation_count', v_pending_count,
+                             'pending_reservation_amount', v_pending_amount);
+END;
+$$;
+
+alter function reserve_wallet_top_up_daily_limit(uuid, numeric, text, text, timestamp, timestamp, timestamp, integer, numeric, uuid, text) owner to postgres;
+
+grant execute on function reserve_wallet_top_up_daily_limit(uuid, numeric, text, text, timestamp, timestamp, timestamp, integer, numeric, uuid, text) to anon;
+
+grant execute on function reserve_wallet_top_up_daily_limit(uuid, numeric, text, text, timestamp, timestamp, timestamp, integer, numeric, uuid, text) to authenticated;
+
+grant execute on function reserve_wallet_top_up_daily_limit(uuid, numeric, text, text, timestamp, timestamp, timestamp, integer, numeric, uuid, text) to service_role;
+
+
+-- Settles a payment that succeeded at the provider, locking the wallet row so replayed
+-- and concurrent callbacks are serialized. Exactly one of three things happens:
+--   * the payment was already settled              -> 'already_processed' (nothing changes)
+--   * a pending reservation holds its capacity, or
+--     the daily limits still have room for it      -> 'credited' (transaction + wallet credit)
+--   * the capacity is gone (reservation expired,
+--     cancelled or missing, and the limits are
+--     already used up)                             -> 'refund_required' (refund record written)
+-- The wallet is never credited past the configured daily limits, and a payment is never
+-- both credited and refunded.
+create or replace function complete_wallet_top_up_reservation(p_user_id uuid, p_amount numeric, p_source text,
+                                                              p_window_start timestamp, p_window_end timestamp,
+                                                              p_max_count integer, p_max_amount numeric,
+                                                              p_payment_reference text DEFAULT NULL,
+                                                              p_order_id uuid DEFAULT NULL,
+                                                              p_success_status text DEFAULT 'success') returns json
+    language plpgsql
+as
+$$
+DECLARE
+    v_wallet         user_wallet%ROWTYPE;
+    v_reservation    user_wallet_top_up_reservation%ROWTYPE;
+    v_refund         user_wallet_top_up_refund%ROWTYPE;
+    v_existing_id    uuid;
+    v_transaction_id uuid;
+    v_balance        numeric;
+    v_done_count     integer;
+    v_done_amount    numeric;
+    v_pending_count  integer;
+    v_pending_amount numeric;
+    v_reason         text;
+    v_refund_id      uuid;
+BEGIN
+    SELECT * INTO v_wallet FROM user_wallet WHERE user_id = p_user_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN json_build_object('status', 'wallet_not_found');
+    END IF;
+
+    -- already credited: never credit or refund the same payment twice
+    IF p_payment_reference IS NOT NULL THEN
+        SELECT id
+        INTO v_existing_id
+        FROM user_wallet_transaction
+        WHERE wallet_id = v_wallet.id
+          AND payment_reference = p_payment_reference
+        LIMIT 1;
+        IF FOUND THEN
+            RETURN json_build_object('status', 'already_processed',
+                                     'transaction_id', v_existing_id,
+                                     'balance', v_wallet.amount);
+        END IF;
+
+        -- already owed a refund: a replayed callback must not credit it either
+        SELECT *
+        INTO v_refund
+        FROM user_wallet_top_up_refund
+        WHERE payment_reference = p_payment_reference
+        LIMIT 1
+        FOR UPDATE;
+        IF v_refund.id IS NOT NULL THEN
+            RETURN json_build_object('status', 'refund_required',
+                                     'refund_id', v_refund.id,
+                                     'refund_status', v_refund.status,
+                                     'refund_reason', v_refund.reason,
+                                     'provider_refund_reference', v_refund.provider_refund_reference,
+                                     'refund_amount', v_refund.amount,
+                                     'refund_currency', v_refund.currency,
+                                     'attempt_count', v_refund.attempt_count,
+                                     'reservation_id', v_refund.reservation_id,
+                                     'balance', v_wallet.amount);
+        END IF;
+    END IF;
+
+    SELECT *
+    INTO v_reservation
+    FROM user_wallet_top_up_reservation
+    WHERE (p_payment_reference IS NOT NULL AND payment_reference = p_payment_reference)
+       OR (p_order_id IS NOT NULL AND order_id = p_order_id)
+    ORDER BY created_at DESC
+    LIMIT 1
+    FOR UPDATE;
+
+    IF v_reservation.id IS NOT NULL AND v_reservation.status = 'completed' THEN
+        RETURN json_build_object('status', 'already_processed',
+                                 'transaction_id', v_reservation.transaction_id,
+                                 'reservation_id', v_reservation.id,
+                                 'reservation_status', v_reservation.status,
+                                 'balance', v_wallet.amount);
+    END IF;
+
+    -- a pending reservation already holds this capacity; anything else must be re-checked
+    -- against the daily limits before the wallet can be credited
+    IF v_reservation.id IS NULL OR v_reservation.status <> 'pending' THEN
+        SELECT count(*), coalesce(sum(t.amount), 0)
+        INTO v_done_count, v_done_amount
+        FROM user_wallet_transaction t
+        WHERE t.wallet_id = v_wallet.id
+          AND t.source = p_source
+          AND t.status = p_success_status
+          AND t.created_at >= p_window_start
+          AND t.created_at < p_window_end;
+
+        SELECT count(*), coalesce(sum(r.amount), 0)
+        INTO v_pending_count, v_pending_amount
+        FROM user_wallet_top_up_reservation r
+        WHERE r.wallet_id = v_wallet.id
+          AND r.status = 'pending'
+          AND r.created_at >= p_window_start
+          AND r.created_at < p_window_end;
+
+        IF v_done_count + v_pending_count >= p_max_count THEN
+            v_reason := 'count_limit_reached';
+        ELSIF v_done_amount + v_pending_amount + p_amount > p_max_amount THEN
+            v_reason := 'amount_limit_exceeded';
+        END IF;
+
+        IF v_reason IS NOT NULL THEN
+            INSERT INTO user_wallet_top_up_refund (user_id, wallet_id, order_id, reservation_id, payment_reference,
+                                                   amount, currency, status, reason)
+            VALUES (p_user_id, v_wallet.id, p_order_id, v_reservation.id, p_payment_reference, p_amount,
+                    v_wallet.currency, 'pending', v_reason)
+            RETURNING id INTO v_refund_id;
+
+            RETURN json_build_object('status', 'refund_required',
+                                     'refund_id', v_refund_id,
+                                     'refund_status', 'pending',
+                                     'refund_reason', v_reason,
+                                     'refund_amount', p_amount,
+                                     'refund_currency', v_wallet.currency,
+                                     'attempt_count', 0,
+                                     'reservation_id', v_reservation.id,
+                                     'reservation_status', v_reservation.status,
+                                     'balance', v_wallet.amount);
+        END IF;
+    END IF;
+
+    INSERT INTO user_wallet_transaction (wallet_id, amount, status, source, payment_reference)
+    VALUES (v_wallet.id, p_amount, p_success_status, p_source, p_payment_reference)
+    RETURNING id INTO v_transaction_id;
+
+    UPDATE user_wallet
+    SET amount     = amount + p_amount,
+        updated_at = now()
+    WHERE id = v_wallet.id
+    RETURNING amount INTO v_balance;
+
+    IF v_reservation.id IS NOT NULL THEN
+        UPDATE user_wallet_top_up_reservation
+        SET status            = 'completed',
+            transaction_id    = v_transaction_id,
+            payment_reference = coalesce(p_payment_reference, payment_reference),
+            updated_at        = now()
+        WHERE id = v_reservation.id;
+    END IF;
+
+    RETURN json_build_object('status', 'credited',
+                             'transaction_id', v_transaction_id,
+                             'reservation_id', v_reservation.id,
+                             'reservation_status', v_reservation.status,
+                             'balance', v_balance);
+END;
+$$;
+
+alter function complete_wallet_top_up_reservation(uuid, numeric, text, timestamp, timestamp, integer, numeric, text, uuid, text) owner to postgres;
+
+grant execute on function complete_wallet_top_up_reservation(uuid, numeric, text, timestamp, timestamp, integer, numeric, text, uuid, text) to anon;
+
+grant execute on function complete_wallet_top_up_reservation(uuid, numeric, text, timestamp, timestamp, integer, numeric, text, uuid, text) to authenticated;
+
+grant execute on function complete_wallet_top_up_reservation(uuid, numeric, text, timestamp, timestamp, integer, numeric, text, uuid, text) to service_role;

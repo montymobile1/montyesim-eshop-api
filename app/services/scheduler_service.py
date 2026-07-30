@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from loguru import logger
 
 from app.config.config import esim_hub_service_instance
+from app.config.settings import get_settings
 from app.config.utils import truncate_two_decimals_decimal_rounded
 from app.repo.currency_repo import CurrencyRepo
 from app.schemas.app import ExchangeRate
@@ -81,6 +82,17 @@ class SchedulerService:
         except Exception as e:
             logger.error(f"Error in scheduled task: {e}")
 
+    def top_up_refund_retry_task(self):
+        """Retry the automatic refunds of paid top-ups that could not be credited."""
+        try:
+            # imported lazily, the wallet service is only needed when the feature is enabled
+            from app.services.user_wallet_service import UserWalletService
+            retried = UserWalletService().retry_pending_top_up_refunds()
+            if retried:
+                logger.info(f"retried {retried} pending wallet top-up refund(s)")
+        except Exception as e:
+            logger.error(f"Error in top-up refund retry task: {e}")
+
     def start_scheduler(self):
         if self.__started:
             logger.info("Scheduler already started; skipping duplicate start.")
@@ -98,6 +110,18 @@ class SchedulerService:
             coalesce=True,
             misfire_grace_time=misfire_grace,
         )
+        if get_settings().daily_top_limit:
+            refund_interval = int(os.getenv("TOP_UP_REFUND_RETRY_INTERVAL_SECONDS", 60 * 15))  # default to 15 minutes
+            self.scheduler.add_job(
+                self.top_up_refund_retry_task,
+                trigger=IntervalTrigger(seconds=refund_interval),
+                id="top_up_refund_retry",
+                name="Retry wallet top-up refunds",
+                replace_existing=True,
+                max_instances=1,
+                coalesce=True,
+                misfire_grace_time=misfire_grace,
+            )
         self.scheduler.start()
         self.__started = True
         logger.info("Scheduler started")

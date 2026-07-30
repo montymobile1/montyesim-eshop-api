@@ -64,6 +64,8 @@ class ErrorMessages(StrEnum):
     INSUFFICIENT_WALLET_BALANCE = "INSUFFICIENT_WALLET_BALANCE"
     INVALID_TOP_UP_AMOUNT = "INVALID_TOP_UP_AMOUNT"
     OTP_REQUEST_TOO_FREQUENT = "OTP_REQUEST_TOO_FREQUENT"
+    TOP_UP_COUNT_LIMIT_REACHED = "TOP_UP_COUNT_LIMIT_REACHED"
+    DAILY_TOP_UP_AMOUNT_LIMIT_EXCEEDED = "DAILY_TOP_UP_AMOUNT_LIMIT_EXCEEDED"
 
 
 class PaymentIntentEvents(StrEnum):
@@ -75,6 +77,34 @@ class PaymentStatusEnum(StrEnum):
     COMPLETED = "COMPLETED"
     PENDING = "PENDING"
     PENDING_VERIFICATION = "PENDING_VERIFICATION"
+
+
+class UserWalletTransactionStatus(StrEnum):
+    """Statuses accepted by the `user_wallet_transaction_status_check` database constraint."""
+    SUCCESS = "success"
+    FAILED = "failed"
+    PENDING = "pending"
+
+
+class TopUpReservationStatus(StrEnum):
+    """Lifecycle of a daily top-up limit reservation."""
+    PENDING = "pending"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+
+
+class TopUpRefundStatus(StrEnum):
+    """Lifecycle of the refund owed for a paid top-up that cannot be credited."""
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class TopUpRefundReason(StrEnum):
+    """Why a paid top-up could not be credited to the wallet."""
+    COUNT_LIMIT_REACHED = "count_limit_reached"
+    AMOUNT_LIMIT_EXCEEDED = "amount_limit_exceeded"
 
 
 class UserWalletTransactionSource(StrEnum):
