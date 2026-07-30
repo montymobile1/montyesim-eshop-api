@@ -288,8 +288,8 @@ class AuthService:
                     "password": "esim_oss@2025"
                 })
             return ResponseHelper.success_response()
-        if old_user:
-            login_request.email = old_user.email
+        # if old_user:
+        #     login_request.email = old_user.email
         otp_expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
         user_email = login_request.email if login_request.email else f"{login_request.phone}_user@esim.com"
         user_exists: UsersCopyModel = self.__user_repo.get_first_by(where={"email": user_email})
