@@ -22,9 +22,11 @@ OPERATION = MCP_WALLET_BUNDLE_ASSIGN
 VALID_KEY = "K" * 32
 
 
-def request_hash(bundle_code="bundle-1", payment_type="Wallet", related_search=None, user_id=USER):
+def request_hash(bundle_code="bundle-1", payment_type="Wallet", related_search=None, user_id=USER,
+                 currency="USD"):
     return build_request_hash(user_id=user_id, operation=OPERATION, bundle_code=bundle_code,
-                              payment_type=payment_type, related_search=related_search)
+                              payment_type=payment_type, related_search=related_search,
+                              currency=currency)
 
 
 # --------------------------------------------------------------- key validation
@@ -134,13 +136,16 @@ def test_different_region_changes_the_hash():
 
 def test_canonical_request_never_contains_credentials_or_volatile_data():
     canonical = build_canonical_request(user_id=USER, operation=OPERATION, bundle_code="bundle-1",
-                                        payment_type="Wallet",
+                                        payment_type="Wallet", currency="USD",
                                         related_search={"countries": [{"iso3_code": "FRA",
                                                                        "country_name": "France"}]})
-    for forbidden in ("token", "Bearer", "quote_reference", "currency", "device"):
+    for forbidden in ("token", "Bearer", "quote_reference", "device", "locale", "accept_language"):
         assert forbidden not in canonical
+    # Currency IS part of the identity - it is the one header that could change money.
+    assert '"currency":"USD"' in canonical
     # Deterministic key order regardless of input order.
-    assert canonical.index('"bundle_code"') < canonical.index('"operation"') < canonical.index('"user_id"')
+    assert canonical.index('"bundle_code"') < canonical.index('"currency"') < canonical.index('"operation"')
+    assert canonical.index('"operation"') < canonical.index('"user_id"')
 
 
 def test_pydantic_request_objects_and_dicts_normalize_identically():

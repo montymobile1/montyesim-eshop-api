@@ -51,9 +51,23 @@ class McpPurchaseIdempotencyRepo(BaseRepository):
         return self.get_first_by(where={"id": record_id, "user_id": user_id})
 
     def attach_order(self, record_id: str, user_id: str, order_id: str):
-        """Persist the created order id as early as possible for crash reconciliation."""
+        """Persist the created order id as early as possible for crash reconciliation.
+
+        This also marks the record as having side effects, which permanently removes it
+        from the set of records that may ever be re-executed under the same key.
+        """
         return self.update_by(where={"id": record_id, "user_id": user_id},
-                              data={"order_id": order_id, "updated_at": self.__now()})
+                              data={"order_id": order_id, "has_side_effects": True,
+                                    "updated_at": self.__now()})
+
+    def mark_side_effect(self, record_id: str, user_id: str):
+        """Record that something irreversible happened (wallet debit, provisioning call).
+
+        Once set, the claim function can never hand this key back out for execution,
+        regardless of the terminal status it ends up in.
+        """
+        return self.update_by(where={"id": record_id, "user_id": user_id},
+                              data={"has_side_effects": True, "updated_at": self.__now()})
 
     def mark_terminal(self, record_id: str, user_id: str, status: str, response_code: int,
                       response_body: Optional[Dict[str, Any]] = None, error_code: Optional[str] = None,

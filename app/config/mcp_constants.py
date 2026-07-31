@@ -14,8 +14,27 @@ IDEMPOTENCY_KEY_PATTERN = r"^[A-Za-z0-9._~\-]+$"
 IDEMPOTENCY_KEY_MIN_LENGTH = 32
 IDEMPOTENCY_KEY_MAX_LENGTH = 128
 
-#: How long a terminal idempotency record can be replayed before the key may be recycled.
+#: Retention hint written to ``expires_at``. It is metadata for an *offline* archival
+#: policy only: a terminal record is NEVER recycled or re-executed when it elapses.
+#: See ``migrations/20260731_0001_mcp_purchase_idempotency.sql``.
 DEFAULT_IDEMPOTENCY_TTL_SECONDS = 24 * 60 * 60
+
+#: Environment variable holding the HMAC secret used to digest Idempotency-Keys.
+IDEMPOTENCY_HASH_SECRET_ENV = "MCP_IDEMPOTENCY_HASH_SECRET"
+
+#: Minimum length of that secret. Short secrets are brute-forceable, and the digest
+#: is the only thing standing between two callers' idempotency identities.
+IDEMPOTENCY_HASH_SECRET_MIN_LENGTH = 32
+
+#: Values that look like an unfilled template rather than a real secret. Compared
+#: case-insensitively against the whole value and as a prefix, so "changeme-123"
+#: is rejected too. The secret itself is never logged or echoed.
+IDEMPOTENCY_HASH_SECRET_PLACEHOLDERS = (
+    "change", "changeme", "change_me", "change-me", "placeholder", "secret", "mysecret",
+    "your-secret", "your_secret", "yoursecret", "todo", "tbd", "fixme", "example",
+    "test", "testing", "dummy", "sample", "replace", "replaceme", "none", "null",
+    "password", "hash-secret", "hash_secret", "xxx", "abc", "123",
+)
 
 #: How long a PROCESSING record is considered "a request that is still in flight"
 #: before it is treated as a crashed execution and reconciled.
@@ -92,6 +111,8 @@ class McpErrorMessages(StrEnum):
     MCP_ANONYMOUS_NOT_ALLOWED = "MCP_ANONYMOUS_NOT_ALLOWED"
     MCP_MANUAL_INTERVENTION_REQUIRED = "MCP_MANUAL_INTERVENTION_REQUIRED"
     MCP_PURCHASE_TEMPORARILY_UNAVAILABLE = "MCP_PURCHASE_TEMPORARILY_UNAVAILABLE"
+    MCP_IDEMPOTENCY_SECRET_MISCONFIGURED = "MCP_IDEMPOTENCY_SECRET_MISCONFIGURED"
+    MCP_UNSUPPORTED_CURRENCY = "MCP_UNSUPPORTED_CURRENCY"
 
 
 #: HTTP status returned when the wallet may have been debited but provisioning did not

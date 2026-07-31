@@ -62,7 +62,9 @@ def data_of(response) -> dict:
 
 
 def seed_record(db, status: str = "PROCESSING", age_seconds: int = 0, order_id: str | None = None,
-                key: str = VALID_KEY, user_id: str = USER_A_ID, body: dict | None = None) -> dict:
+                key: str = VALID_KEY, user_id: str = USER_A_ID, body: dict | None = None,
+                has_side_effects: bool = False, expires_in_seconds: int = 24 * 3600,
+                response_code: int | None = None, response_body: dict | None = None) -> dict:
     """Insert an idempotency record the way a previous execution would have left it."""
     body = body or mcp_body()
     now = datetime.now(tz=timezone.utc)
@@ -75,15 +77,17 @@ def seed_record(db, status: str = "PROCESSING", age_seconds: int = 0, order_id: 
         "request_hash": build_request_hash(user_id=user_id, operation=MCP_WALLET_BUNDLE_ASSIGN,
                                            bundle_code=body["bundle_code"],
                                            payment_type=body["payment_type"],
-                                           related_search=body.get("related_search")),
+                                           related_search=body.get("related_search"),
+                                           currency="USD"),
         "status": status,
         "order_id": order_id,
-        "response_code": None,
-        "response_body": None,
+        "response_code": response_code,
+        "response_body": response_body,
         "error_code": None,
+        "has_side_effects": has_side_effects,
         "created_at": (now - timedelta(seconds=age_seconds)).isoformat(),
         "updated_at": (now - timedelta(seconds=age_seconds)).isoformat(),
-        "expires_at": (now + timedelta(hours=24)).isoformat(),
+        "expires_at": (now + timedelta(seconds=expires_in_seconds)).isoformat(),
     })
 
 
@@ -368,18 +372,115 @@ def test_a_hub_exception_after_the_debit_is_escalated_not_reported_as_not_charge
     assert records(db)[0]["status"] == "AMBIGUOUS"
 
 
-# ------------------------------------------------------------------ expiry / TTL
+# ---------------------------------------- terminal keys are never recycled (TTL)
 
-def test_an_expired_key_may_be_recycled(db, hub, client, mcp_enabled):
+def expire(db, index: int = 0) -> None:
+    """Push a record's retention hint into the past. It must change nothing."""
+    records(db)[index]["expires_at"] = (datetime.now(tz=timezone.utc) - timedelta(days=30)).isoformat()
+
+
+def test_an_expired_successful_key_still_replays_and_never_buys_again(db, hub, client, mcp_enabled):
     first = post_mcp(client)
-    records(db)[0]["expires_at"] = (datetime.now(tz=timezone.utc) - timedelta(seconds=1)).isoformat()
+    expire(db)
 
     second = post_mcp(client)
 
     assert second.status_code == 200
-    assert data_of(second)["idempotent_replay"] is False
-    assert data_of(second)["order_id"] != data_of(first)["order_id"]
-    assert len(orders(db)) == 2
+    assert data_of(second)["idempotent_replay"] is True
+    assert data_of(second)["order_id"] == data_of(first)["order_id"]
+    assert len(orders(db)) == 1
+    assert len(transactions(db)) == 1
+    assert balance(db) == STARTING_BALANCE - BUNDLE_PRICE
+    assert hub.create_order_calls == 1
+
+
+def test_an_expired_ambiguous_key_stays_blocked_forever(db, hub, client, mcp_enabled):
+    hub.fail_provisioning = True
+    post_mcp(client)
+    assert records(db)[0]["status"] == "AMBIGUOUS"
+    expire(db)
+
+    hub.fail_provisioning = False
+    replay = post_mcp(client)
+
+    assert replay.status_code == 424
+    assert data_of(replay)["next_action"] == "CONTACT_SUPPORT"
+    assert balance(db) == STARTING_BALANCE - BUNDLE_PRICE
+    assert len(transactions(db)) == 1
+    assert hub.create_order_calls == 1
+
+
+def test_an_expired_finally_failed_key_stays_terminal(db, hub, client, mcp_enabled):
+    set_balance(db, 1.0)
+    assert post_mcp(client).status_code == 400
+    assert records(db)[0]["status"] == "FAILED_FINAL"
+    expire(db)
+
+    set_balance(db, STARTING_BALANCE)
+    replay = post_mcp(client)
+
+    # Elapsed time must not turn a spent key back into a fresh one.
+    assert replay.status_code == 400
+    assert data_of(replay)["idempotent_replay"] is True
+    assert orders(db) == []
+    # A new key is the only way forward.
+    assert post_mcp(client, idempotency_key=OTHER_VALID_KEY).status_code == 200
+
+
+def test_an_expired_retryable_key_with_no_side_effect_may_still_be_retried(db, hub, client, mcp_enabled):
+    hub.raise_on_get_bundle = True
+    assert post_mcp(client).status_code == 503
+    record = records(db)[0]
+    assert record["status"] == "FAILED_RETRYABLE"
+    assert record["order_id"] is None
+    assert record["has_side_effects"] is False
+    expire(db)
+
+    hub.raise_on_get_bundle = False
+    retry = post_mcp(client)
+
+    assert retry.status_code == 200
+    assert data_of(retry)["idempotent_replay"] is False
+    assert len(orders(db)) == 1
+
+
+def test_a_retryable_key_that_touched_something_is_not_re_executed(db, hub, client, mcp_enabled):
+    # A FAILED_RETRYABLE record that nonetheless carries a side effect must replay,
+    # never re-execute: this is the guard against double-charging on retry.
+    seed_record(db, status="FAILED_RETRYABLE", has_side_effects=True, response_code=503,
+                response_body={"status": "FAILED", "payment_status": "NOT_CHARGED",
+                               "order_status": "NOT_CREATED", "provisioning_status": "NOT_STARTED",
+                               "next_action": "RETRY_SAME_IDEMPOTENCY_KEY", "idempotent_replay": False,
+                               "correlation_id": None})
+
+    response = post_mcp(client)
+
+    assert response.status_code == 503
+    assert data_of(response)["idempotent_replay"] is True
+    assert orders(db) == []
+    assert hub.create_order_calls == 0
+    assert balance(db) == STARTING_BALANCE
+
+
+def test_a_retryable_key_that_created_an_order_is_not_re_executed(db, hub, client, mcp_enabled):
+    seed_record(db, status="FAILED_RETRYABLE", order_id=str(uuid.uuid4()), response_code=503,
+                response_body={"status": "FAILED", "payment_status": "NOT_CHARGED",
+                               "order_status": "FAILURE", "provisioning_status": "NOT_STARTED",
+                               "next_action": "RETRY_SAME_IDEMPOTENCY_KEY", "idempotent_replay": False,
+                               "correlation_id": None})
+
+    response = post_mcp(client)
+
+    assert response.status_code == 503
+    assert data_of(response)["idempotent_replay"] is True
+    assert hub.create_order_calls == 0
+
+
+def test_a_successful_record_is_marked_as_having_side_effects(db, hub, client, mcp_enabled):
+    post_mcp(client)
+    record = records(db)[0]
+    assert record["has_side_effects"] is True
+    assert record["order_id"] is not None
 
 
 def test_a_live_key_is_replayed_rather_than_recycled(db, hub, client, mcp_enabled):

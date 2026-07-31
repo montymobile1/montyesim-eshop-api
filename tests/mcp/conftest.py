@@ -166,11 +166,29 @@ def client():
     return TestClient(esim_app, raise_server_exceptions=False)
 
 
+#: A secret that satisfies every rule in ``hash_secret_problem`` (>= 32 chars, not a
+#: placeholder, not one repeated character). Test-only value.
+VALID_HASH_SECRET = "f3a91c7d5e2b48a06c1d9f7e3b5a2c84d6019fbe7a3c5d2e"
+
+
 @pytest.fixture
-def mcp_enabled(monkeypatch):
+def mcp_enabled(monkeypatch, no_ambient_hash_secret):
+    """Enable MCP with a valid configuration: the flag AND a usable hash secret.
+
+    Depends on ``no_ambient_hash_secret`` so the clean-slate delenv always runs first,
+    regardless of pytest's autouse ordering.
+    """
     monkeypatch.setenv("MCP_PURCHASE_ENABLED", "true")
+    monkeypatch.setenv("MCP_IDEMPOTENCY_HASH_SECRET", VALID_HASH_SECRET)
     monkeypatch.setenv("MCP_IDEMPOTENCY_PROCESSING_TIMEOUT_SECONDS", "120")
+    monkeypatch.setenv("SYSTEM_CURRENCY", "USD")
     return True
+
+
+@pytest.fixture(autouse=True)
+def no_ambient_hash_secret(monkeypatch):
+    """Start every test from a clean slate so secret tests cannot pass by accident."""
+    monkeypatch.delenv("MCP_IDEMPOTENCY_HASH_SECRET", raising=False)
 
 
 def mcp_headers(token: str = USER_A_TOKEN, idempotency_key: str | None = VALID_KEY,

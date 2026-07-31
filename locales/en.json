@@ -76,5 +76,7 @@
   "MCP_UNSUPPORTED_PAYMENT_TYPE": "Only Wallet payments are supported for this operation.",
   "MCP_ANONYMOUS_NOT_ALLOWED": "Anonymous sessions cannot use this operation.",
   "MCP_MANUAL_INTERVENTION_REQUIRED": "This purchase needs to be reviewed by support before it can be repeated.",
-  "MCP_PURCHASE_TEMPORARILY_UNAVAILABLE": "The purchase could not be validated. Please try again."
+  "MCP_PURCHASE_TEMPORARILY_UNAVAILABLE": "The purchase could not be validated. Please try again.",
+  "MCP_IDEMPOTENCY_SECRET_MISCONFIGURED": "This service is not correctly configured. Please try again later.",
+  "MCP_UNSUPPORTED_CURRENCY": "This purchase can only be made in the supported currency."
 }

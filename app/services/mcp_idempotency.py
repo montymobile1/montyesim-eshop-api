@@ -4,11 +4,16 @@ Nothing in this module touches the legacy purchase flow: it only turns an MCP
 request into stable digests that can be stored and compared.
 
 Security notes:
-  * The raw ``Idempotency-Key`` never leaves this module: callers receive a
-    keyed digest (HMAC-SHA256 when ``MCP_IDEMPOTENCY_HASH_SECRET`` is configured,
-    plain domain-separated SHA-256 otherwise) plus a short fingerprint for logs.
+  * The raw ``Idempotency-Key`` never leaves this module: callers receive an
+    HMAC-SHA256 digest keyed with ``MCP_IDEMPOTENCY_HASH_SECRET`` plus a short
+    fingerprint for logs.
+  * While ``MCP_PURCHASE_ENABLED`` is true the secret is **mandatory**. There is
+    no silent fall back to unkeyed SHA-256: an unusable secret raises before any
+    digest is produced, so a misconfigured deployment cannot write records that a
+    correctly configured one would compute differently.
   * The digest is bound to the authenticated user id and the operation, so two
     different users may safely present the same external key.
+  * The secret's value is never logged, echoed or included in an error.
 """
 
 import hashlib
@@ -18,7 +23,11 @@ import os
 import re
 from typing import Any, Mapping, Optional, Sequence
 
+from app.config.feature_flags import is_mcp_purchase_enabled
 from app.config.mcp_constants import (
+    IDEMPOTENCY_HASH_SECRET_ENV,
+    IDEMPOTENCY_HASH_SECRET_MIN_LENGTH,
+    IDEMPOTENCY_HASH_SECRET_PLACEHOLDERS,
     IDEMPOTENCY_KEY_MAX_LENGTH,
     IDEMPOTENCY_KEY_MIN_LENGTH,
     IDEMPOTENCY_KEY_PATTERN,
@@ -58,19 +67,69 @@ def validate_idempotency_key(raw_key: Optional[str]) -> str:
     return key
 
 
-def _hash_secret() -> Optional[bytes]:
-    secret = os.getenv("MCP_IDEMPOTENCY_HASH_SECRET")
+def _raw_hash_secret() -> Optional[str]:
+    secret = os.getenv(IDEMPOTENCY_HASH_SECRET_ENV)
     if secret and secret.strip():
-        return secret.strip().encode("utf-8")
+        return secret.strip()
     return None
 
 
+def hash_secret_problem() -> Optional[str]:
+    """Return why the configured hash secret is unusable, or ``None`` when it is fine.
+
+    The reason names the *category* of problem only. It never contains the secret,
+    any part of it, or its length beyond the published minimum.
+    """
+    secret = _raw_hash_secret()
+    if secret is None:
+        return f"{IDEMPOTENCY_HASH_SECRET_ENV} is not set"
+    if len(secret) < IDEMPOTENCY_HASH_SECRET_MIN_LENGTH:
+        return (f"{IDEMPOTENCY_HASH_SECRET_ENV} must be at least "
+                f"{IDEMPOTENCY_HASH_SECRET_MIN_LENGTH} characters")
+    normalized = secret.lower()
+    if any(normalized == placeholder or normalized.startswith(placeholder)
+           for placeholder in IDEMPOTENCY_HASH_SECRET_PLACEHOLDERS):
+        return f"{IDEMPOTENCY_HASH_SECRET_ENV} still looks like a placeholder value"
+    if len(set(secret)) == 1:
+        return f"{IDEMPOTENCY_HASH_SECRET_ENV} is a single repeated character"
+    return None
+
+
+def is_hash_secret_usable() -> bool:
+    """True when a real, sufficiently strong hash secret is configured."""
+    return hash_secret_problem() is None
+
+
+def require_hash_secret() -> bytes:
+    """Return the secret as bytes, or fail closed.
+
+    Raises a 503 ``CustomException`` when the secret is missing, blank,
+    placeholder-like, too short or a single repeated character. The exception
+    carries the category of problem, never the value.
+    """
+    problem = hash_secret_problem()
+    if problem is not None:
+        raise CustomException(
+            code=503, name=McpErrorMessages.MCP_IDEMPOTENCY_SECRET_MISCONFIGURED,
+            details=(f"MCP purchase is enabled but its idempotency hash secret is unusable: "
+                     f"{problem}. Configure a stable, high-entropy secret and restart."))
+    return _raw_hash_secret().encode("utf-8")
+
+
 def hash_idempotency_key(raw_key: str, user_id: str, operation: str) -> str:
-    """Return the storable digest of an idempotency key, bound to user + operation."""
+    """Return the storable digest of an idempotency key, bound to user + operation.
+
+    While the feature is enabled a valid secret is mandatory and this raises rather
+    than degrading to an unkeyed digest. When the feature is disabled (tests, and
+    deployments that never serve MCP traffic) an unkeyed digest is still produced
+    so the pure hashing helpers stay usable.
+    """
     message = f"{_KEY_DOMAIN}|{operation}|{user_id}|{raw_key}".encode("utf-8")
-    secret = _hash_secret()
+    if is_mcp_purchase_enabled():
+        return hmac.new(require_hash_secret(), message, hashlib.sha256).hexdigest()
+    secret = _raw_hash_secret()
     if secret:
-        return hmac.new(secret, message, hashlib.sha256).hexdigest()
+        return hmac.new(secret.encode("utf-8"), message, hashlib.sha256).hexdigest()
     return hashlib.sha256(message).hexdigest()
 
 
@@ -155,20 +214,52 @@ def normalize_related_search(related_search: Any) -> Optional[dict]:
     return {"region": normalized_region, "countries": ordered}
 
 
+def system_currency() -> str:
+    """The one currency the backend prices and settles MCP purchases in."""
+    return normalize_currency(os.getenv("SYSTEM_CURRENCY", "USD")) or "USD"
+
+
+def normalize_currency(currency: Any) -> Optional[str]:
+    """Normalize a currency code: trimmed and upper-cased. Blank becomes ``None``."""
+    text = _normalize_text(currency)
+    return text.upper() if text else None
+
+
+def effective_currency(x_currency: Any) -> str:
+    """Resolve the currency that actually applies, after backend defaults.
+
+    An absent or blank ``X-Currency`` means "whatever the backend settles in", which
+    is the system currency - deliberately *not* ``DEFAULT_CURRENCY``, which is a
+    presentation default (it is ``EUR`` in this deployment) and has never driven what
+    an MCP purchase costs.
+    """
+    return normalize_currency(x_currency) or system_currency()
+
+
 def build_canonical_request(user_id: str, operation: str, bundle_code: str, payment_type: str,
-                            related_search: Any) -> str:
+                            related_search: Any, currency: Any) -> str:
     """Build the deterministic canonical representation of an MCP purchase.
 
-    Only fields that change what is executed are included. Access tokens,
-    currency/locale headers, device ids, correlation ids and the caller's
-    ``quote_reference`` are deliberately excluded.
+    Only fields that change what is executed are included.
+
+    ``currency`` is the *effective* currency (after backend defaults, normalized).
+    It is bound into the identity so that a key can never be replayed across a
+    materially different currency, even if the endpoint later stops being
+    single-currency. ``usd`` and ``USD`` normalize to the same value and therefore
+    replay.
+
+    Deliberately excluded: access tokens, device ids, correlation ids, the caller's
+    ``quote_reference``, and ``Accept-Language``. Locale is excluded because it is
+    provably inert here - ``UserBundleService.assign`` accepts ``locale`` but never
+    reads it, and the wallet payment path it delegates to takes no locale at all.
     """
     canonical = {
-        "version": 1,
+        "version": 2,
         "operation": operation,
         "user_id": _normalize_text(user_id),
         "bundle_code": _normalize_text(bundle_code),
         "payment_type": _normalize_text(payment_type),
+        "currency": normalize_currency(currency),
         "related_search": normalize_related_search(related_search),
     }
     return json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -180,8 +271,9 @@ def hash_canonical_request(canonical_request: str) -> str:
 
 
 def build_request_hash(user_id: str, operation: str, bundle_code: str, payment_type: str,
-                       related_search: Any) -> str:
+                       related_search: Any, currency: Any) -> str:
     """Convenience wrapper: canonicalize then hash."""
     return hash_canonical_request(
         build_canonical_request(user_id=user_id, operation=operation, bundle_code=bundle_code,
-                                payment_type=payment_type, related_search=related_search))
+                                payment_type=payment_type, related_search=related_search,
+                                currency=currency))

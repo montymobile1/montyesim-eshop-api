@@ -76,6 +76,8 @@
   "MCP_UNSUPPORTED_PAYMENT_TYPE": "تدعم هذه العملية الدفع عبر المحفظة فقط.",
   "MCP_ANONYMOUS_NOT_ALLOWED": "لا يمكن استخدام هذه العملية بحساب مجهول.",
   "MCP_MANUAL_INTERVENTION_REQUIRED": "تحتاج عملية الشراء هذه إلى مراجعة الدعم قبل إعادة المحاولة.",
-  "MCP_PURCHASE_TEMPORARILY_UNAVAILABLE": "تعذر التحقق من عملية الشراء. يرجى المحاولة مرة أخرى."
+  "MCP_PURCHASE_TEMPORARILY_UNAVAILABLE": "تعذر التحقق من عملية الشراء. يرجى المحاولة مرة أخرى.",
+  "MCP_IDEMPOTENCY_SECRET_MISCONFIGURED": "هذه الخدمة غير مهيأة بشكل صحيح. يرجى المحاولة لاحقاً.",
+  "MCP_UNSUPPORTED_CURRENCY": "لا يمكن إتمام هذا الشراء إلا بالعملة المدعومة."
 }
 

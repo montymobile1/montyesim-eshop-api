@@ -53,8 +53,11 @@ from app.schemas.response import Response, ResponseHelper
 from app.services.currency_service import CurrencyService
 from app.services.mcp_idempotency import (
     build_request_hash,
+    effective_currency,
     fingerprint,
     hash_idempotency_key,
+    require_hash_secret,
+    system_currency,
     user_fingerprint,
     validate_idempotency_key,
 )
@@ -111,6 +114,7 @@ class McpWalletPurchaseContext:
 
     def on_wallet_debited(self, amount: float, currency: str) -> None:
         self.wallet_debited = True
+        self.__mark_side_effect("WALLET_DEBITED")
         # Amount/balance intentionally not logged: the currency is enough for triage.
         logger.info(f"mcp.purchase correlation_id={self.correlation_id} state=WALLET_DEBITED "
                     f"order_id={self.order_id} currency={currency}")
@@ -118,8 +122,21 @@ class McpWalletPurchaseContext:
     def on_provisioning_result(self, result: Any) -> None:
         self.provisioning_called = True
         self.provisioning_failed = result is None or isinstance(result, Exception)
+        self.__mark_side_effect("PROVISIONING_RETURNED")
         logger.info(f"mcp.purchase correlation_id={self.correlation_id} state=PROVISIONING_RETURNED "
                     f"order_id={self.order_id} failed={self.provisioning_failed}")
+
+    def __mark_side_effect(self, state: str) -> None:
+        """Flag the record as irreversible so its key can never be re-executed.
+
+        Never breaks the purchase: a failure here only costs us the ability to prove
+        later that nothing happened, and the claim function's default is to block.
+        """
+        try:
+            self.__repo.mark_side_effect(record_id=self.__record_id, user_id=self.__user_id)
+        except Exception as e:
+            logger.error(f"mcp.purchase correlation_id={self.correlation_id} state={state} "
+                         f"failed to persist side-effect marker: {e}")
 
 
 class McpPurchaseService:
@@ -139,7 +156,10 @@ class McpPurchaseService:
                                    idempotency_key: Optional[str], x_currency: str, locale: str,
                                    request: Request) -> McpPurchaseResult:
         correlation_id = uuid.uuid4().hex
+        # Every guard below runs before the claim, so a misconfigured or unsupported
+        # request can never write an idempotency record, create an order or move money.
         self.__ensure_enabled()
+        require_hash_secret()
         self.__ensure_authenticated_user(user)
 
         raw_key = validate_idempotency_key(idempotency_key)
@@ -147,11 +167,14 @@ class McpPurchaseService:
             raise CustomException(code=400, name=McpErrorMessages.MCP_UNSUPPORTED_PAYMENT_TYPE,
                                   details="Only Wallet payments are supported by the MCP purchase endpoint")
 
+        currency = self.__ensure_supported_currency(x_currency)
+
         key_hash = hash_idempotency_key(raw_key=raw_key, user_id=user.id, operation=MCP_WALLET_BUNDLE_ASSIGN)
         request_hash = build_request_hash(user_id=user.id, operation=MCP_WALLET_BUNDLE_ASSIGN,
                                           bundle_code=mcp_request.bundle_code,
                                           payment_type=mcp_request.payment_type,
-                                          related_search=mcp_request.related_search)
+                                          related_search=mcp_request.related_search,
+                                          currency=currency)
         del raw_key  # the raw key must not survive past this point
 
         key_fp = fingerprint(key_hash)
@@ -167,7 +190,7 @@ class McpPurchaseService:
 
         if claim.outcome == McpClaimOutcome.CLAIMED:
             return await self.__execute(user=user, device_id=device_id, mcp_request=mcp_request, claim=claim,
-                                        x_currency=x_currency, locale=locale, request=request,
+                                        x_currency=currency, locale=locale, request=request,
                                         correlation_id=correlation_id, key_fp=key_fp)
 
         if claim.outcome == McpClaimOutcome.CONFLICT:
@@ -199,6 +222,29 @@ class McpPurchaseService:
         if getattr(user, "is_anonymous", False):
             raise CustomException(code=401, name=McpErrorMessages.MCP_ANONYMOUS_NOT_ALLOWED,
                                   details="Anonymous sessions cannot use the MCP purchase endpoint")
+
+    @staticmethod
+    def __ensure_supported_currency(x_currency: Optional[str]) -> str:
+        """Resolve the effective currency and reject anything the endpoint cannot settle.
+
+        MCP wallet purchases are single-currency by contract: the bundle price is the
+        hub's USD price, the order row is written in the system currency, and the debit
+        is converted into the *wallet's* own currency. ``X-Currency`` has never changed
+        any of those values, so accepting an arbitrary one would be a silent no-op that
+        an MCP client could reasonably mistake for a priced quote. It is rejected
+        explicitly instead, before any record is written.
+
+        The effective currency is still bound into the request hash, so relaxing this
+        rule later cannot make one key replay across two currencies.
+        """
+        supported = system_currency()
+        resolved = effective_currency(x_currency)
+        if resolved != supported:
+            raise CustomException(
+                code=400, name=McpErrorMessages.MCP_UNSUPPORTED_CURRENCY,
+                details=(f"MCP purchases are settled in {supported} only. Send X-Currency: "
+                         f"{supported}, or omit the header."))
+        return resolved
 
     @staticmethod
     def __ttl_seconds() -> int:

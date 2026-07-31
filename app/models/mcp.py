@@ -20,8 +20,11 @@ class McpPurchaseIdempotencyModel(BaseModel):
     response_code: Optional[int] = None
     response_body: Optional[Dict[str, Any]] = None
     error_code: Optional[str] = None
+    #: True once an order row, wallet debit or provisioning call happened for this key.
+    has_side_effects: bool = False
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    #: Retention hint only; it never unlocks or recycles a terminal key.
     expires_at: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True, extra="ignore")
@@ -38,6 +41,7 @@ class McpIdempotencyClaim(BaseModel):
     response_body: Optional[Dict[str, Any]] = None
     error_code: Optional[str] = None
     request_hash: Optional[str] = None
+    has_side_effects: bool = False
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     expires_at: Optional[str] = None

@@ -99,22 +99,18 @@ class FakeDatabase:
                     "user_id": user_id, "operation": operation, "idempotency_key_hash": key_hash,
                     "request_hash": request_hash, "status": "PROCESSING", "order_id": None,
                     "response_code": None, "response_body": None, "error_code": None,
+                    "has_side_effects": False,
                     "updated_at": _iso(_now()),
                     "expires_at": _iso(_now() + timedelta(seconds=ttl_seconds)),
                 })
                 return [self.__claim_row("CLAIMED", row)]
 
-            expires_at = existing.get("expires_at")
-            expired = bool(expires_at) and datetime.fromisoformat(expires_at) <= _now()
-            if existing["status"] != "PROCESSING" and expired:
-                existing.update({"request_hash": request_hash, "status": "PROCESSING", "order_id": None,
-                                 "response_code": None, "response_body": None, "error_code": None,
-                                 "updated_at": _iso(_now()),
-                                 "expires_at": _iso(_now() + timedelta(seconds=ttl_seconds))})
-                return [self.__claim_row("CLAIMED", existing)]
+            # Deliberately no expires_at branch: elapsed time never unlocks a key.
             if existing["request_hash"] != request_hash:
                 return [self.__claim_row("CONFLICT", existing)]
-            if existing["status"] == "FAILED_RETRYABLE":
+            if (existing["status"] == "FAILED_RETRYABLE"
+                    and existing.get("order_id") is None
+                    and not existing.get("has_side_effects", False)):
                 existing.update({"status": "PROCESSING", "response_code": None, "response_body": None,
                                  "error_code": None, "updated_at": _iso(_now())})
                 return [self.__claim_row("CLAIMED", existing)]
@@ -131,6 +127,7 @@ class FakeDatabase:
             "response_body": row.get("response_body"),
             "error_code": row.get("error_code"),
             "request_hash": row.get("request_hash"),
+            "has_side_effects": row.get("has_side_effects", False),
             "created_at": row.get("created_at"),
             "updated_at": row.get("updated_at"),
             "expires_at": row.get("expires_at"),
