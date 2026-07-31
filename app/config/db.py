@@ -104,3 +104,5 @@ class DatabaseTables(StrEnum):
     TABLE_CURRENCY = "currency"
 
     TABLE_VOUCHER = "voucher"
+
+    TABLE_MCP_PURCHASE_IDEMPOTENCY = "mcp_purchase_idempotency"

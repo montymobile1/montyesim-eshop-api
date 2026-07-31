@@ -31,6 +31,7 @@ from app.schemas.response import Response, ResponseHelper
 from app.services.bundle_service import BundleService
 from app.services.currency_service import CurrencyService
 from app.services.promotion_service import PromotionService
+from app.services.purchase_execution_context import PurchaseExecutionContext
 from app.services.task_executor import TaskExecutor
 from app.services.user_wallet_service import UserWalletService
 
@@ -54,7 +55,11 @@ class UserBundleService:
         self.__tag_repo = TagRepo()
 
     async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
-                     locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
+                     locale: str, request: Request,
+                     execution_context: PurchaseExecutionContext | None = None
+                     ) -> Response[PaymentIntentResponse] | Response[bool]:
+        # `execution_context` is an internal, optional observer. Legacy callers pass
+        # nothing, so every hook below is skipped and behaviour is unchanged.
 
         bundle = await self.__esim_hub_service.get_bundle_by_id(bundle_id=assign_request.bundle_code)
         if not bundle or not bundle.is_active:
@@ -87,6 +92,9 @@ class UserBundleService:
             data.pop("promo_code")
 
         order = self.__user_order_repo.create(data)
+
+        if execution_context is not None:
+            execution_context.on_order_created(order_id=order.id)
 
         if assign_request.promo_code:
             if self.__promotion_service.is_referral_code(assign_request.promo_code):
@@ -126,7 +134,8 @@ class UserBundleService:
 
         if payment_type == PaymentTypeEnum.WALLET:
             return await self.__handle_wallet_payment(user=user, bundle=bundle, user_order=order, rule_id=rule_id,
-                                                      modified_amount=modified_amount)
+                                                      modified_amount=modified_amount,
+                                                      execution_context=execution_context)
         elif payment_type == PaymentTypeEnum.DCB:
             return await self.__handle_dcb_payment(user=user, bundle=bundle, user_order=order)
         elif payment_type == PaymentTypeEnum.CARD:
@@ -642,7 +651,8 @@ class UserBundleService:
     async def __handle_wallet_payment(self, user: UserModel, bundle: BundleDTO, user_order: UserOrderModel,
                                       rule_id: str,
                                       modified_amount: float,
-                                      iccid: str = None) -> Response[
+                                      iccid: str = None,
+                                      execution_context: PurchaseExecutionContext | None = None) -> Response[
         PaymentIntentResponse]:
         wallet: UserWalletModel = self.__user_wallet_service.get_user_wallet(user_id=user.id)
         rate = self.__currency_service.get_currency_rate(from_currency="USD", to_currency=wallet.currency)
@@ -656,16 +666,24 @@ class UserBundleService:
                                                               user_id=user.id,
                                                               source=UserWalletTransactionSource.PURCHASE_BUNDLE,
                                                               order_currency="USD")
+            if execution_context is not None:
+                execution_context.on_wallet_debited(amount=bundle_price, currency=wallet.currency)
             if user_order.order_type == UserOrderType.ASSIGN:
-                await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                       payment_status=OrderStatusEnum.SUCCESS,
-                                                       payment_type=PaymentTypeEnum.WALLET,
-                                                       rule_id=rule_id)
+                purchase_result = await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
+                                                                         user_id=user.id,
+                                                                         payment_status=OrderStatusEnum.SUCCESS,
+                                                                         payment_type=PaymentTypeEnum.WALLET,
+                                                                         rule_id=rule_id)
+                if execution_context is not None:
+                    execution_context.on_provisioning_result(purchase_result)
             elif user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
-                await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                          payment_status=OrderStatusEnum.SUCCESS,
-                                                          payment_type=PaymentTypeEnum.WALLET,
-                                                          iccid=iccid)
+                top_up_result = await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle,
+                                                                          user_id=user.id,
+                                                                          payment_status=OrderStatusEnum.SUCCESS,
+                                                                          payment_type=PaymentTypeEnum.WALLET,
+                                                                          iccid=iccid)
+                if execution_context is not None:
+                    execution_context.on_provisioning_result(top_up_result)
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
         except Exception as e:

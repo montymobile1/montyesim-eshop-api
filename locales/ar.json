@@ -67,6 +67,15 @@
   "REFERRAL_MESSAGE_DISCOUNT_PERCENTAGE": "احصل على رصيد بقيمة {amount} {currency} مقابل كل صديق يقوم بالتسجيل ويكمل عملية شراء. ويحصل أصدقاؤك على خصم بنسبة {percentage}% على أول عملية شراء لهم.",
   "REFERRAL_MESSAGE_DISCOUNT_AMOUNT": "احصل على رصيد بقيمة {amount} {currency} مقابل كل صديق يقوم بالتسجيل ويكمل عملية شراء. ويحصل أصدقاؤك على خصم بقيمة {amount} {currency} على أول عملية شراء لهم.",
   "REFERRAL_MESSAGE_DEFAULT": "احصل على رصيد بقيمة {amount} {currency} مقابل كل صديق يقوم بالتسجيل ويكمل عملية شراء.",
-  "OTP_IS": "رمز التحقق الخاص بك هو"
+  "OTP_IS": "رمز التحقق الخاص بك هو",
+  "MCP_PURCHASE_DISABLED": "قناة الشراء هذه غير متاحة.",
+  "IDEMPOTENCY_KEY_REQUIRED": "ترويسة Idempotency-Key مطلوبة لهذه العملية.",
+  "IDEMPOTENCY_KEY_INVALID": "قيمة Idempotency-Key غير صالحة.",
+  "IDEMPOTENCY_KEY_CONFLICT": "تم استخدام Idempotency-Key هذا لطلب مختلف سابقاً.",
+  "IDEMPOTENT_REQUEST_IN_PROGRESS": "لا تزال عملية الشراء الخاصة بهذا المفتاح قيد المعالجة.",
+  "MCP_UNSUPPORTED_PAYMENT_TYPE": "تدعم هذه العملية الدفع عبر المحفظة فقط.",
+  "MCP_ANONYMOUS_NOT_ALLOWED": "لا يمكن استخدام هذه العملية بحساب مجهول.",
+  "MCP_MANUAL_INTERVENTION_REQUIRED": "تحتاج عملية الشراء هذه إلى مراجعة الدعم قبل إعادة المحاولة.",
+  "MCP_PURCHASE_TEMPORARILY_UNAVAILABLE": "تعذر التحقق من عملية الشراء. يرجى المحاولة مرة أخرى."
 }
 

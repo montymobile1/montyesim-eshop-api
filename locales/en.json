@@ -67,5 +67,14 @@
   "REFERRAL_MESSAGE_DISCOUNT_PERCENTAGE": "Get {amount} {currency} credit for every friend that signs up and completes a purchase. Your friends get {percentage}% off their first purchase.",
   "REFERRAL_MESSAGE_DISCOUNT_AMOUNT": "Get {amount} {currency} credit for every friend that signs up and completes a purchase. Your friends get {amount} {currency} off their first purchase.",
   "REFERRAL_MESSAGE_DEFAULT": "Get {amount} {currency} credit for every friend that signs up and completes a purchase",
-  "OTP_IS": "Your OTP is"
+  "OTP_IS": "Your OTP is",
+  "MCP_PURCHASE_DISABLED": "This purchase channel is not available.",
+  "IDEMPOTENCY_KEY_REQUIRED": "An Idempotency-Key header is required for this operation.",
+  "IDEMPOTENCY_KEY_INVALID": "The Idempotency-Key provided is invalid.",
+  "IDEMPOTENCY_KEY_CONFLICT": "This Idempotency-Key was already used for a different request.",
+  "IDEMPOTENT_REQUEST_IN_PROGRESS": "A purchase for this Idempotency-Key is still being processed.",
+  "MCP_UNSUPPORTED_PAYMENT_TYPE": "Only Wallet payments are supported for this operation.",
+  "MCP_ANONYMOUS_NOT_ALLOWED": "Anonymous sessions cannot use this operation.",
+  "MCP_MANUAL_INTERVENTION_REQUIRED": "This purchase needs to be reviewed by support before it can be repeated.",
+  "MCP_PURCHASE_TEMPORARILY_UNAVAILABLE": "The purchase could not be validated. Please try again."
 }

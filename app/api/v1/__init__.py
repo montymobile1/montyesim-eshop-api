@@ -6,6 +6,7 @@ from app.api.v1.bundles import router as bundle_routes
 from app.api.v1.callback import router as notification_routes
 from app.api.v1.health_check import router as health_check_router
 from app.api.v1.home import router as home_routes
+from app.api.v1.mcp_user_bundle import router as mcp_user_bundle_routes
 from app.api.v1.promotion import router as promotion_router
 from app.api.v1.user_bundle import router as user_bundle_routes
 from app.api.v1.user_wallet import router as user_wallet_router
@@ -23,3 +24,5 @@ router.include_router(user_bundle_routes, prefix="/user", tags=["User"])
 router.include_router(user_wallet_router, prefix="/wallet", tags=["Wallet"])
 router.include_router(voucher_router, prefix="/voucher", tags=["Voucher"])
 router.include_router(promotion_router, prefix="/promotion", tags=["Promotion"])
+# MCP namespace: isolated routes, feature flagged, never used by mobile/web clients.
+router.include_router(mcp_user_bundle_routes, prefix="/mcp", tags=["MCP"])
