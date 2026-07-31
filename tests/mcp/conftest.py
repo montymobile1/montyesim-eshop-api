@@ -33,6 +33,12 @@ from app.main import esim_app  # noqa: E402
 from app.schemas.esim_hub import EsimHubOrderResponse  # noqa: E402
 from app.schemas.home import BundleCategoryDTO, BundleDTO, CountryDTO  # noqa: E402
 
+# The patch had to be live while the application was imported so every repository
+# built at import time captured the fake client permanently. Past this point it is
+# re-installed per test (see ``fake_supabase_client``) so that collecting or running
+# this package can never change how the rest of the suite behaves.
+_CLIENT_PATCHER.stop()
+
 USER_A_TOKEN = "test-token-user-a"
 USER_B_TOKEN = "test-token-user-b"
 ANONYMOUS_TOKEN = "test-token-anonymous"
@@ -95,6 +101,17 @@ class EsimHubStub:
 
     async def create_reseller_topup(self, **kwargs):  # pragma: no cover - not used by MCP
         return None
+
+
+@pytest.fixture(autouse=True)
+def fake_supabase_client():
+    """Keep the fake Supabase client installed for the duration of one MCP test.
+
+    Repositories captured the fake at import time, but code that resolves a client
+    per call (token introspection) needs the patch live while the request runs.
+    """
+    with patch.object(config_module, "create_client", fake_supabase.fake_create_client):
+        yield
 
 
 @pytest.fixture(autouse=True)
