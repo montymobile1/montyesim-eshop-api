@@ -83,7 +83,9 @@ def test_send_top_up_admin_email(user_wallet_service):
     mock_template.render.return_value = '<html/>'
     with patch('app.services.user_wallet_service.get_email_template', return_value=mock_template), \
          patch('app.services.user_wallet_service.get_config',
-               return_value='sara.yaghoubi@montymobile.com,charbel.haddad@montymobile.com') as mock_config, \
+               side_effect=lambda key, default=None: {
+                   'WALLET_TOP_UP_ALERT_RECIPIENTS': 'sara.yaghoubi@montymobile.com,charbel.haddad@montymobile.com',
+                   'RESELLER_NAME': 'Monty eSIM'}.get(key, default)) as mock_config, \
          patch('app.services.user_wallet_service.send_email') as mock_send:
         user_wallet_service._UserWalletService__send_top_up_admin_email(user, wallet, tx2, 'pi_123')
 
@@ -93,6 +95,7 @@ def test_send_top_up_admin_email(user_wallet_service):
     assert 'charbel.haddad@montymobile.com' in recipients
 
     data = mock_template.render.call_args.kwargs['data']
+    assert data['reseller_name'] == 'Monty eSIM'
     assert data['user_email'] == 'john@doe.com'
     assert data['transaction_id'] == 'pi_123'
     assert data['top_up_amount'] == '25.00'

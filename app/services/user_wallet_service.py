@@ -253,6 +253,7 @@ class UserWalletService:
             transaction_time = parse_iso_datetime(transaction.created_at) or datetime.now(timezone.utc)
             metadata = user.metadata or {}
             data = {
+                "reseller_name": get_config("RESELLER_NAME", os.getenv("MERCHANT_DISPLAY_NAME", "-")),
                 "user_email": metadata.get("email", user.email),
                 "currency": user_wallet.currency,
                 "top_up_amount": f"{float(transaction.amount):.2f}",
