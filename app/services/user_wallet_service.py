@@ -125,7 +125,7 @@ class UserWalletService:
 
         if self.__top_up_limit_reached(user_wallet.id):
             raise CustomException(code=400, name=ErrorMessages.TOP_UP_LIMIT_REACHED,
-                                  details="You have reached the top-up limit for today")
+                                  details="You have reached the maximum number of top-ups allowed per day.")
 
         order_amount = amount
         if x_currency != user_wallet.currency:
@@ -137,9 +137,9 @@ class UserWalletService:
             raise CustomException(code=400, name=ErrorMessages.INVALID_TOP_UP_AMOUNT,
                                   details="Top up amount must be greater than 0.5")
 
-        if order_amount > 100:
+        if self.exceeds_daily_top_up_limit(wallet_id=user_wallet.id, amount=order_amount):
             raise CustomException(code=400, name=ErrorMessages.TOP_UP_AMOUNT_LIMIT_EXCEEDED,
-                                  details="Top up amount must not exceed 100 USD")
+                                  details="This transaction cannot be completed because the maximum daily top-up amount of USD 100 would be exceeded.")
 
         order = self.__user_order_repo.create(data={
             "user_id": user.id,
@@ -189,12 +189,23 @@ class UserWalletService:
                                                                 order_by="created_at", desc=True)
         return transactions
 
-    def __top_up_limit_reached(self, wallet_id: str, max_allowed: int = 2) -> bool:
+    def exceeds_daily_top_up_limit(self, wallet_id: str, amount: float, limit: float = 100) -> bool:
+        daily_total = sum(float(t.amount) for t in self.__daily_top_up_transactions(wallet_id))
+        return daily_total + amount > limit
+
+    def __top_up_limit_reached(self, wallet_id: str) -> bool:
+        try:
+            max_allowed = int(os.getenv("MAX_DAILY_TOP_UP_COUNT", "2"))
+        except ValueError:
+            logger.error("invalid MAX_DAILY_TOP_UP_COUNT value, falling back to 2")
+            max_allowed = 2
+        return len(self.__daily_top_up_transactions(wallet_id)) >= max_allowed
+
+    def __daily_top_up_transactions(self, wallet_id: str) -> list:
         since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
-        transactions = self.__user_wallet_transaction_repo.list_since(
+        return self.__user_wallet_transaction_repo.list_since(
             where={"wallet_id": wallet_id, "status": "success", "source": UserWalletTransactionSource.TOP_UP_WALLET},
             since=since)
-        return len(transactions) > max_allowed
 
     def __create_wallet(self, user_id: str, amount: float):
         wallet = self.__user_wallet_repo.create(data={

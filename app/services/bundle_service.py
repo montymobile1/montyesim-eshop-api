@@ -350,6 +350,7 @@ class BundleService:
             destination = ", ".join(c.country for c in bundle.countries) if bundle.countries else "-"
             data = {
                 "transaction_id": user_order.payment_intent_code or user_order.id,
+                "order_id": user_order.id,
                 "transaction_datetime": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
                 "bundle_name": bundle.bundle_name,
                 "destination": destination,

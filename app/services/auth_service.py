@@ -7,11 +7,12 @@ from fastapi import Request
 from loguru import logger
 from soupsieve.util import lower
 
-from app.config.config import authenticate, supabase_client, dcb_service_instance, get_email_template, send_email
+from app.config.config import authenticate, supabase_client, dcb_service_instance, get_email_template, send_email, \
+    is_user_banned
 from app.config.constants import ErrorMessages, OtpChannelEnum
 from app.config.db import ConfigKeysEnum
 from app.config.helper import get_config
-from app.config.utils import truncate_two_decimals_decimal, parse_iso_datetime
+from app.config.utils import truncate_two_decimals_decimal
 from app.exceptions import CustomException, BadRequestException
 from app.models.user import UserModel, UsersCopyModel
 from app.repo.device_repo import DeviceRepo
@@ -214,16 +215,7 @@ class AuthService:
             raise CustomException(code=401, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
     def __is_user_banned(self, user_id: str) -> bool:
-        try:
-            response = supabase_client().auth.admin.get_user_by_id(user_id)
-            banned_until = getattr(response.user, "banned_until", None)
-        except Exception as e:
-            logger.error(f"error checking banned status for user {user_id}: {e}")
-            return False
-        if not banned_until:
-            return False
-        banned_until_dt = parse_iso_datetime(banned_until)
-        return banned_until_dt is None or banned_until_dt > datetime.now(timezone.utc)
+        return is_user_banned(user_id)
 
     def __generate_referral_code(self):
         code = uuid.uuid4().hex[:8].upper()

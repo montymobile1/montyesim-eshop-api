@@ -385,6 +385,19 @@ class CallbackService:
         try:
             if event_type == "payment_intent.succeeded":
                 amount = float(order.amount)
+                if self.__user_wallet_service.exceeds_daily_top_up_limit(wallet_id=user_wallet_id, amount=amount):
+                    logger.warning(
+                        f"top-up of {amount} for user {user_id} would exceed the daily top-up limit, refunding "
+                        f"payment intent {order.payment_intent_code}")
+                    try:
+                        stripe.Refund.create(payment_intent=order.payment_intent_code)
+                    except Exception as refund_error:
+                        logger.error(f"failed to refund payment intent {order.payment_intent_code} for order "
+                                     f"{order_id}, manual refund required: {str(refund_error)}")
+                    self.__user_order_repo.update(order_id, {"payment_status": OrderStatusEnum.FAILURE})
+                    content = send_wallet_top_up_failed_notification()
+                    fcm_service.send_notification_to_user_from_template(content, user_id=user_id)
+                    return ResponseHelper.success_response()
                 logger.info(f"updating user wallet: {user_wallet} with new {amount=}")
 
                 def task():
