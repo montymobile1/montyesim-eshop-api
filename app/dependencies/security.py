@@ -5,15 +5,22 @@ import jwt
 from fastapi import Header, Security, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from gotrue import AuthResponse
+from gotrue.errors import AuthApiError
 from loguru import logger
 
-from app.config.config import supabase_client
+from app.config.config import supabase_client, is_user_banned
 from app.config.constants import ErrorMessages
 from app.config.context import auth_user_context
 from app.exceptions import CustomException
 from app.models.user import UserModel
 
 security = HTTPBearer()
+
+
+def raise_if_user_banned(user_id: str) -> None:
+    if is_user_banned(user_id):
+        raise CustomException(code=403, name=ErrorMessages.USER_BANNED,
+                              details="This account has been banned.")
 
 
 def refresh_token(x_refresh_token: str = Header(..., description=ErrorMessages.REFRESH_TOKEN_MISSING)) -> str:
@@ -38,10 +45,18 @@ def bearer_token(credentials: HTTPAuthorizationCredentials = Security(security))
                              is_verified=response.user.user_metadata.get("email_verified", False),
                              is_anonymous=response.user.is_anonymous
                              )
-            auth_user_context.set(user)
-            return user
+        except AuthApiError as ex:
+            if getattr(ex, "code", None) == "user_banned":
+                raise CustomException(code=403, name=ErrorMessages.USER_BANNED,
+                                      details="This account has been banned.")
+            raise HTTPException(status_code=401, detail=ErrorMessages.BEARER_TOKEN_REQUIRED)
+        except (HTTPException, CustomException):
+            raise
         except Exception:
             raise HTTPException(status_code=401, detail=ErrorMessages.BEARER_TOKEN_REQUIRED)
+        raise_if_user_banned(user.id)
+        auth_user_context.set(user)
+        return user
     try:
         decoded_token = jwt.decode(jwt=credentials.credentials, key=os.getenv("SUPABASE_JWT_SECRET"),
                                    algorithms=["HS256"], audience="authenticated")
@@ -57,11 +72,20 @@ def bearer_token(credentials: HTTPAuthorizationCredentials = Security(security))
                          is_verified=response.user.user_metadata.get("email_verified", False),
                          is_anonymous=response.user.is_anonymous
                          )
-        auth_user_context.set(user)
-        return user
+    except AuthApiError as ex:
+        if getattr(ex, "code", None) == "user_banned":
+            raise CustomException(code=403, name=ErrorMessages.USER_BANNED,
+                                  details="This account has been banned.")
+        logger.error(f"Token Introspection Exception: {ex}")
+        raise HTTPException(status_code=401, detail=ErrorMessages.BEARER_TOKEN_REQUIRED)
+    except (HTTPException, CustomException):
+        raise
     except Exception as ex:
         logger.error(f"Token Introspection Exception: {ex}")
         raise HTTPException(status_code=401, detail=ErrorMessages.BEARER_TOKEN_REQUIRED)
+    raise_if_user_banned(user.id)
+    auth_user_context.set(user)
+    return user
 
 
 def bearer_token_anonymous(credentials: HTTPAuthorizationCredentials = Security(security)) -> UserModel:

@@ -192,3 +192,52 @@
 #             await callback_service.handle_payment_webhook_fake(request)
 #         assert exc.value.code == 404
 #         assert "User not found" in str(exc.value)
+import pytest
+from unittest.mock import MagicMock, patch
+
+from app.models.user import OrderStatusEnum
+from app.services.callback_service import CallbackService
+
+
+@pytest.fixture
+def callback_service_bare():
+    service = CallbackService.__new__(CallbackService)
+    service._CallbackService__user_order_repo = MagicMock()
+    service._CallbackService__user_wallet_service = MagicMock()
+    service._CallbackService__task_executor = MagicMock()
+    return service
+
+
+def test_wallet_top_up_webhook_refunds_when_daily_limit_exceeded(callback_service_bare):
+    service = callback_service_bare
+    order = MagicMock(amount=11, payment_intent_code='pi_1', currency='USD')
+    service._CallbackService__user_order_repo.get_by_id.return_value = order
+    service._CallbackService__user_wallet_service.exceeds_daily_top_up_limit.return_value = True
+
+    metadata = {"user_wallet_id": "wid", "user_id": "u1", "order_id": "o1"}
+    with patch('app.services.callback_service.stripe.Refund.create') as mock_refund, \
+         patch('app.services.callback_service.fcm_service') as mock_fcm:
+        service._CallbackService__handle_wallet_top_up(metadata, "payment_intent.succeeded")
+
+    mock_refund.assert_called_once_with(payment_intent='pi_1')
+    service._CallbackService__user_order_repo.update.assert_called_once_with(
+        "o1", {"payment_status": OrderStatusEnum.FAILURE})
+    service._CallbackService__task_executor.add_task.assert_not_called()
+    mock_fcm.send_notification_to_user_from_template.assert_called_once()
+
+
+def test_wallet_top_up_webhook_credits_when_within_limit(callback_service_bare):
+    service = callback_service_bare
+    order = MagicMock(amount=10, payment_intent_code='pi_1', currency='USD')
+    service._CallbackService__user_order_repo.get_by_id.return_value = order
+    service._CallbackService__user_wallet_service.exceeds_daily_top_up_limit.return_value = False
+
+    metadata = {"user_wallet_id": "wid", "user_id": "u1", "order_id": "o1"}
+    with patch('app.services.callback_service.stripe.Refund.create') as mock_refund, \
+         patch('app.services.callback_service.fcm_service'):
+        service._CallbackService__handle_wallet_top_up(metadata, "payment_intent.succeeded")
+
+    mock_refund.assert_not_called()
+    service._CallbackService__task_executor.add_task.assert_called_once()
+    service._CallbackService__user_order_repo.update.assert_called_once_with(
+        "o1", {"payment_status": OrderStatusEnum.SUCCESS})

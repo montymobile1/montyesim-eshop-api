@@ -1,7 +1,9 @@
 import os
 import secrets
+from datetime import datetime, timezone
 from io import BytesIO
 
+import httpx
 import qrcode
 from dotenv import load_dotenv
 from jinja2 import Environment, FileSystemLoader, Template
@@ -82,6 +84,31 @@ def dcb_service_instance() -> DCBService:
         from app.services.integration.hub_dcb_service import HubDcbService
         return HubDcbService()
     return DCBService(send_otp_url=os.getenv("DCB_SEND_OTP_URL", ""), verify_otp_url="", api_key="", charge_url="")
+
+
+def get_auth_user_banned_until(user_id: str) -> str | None:
+    # The gotrue client's pydantic User model drops the banned_until field,
+    # so it has to be read from the raw admin API response.
+    response = httpx.get(
+        f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}",
+        headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}"},
+        timeout=10,
+    )
+    response.raise_for_status()
+    return response.json().get("banned_until")
+
+
+def is_user_banned(user_id: str) -> bool:
+    from app.config.utils import parse_iso_datetime
+    try:
+        banned_until = get_auth_user_banned_until(user_id)
+    except Exception as e:
+        logger.error(f"error checking banned status for user {user_id}: {e}")
+        return False
+    if not banned_until:
+        return False
+    banned_until_dt = parse_iso_datetime(banned_until)
+    return banned_until_dt is None or banned_until_dt > datetime.now(timezone.utc)
 
 
 def authenticate(email: str | EmailStr, data: dict):

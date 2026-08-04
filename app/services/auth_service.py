@@ -7,7 +7,8 @@ from fastapi import Request
 from loguru import logger
 from soupsieve.util import lower
 
-from app.config.config import authenticate, supabase_client, dcb_service_instance, get_email_template, send_email
+from app.config.config import authenticate, supabase_client, dcb_service_instance, get_email_template, send_email, \
+    is_user_banned
 from app.config.constants import ErrorMessages, OtpChannelEnum
 from app.config.db import ConfigKeysEnum
 from app.config.helper import get_config
@@ -213,6 +214,9 @@ class AuthService:
             logger.error(f"exception on refresh token: {e}")
             raise CustomException(code=401, name=ErrorMessages.REQUEST_FAILED, details=str(e))
 
+    def __is_user_banned(self, user_id: str) -> bool:
+        return is_user_banned(user_id)
+
     def __generate_referral_code(self):
         code = uuid.uuid4().hex[:8].upper()
         while self.__user_repo.get_first_by(where={}, filters={"metadata ->> 'referral_code' ": code}) is not None:
@@ -229,6 +233,10 @@ class AuthService:
                     "password": "esim_oss@2025"
                 })
             return ResponseHelper.success_response()
+
+        if user_exists and self.__is_user_banned(user_exists.id):
+            raise CustomException(code=403, name=ErrorMessages.USER_BANNED,
+                                  details="This account has been banned.")
 
         referral_code = self.__generate_referral_code()
         logger.info(f"login request received: {login_request}")
@@ -288,8 +296,8 @@ class AuthService:
                     "password": "esim_oss@2025"
                 })
             return ResponseHelper.success_response()
-        if old_user:
-            login_request.email = old_user.email
+        # if old_user:
+        #     login_request.email = old_user.email
         otp_expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME, 5)) * 60
         user_email = login_request.email if login_request.email else f"{login_request.phone}_user@esim.com"
         user_exists: UsersCopyModel = self.__user_repo.get_first_by(where={"email": user_email})
@@ -298,6 +306,9 @@ class AuthService:
             if user_msisdn and user_msisdn != login_request.phone:
                 raise CustomException(code=400, name=ErrorMessages.USER_WITH_EMAIL_ALREADY_EXISTS,
                                       details=f"User with email {login_request.email} already exists for another phone number")
+            if self.__is_user_banned(user_exists.id):
+                raise CustomException(code=403, name=ErrorMessages.USER_BANNED,
+                                      details="This account has been banned.")
         otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=user_email)
         if user_exists:
             logger.info(f"generating new otp for user: {user_email}")

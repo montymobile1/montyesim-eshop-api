@@ -283,6 +283,7 @@ class TestBundleService(unittest.IsolatedAsyncioTestCase):
         self.assertIn('sara.yaghoubi@montymobile.com', mock_send.call_args.kwargs['recipients'])
         data = mock_template.render.call_args.kwargs['data']
         self.assertEqual(data['transaction_id'], 'pi_999')
+        self.assertEqual(data['order_id'], 'order-1')
         self.assertEqual(data['user_name'], 'John Doe')
         self.assertEqual(data['user_email'], 'john@doe.com')
         self.assertEqual(data['bundle_name'], 'Bundle Name')

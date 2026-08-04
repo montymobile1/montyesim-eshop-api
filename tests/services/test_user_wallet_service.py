@@ -83,7 +83,9 @@ def test_send_top_up_admin_email(user_wallet_service):
     mock_template.render.return_value = '<html/>'
     with patch('app.services.user_wallet_service.get_email_template', return_value=mock_template), \
          patch('app.services.user_wallet_service.get_config',
-               return_value='sara.yaghoubi@montymobile.com,charbel.haddad@montymobile.com') as mock_config, \
+               side_effect=lambda key, default=None: {
+                   'WALLET_TOP_UP_ALERT_RECIPIENTS': 'sara.yaghoubi@montymobile.com,charbel.haddad@montymobile.com',
+                   'RESELLER_NAME': 'Monty eSIM'}.get(key, default)) as mock_config, \
          patch('app.services.user_wallet_service.send_email') as mock_send:
         user_wallet_service._UserWalletService__send_top_up_admin_email(user, wallet, tx2, 'pi_123')
 
@@ -93,6 +95,7 @@ def test_send_top_up_admin_email(user_wallet_service):
     assert 'charbel.haddad@montymobile.com' in recipients
 
     data = mock_template.render.call_args.kwargs['data']
+    assert data['reseller_name'] == 'Monty eSIM'
     assert data['user_email'] == 'john@doe.com'
     assert data['transaction_id'] == 'pi_123'
     assert data['top_up_amount'] == '25.00'
@@ -138,3 +141,67 @@ def test_add_wallet_transaction_succeeds_even_if_email_dispatch_fails(user_walle
             5, 'uid', UserWalletTransactionSource.TOP_UP_WALLET, order_currency='USD')
     assert resp == 'resp'
     assert call_count['n'] == 2
+
+def test_top_up_wallet_blocked_when_daily_total_exceeded(user_wallet_service):
+    from app.config.constants import ErrorMessages
+    from app.exceptions import CustomException
+
+    wallet = MagicMock(id='wid', currency='USD')
+    user_wallet_service._UserWalletService__user_wallet_repo.get_first_by.return_value = wallet
+    user_wallet_service._UserWalletService__user_wallet_transaction_repo.list_since.return_value = [
+        MagicMock(amount=90)]
+
+    with pytest.raises(CustomException) as exc:
+        user_wallet_service.top_up_wallet(MagicMock(amount=11), MagicMock(id='u1', email='a@b.c'),
+                                          MagicMock(), 'USD')
+    assert exc.value.name == ErrorMessages.TOP_UP_AMOUNT_LIMIT_EXCEEDED
+    user_wallet_service._UserWalletService__user_order_repo.create.assert_not_called()
+
+def test_top_up_wallet_allowed_when_daily_total_within_limit(user_wallet_service):
+    wallet = MagicMock(id='wid', currency='USD')
+    user_wallet_service._UserWalletService__user_wallet_repo.get_first_by.return_value = wallet
+    user_wallet_service._UserWalletService__user_wallet_transaction_repo.list_since.return_value = [
+        MagicMock(amount=90)]
+    order = MagicMock(id='o1')
+    order.model_dump.return_value = {}
+    user_wallet_service._UserWalletService__user_order_repo.create.return_value = order
+
+    intent = MagicMock(id='pi_1', customer='cus_1', client_secret='sec', amount=1000, livemode=False)
+    tax = MagicMock(tax_amount_exclusive=0)
+    with patch('app.services.user_wallet_service.create_wallet_top_up_intent', return_value=(intent, tax)), \
+         patch('app.services.user_wallet_service.create_payment_ephemeral', return_value=MagicMock(secret='eph')), \
+         patch('app.services.user_wallet_service.PaymentIntentResponse', return_value=MagicMock()), \
+         patch('app.services.user_wallet_service.ResponseHelper.success_data_response', return_value='resp'):
+        resp = user_wallet_service.top_up_wallet(MagicMock(amount=10), MagicMock(id='u1', email='a@b.c'),
+                                                 MagicMock(), 'USD')
+    assert resp == 'resp'
+
+def test_top_up_wallet_count_limit_from_env(user_wallet_service):
+    from app.config.constants import ErrorMessages
+    from app.exceptions import CustomException
+
+    wallet = MagicMock(id='wid', currency='USD')
+    user_wallet_service._UserWalletService__user_wallet_repo.get_first_by.return_value = wallet
+    user_wallet_service._UserWalletService__user_wallet_transaction_repo.list_since.return_value = [
+        MagicMock(amount=5)]
+
+    with patch.dict(os.environ, {'MAX_DAILY_TOP_UP_COUNT': '0'}):
+        with pytest.raises(CustomException) as exc:
+            user_wallet_service.top_up_wallet(MagicMock(amount=10), MagicMock(id='u1', email='a@b.c'),
+                                              MagicMock(), 'USD')
+    assert exc.value.name == ErrorMessages.TOP_UP_LIMIT_REACHED
+
+def test_top_up_wallet_blocked_at_exactly_max_count(user_wallet_service):
+    from app.config.constants import ErrorMessages
+    from app.exceptions import CustomException
+
+    wallet = MagicMock(id='wid', currency='USD')
+    user_wallet_service._UserWalletService__user_wallet_repo.get_first_by.return_value = wallet
+    user_wallet_service._UserWalletService__user_wallet_transaction_repo.list_since.return_value = [
+        MagicMock(amount=5), MagicMock(amount=5)]
+
+    with patch.dict(os.environ, {'MAX_DAILY_TOP_UP_COUNT': '2'}):
+        with pytest.raises(CustomException) as exc:
+            user_wallet_service.top_up_wallet(MagicMock(amount=10), MagicMock(id='u1', email='a@b.c'),
+                                              MagicMock(), 'USD')
+    assert exc.value.name == ErrorMessages.TOP_UP_LIMIT_REACHED
