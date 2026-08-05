@@ -1,0 +1,55 @@
+-- =====================================================================================
+-- ROLLBACK for migrations/20260803_0001_mcp_card_checkout.sql  (Phase 5A)
+--
+-- Run MANUALLY. Nothing in the application executes this file.
+--
+-- -------------------------------------------------------------------------------------
+-- READ FIRST
+-- -------------------------------------------------------------------------------------
+-- You almost certainly do NOT need this. To disable the feature, set
+--
+--     MCP_CARD_PURCHASE_ENABLED=false
+--
+-- and restart. The endpoints then return 503, the webhook branch stops claiming
+-- checkout.session.* events, and both tables become inert. The legacy Card flow, the
+-- legacy webhook and the Wallet flows are unaffected either way.
+--
+-- Use this file ONLY when the feature is being abandoned entirely.
+--
+-- -------------------------------------------------------------------------------------
+-- WHAT THIS DESTROYS
+-- -------------------------------------------------------------------------------------
+-- Dropping mcp_card_checkout destroys the record of which Stripe Checkout Sessions were
+-- paid and which were provisioned. Dropping mcp_stripe_webhook_event destroys the
+-- duplicate-event ledger. If the feature is ever re-enabled afterwards, a Stripe
+-- redelivery of an old event would look brand new.
+--
+-- Rows in public.user_order created by the MCP card flow are deliberately NOT deleted:
+-- they are legacy-shaped order records, they may already be provisioned, and deleting
+-- them would corrupt the customer's order history. They are left in place.
+--
+-- Take a backup of both tables before running this:
+--   create table mcp_card_checkout_backup       as select * from public.mcp_card_checkout;
+--   create table mcp_stripe_webhook_event_backup as select * from public.mcp_stripe_webhook_event;
+--
+-- Verify nothing is mid-flight first - this must return 0:
+--   select count(*) from public.mcp_card_checkout
+--    where status in ('PENDING','PAID','PROVISIONING');
+-- =====================================================================================
+
+-- Child first: mcp_stripe_webhook_event references mcp_card_checkout.
+drop table if exists public.mcp_stripe_webhook_event;
+
+drop table if exists public.mcp_card_checkout;
+
+-- =====================================================================================
+-- VERIFICATION (after rollback, both must return 0)
+-- =====================================================================================
+--   select count(*) from information_schema.tables
+--    where table_schema = 'public'
+--      and table_name in ('mcp_card_checkout','mcp_stripe_webhook_event');
+--
+-- And confirm the Phase 4A wallet table is still intact and untouched (expect 14):
+--   select count(*) from information_schema.columns
+--    where table_schema = 'public' and table_name = 'mcp_purchase_idempotency';
+-- =====================================================================================

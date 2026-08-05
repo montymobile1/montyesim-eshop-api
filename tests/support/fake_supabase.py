@@ -39,6 +39,8 @@ class FakeDatabase:
         self.tables: Dict[str, List[dict]] = {}
         self.unique_constraints: Dict[str, List[tuple]] = {
             "mcp_purchase_idempotency": [("user_id", "operation", "idempotency_key_hash")],
+            "mcp_card_checkout": [("stripe_session_id",)],
+            "mcp_stripe_webhook_event": [("event_id",)],
         }
         self.auth_users: Dict[str, dict] = {}
         self.lock = threading.RLock()
@@ -68,6 +70,11 @@ class FakeDatabase:
             row.setdefault("id", self.next_id(table))
             row.setdefault("created_at", _iso(_now()))
             for constraint in self.unique_constraints.get(table, []):
+                # PostgreSQL never considers NULLs equal, so a UNIQUE column permits any
+                # number of NULL rows. Mirror that, otherwise a second checkout row whose
+                # session id is not assigned yet would falsely collide.
+                if any(row.get(column) is None for column in constraint):
+                    continue
                 for existing in self.rows(table):
                     if all(existing.get(column) == row.get(column) for column in constraint):
                         raise UniqueViolation(

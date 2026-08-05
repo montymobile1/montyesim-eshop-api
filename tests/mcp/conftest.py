@@ -7,6 +7,7 @@ Hub, QA or production.
 """
 
 import os
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -28,7 +29,7 @@ _CLIENT_PATCHER.start()
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-from app.api.v1 import mcp_user_bundle, user_bundle  # noqa: E402
+from app.api.v1 import callback, mcp_user_bundle, mcp_user_bundle_card, user_bundle  # noqa: E402
 from app.main import esim_app  # noqa: E402
 from app.schemas.esim_hub import EsimHubOrderResponse  # noqa: E402
 from app.schemas.home import BundleCategoryDTO, BundleDTO, CountryDTO  # noqa: E402
@@ -159,6 +160,200 @@ def hub(monkeypatch):
     return stub
 
 
+CARD_SUCCESS_URL = "https://checkout.example.test/success"
+CARD_CANCEL_URL = "https://checkout.example.test/cancel"
+
+
+class FakeStripeCheckoutGateway:
+    """In-process stand-in for Stripe Checkout. No network, ever.
+
+    Reproduces the two behaviours the design depends on:
+      * idempotency - the same idempotency_key returns the SAME session rather than
+        creating a second one;
+      * failure modes - ambiguous (timeout) vs terminal, as typed gateway errors.
+    """
+
+    def __init__(self):
+        self.created = []                 # every accepted create call
+        self.sessions = {}                # idempotency_key -> CheckoutSessionResult
+        self.by_id = {}                   # session_id -> CheckoutSessionResult
+        self.fail_with = None             # StripeGatewayError to raise
+        self.expired_sessions = []
+        #: Tests set this negative to simulate an already-lapsed session.
+        self.expiry_minutes = 30
+        self._counter = 0
+
+    def create_checkout_session(self, *, amount_minor, currency, product_name, metadata,
+                                idempotency_key, client_reference_id, customer_email=None):
+        from app.services.mcp_stripe_gateway import CheckoutSessionResult
+
+        if self.fail_with is not None:
+            error, self.fail_with = self.fail_with, None
+            raise error
+
+        if idempotency_key in self.sessions:
+            # Stripe replays the original session for a repeated idempotency key.
+            return self.sessions[idempotency_key]
+
+        self._counter += 1
+        session_id = f"cs_test_{self._counter:04d}"
+        # mode=payment creates the PaymentIntent up front, so its id is known here -
+        # which is what lets the webhook resolve a payment_intent.* event to a checkout.
+        result = CheckoutSessionResult(
+            session_id=session_id,
+            checkout_url=f"https://checkout.stripe.com/c/pay/{session_id}",
+            payment_intent_id=f"pi_test_{self._counter:04d}",
+            amount_total_minor=int(amount_minor),
+            currency=str(currency).lower(),
+            # Relative, like Stripe's: a fixed literal would silently drift into the
+            # past and make every checkout look expired.
+            expires_at=(datetime.now(tz=timezone.utc)
+                        + timedelta(minutes=self.expiry_minutes)).isoformat(),
+            status="open",
+            payment_status="unpaid")
+        self.created.append({"amount_minor": amount_minor, "currency": currency,
+                             "metadata": dict(metadata), "idempotency_key": idempotency_key,
+                             "client_reference_id": client_reference_id,
+                             "customer_email": customer_email, "product_name": product_name,
+                             "session_id": session_id})
+        self.sessions[idempotency_key] = result
+        self.by_id[session_id] = result
+        return result
+
+    def retrieve_session(self, session_id):
+        return self.by_id.get(session_id)
+
+    def expire_session(self, session_id):
+        self.expired_sessions.append(session_id)
+        return self.by_id.get(session_id)
+
+
+@pytest.fixture
+def stripe_gateway(monkeypatch):
+    """Install the fake gateway into the live card service instance."""
+    gateway = FakeStripeCheckoutGateway()
+    monkeypatch.setattr(mcp_user_bundle_card.service,
+                        "_McpCardCheckoutService__gateway", gateway, raising=False)
+    return gateway
+
+
+@pytest.fixture
+def card_hub(hub, monkeypatch):
+    """Point the card service and the card webhook service at the eSIM Hub stub."""
+    monkeypatch.setattr(mcp_user_bundle_card.service,
+                        "_McpCardCheckoutService__esim_hub_service", hub, raising=False)
+    webhook = callback.service._CallbackService__mcp_card_webhook
+    bundle_service = webhook._McpCardWebhookService__bundle_service
+    monkeypatch.setattr(bundle_service, "_BundleService__esim_hub_service", hub, raising=False)
+    monkeypatch.setattr(bundle_service._BundleService__task_executor, "add_task", lambda task: True)
+    monkeypatch.setattr("app.services.bundle_service.send_email", MagicMock(), raising=False)
+    return hub
+
+
+@pytest.fixture
+def card_webhook():
+    """The live MCP card webhook service used by the shared callback route."""
+    return callback.service._CallbackService__mcp_card_webhook
+
+
+@pytest.fixture
+def mcp_card_enabled(monkeypatch, no_ambient_hash_secret):
+    """Enable MCP card checkout with a complete, valid configuration."""
+    monkeypatch.setenv("MCP_CARD_PURCHASE_ENABLED", "true")
+    monkeypatch.setenv("MCP_IDEMPOTENCY_HASH_SECRET", VALID_HASH_SECRET)
+    monkeypatch.setenv("SYSTEM_CURRENCY", "USD")
+    monkeypatch.setenv("MCP_CARD_SUCCESS_URL", CARD_SUCCESS_URL)
+    monkeypatch.setenv("MCP_CARD_CANCEL_URL", CARD_CANCEL_URL)
+    monkeypatch.setenv("MCP_CARD_SESSION_EXPIRY_MINUTES", "30")
+    monkeypatch.setenv("STRIPE_SECRET_KEY", "sk_test_fake_key_for_unit_tests_only")
+    return True
+
+
+def card_body(bundle_code: str = BUNDLE_CODE, **overrides) -> dict:
+    body = {
+        "bundle_code": bundle_code,
+        "quote_reference": "mcp-quote-card-1",
+        "related_search": {"region": None,
+                           "countries": [{"iso3_code": "FRA", "country_name": "France"}]},
+    }
+    body.update(overrides)
+    return body
+
+
+def post_card(client, body: dict | None = None, **header_kwargs):
+    return client.post("/api/v1/mcp/user/bundle/card/checkout",
+                       json=body if body is not None else card_body(),
+                       headers=mcp_headers(**header_kwargs))
+
+
+def get_card_status(client, payment_reference: str, token: str = USER_A_TOKEN):
+    return client.get(f"/api/v1/mcp/user/bundle/card/status/{payment_reference}",
+                      headers={"Authorization": f"Bearer {token}", "X-Device-Id": "device-1"})
+
+
+def stripe_event(event_type: str, session: dict, event_id: str = "evt_test_0001") -> dict:
+    """Build a Stripe-shaped event. Used only with the verified-webhook entry point."""
+    return {"id": event_id, "type": event_type, "data": {"object": session}}
+
+
+def payment_intent(db, payment_reference: str, *, status: str = "succeeded",
+                   amount: int | None = None, currency: str = "usd",
+                   metadata_overrides: dict | None = None, intent_id: str | None = None) -> dict:
+    """Build a PaymentIntent payload mirroring the stored checkout record.
+
+    This is the object the events we consume actually carry - the same event type and
+    metadata payload the legacy Card flow produces, plus the mcp_source marker.
+    """
+    record = next(row for row in db.tables["mcp_card_checkout"] if row["id"] == payment_reference)
+    order = next((row for row in db.tables.get("user_order", [])
+                  if row["id"] == record["order_id"]), {})
+    metadata = {
+        "mcp_source": "mcp_card_checkout_v1",
+        "order_id": record["order_id"],
+        "user_id": record["user_id"],
+        "device_id": "device-1",
+        "bundle_code": record["bundle_code"],
+        "order_type": order.get("order_type", "Assign"),
+        "env": os.getenv("ENVIRONMENT", "DEV"),
+        "rule_id": "0",
+        "amount": str(record["amount_minor"]),
+        "checkout_id": record["id"],
+        "quote_reference": record["quote_reference"],
+    }
+    if metadata_overrides:
+        metadata.update(metadata_overrides)
+    resolved_amount = record["amount_minor"] if amount is None else amount
+    return {
+        "id": intent_id or record.get("stripe_payment_intent_id") or "pi_test_0001",
+        "object": "payment_intent",
+        "status": status,
+        "amount": resolved_amount,
+        "amount_received": resolved_amount if status == "succeeded" else 0,
+        "currency": currency,
+        "metadata": metadata,
+    }
+
+
+#: Backwards-compatible alias: the tests speak in terms of "the object on the event".
+checkout_session = payment_intent
+
+
+def legacy_payment_intent(order_id: str = "order-1", user_id: str = USER_A_ID) -> dict:
+    """A PaymentIntent shaped like the LEGACY flow's - no mcp_source marker."""
+    return {
+        "id": "pi_legacy_0001",
+        "object": "payment_intent",
+        "status": "succeeded",
+        "amount": 1000,
+        "currency": "usd",
+        "metadata": {
+            "order_id": order_id, "user_id": user_id, "device_id": "device-1",
+            "bundle_code": BUNDLE_CODE, "order_type": "Assign",
+            "env": os.getenv("ENVIRONMENT", "DEV"), "rule_id": "0", "amount": "1000",
+        },
+    }
+
+
 @pytest.fixture
 def client():
     # TestClient is not used as a context manager on purpose: that keeps the
@@ -187,8 +382,17 @@ def mcp_enabled(monkeypatch, no_ambient_hash_secret):
 
 @pytest.fixture(autouse=True)
 def no_ambient_hash_secret(monkeypatch):
-    """Start every test from a clean slate so secret tests cannot pass by accident."""
-    monkeypatch.delenv("MCP_IDEMPOTENCY_HASH_SECRET", raising=False)
+    """Start every test from a clean slate.
+
+    ``app.config.config`` calls ``load_dotenv()`` at import, so whatever the developer
+    happens to have in their local ``.env`` leaks into the test process. Every MCP flag
+    and secret is therefore cleared here and must be opted into explicitly by a fixture,
+    so a test can never pass (or fail) because of an ambient deployment value.
+    """
+    for name in ("MCP_IDEMPOTENCY_HASH_SECRET", "MCP_PURCHASE_ENABLED",
+                 "MCP_CARD_PURCHASE_ENABLED", "MCP_CARD_SUCCESS_URL", "MCP_CARD_CANCEL_URL",
+                 "MCP_CARD_SESSION_EXPIRY_MINUTES"):
+        monkeypatch.delenv(name, raising=False)
 
 
 def mcp_headers(token: str = USER_A_TOKEN, idempotency_key: str | None = VALID_KEY,

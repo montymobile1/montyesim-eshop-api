@@ -277,3 +277,38 @@ def build_request_hash(user_id: str, operation: str, bundle_code: str, payment_t
         build_canonical_request(user_id=user_id, operation=operation, bundle_code=bundle_code,
                                 payment_type=payment_type, related_search=related_search,
                                 currency=currency))
+
+
+def build_card_canonical_request(user_id: str, operation: str, bundle_code: str, currency: Any,
+                                 related_search: Any, quote_reference: Any) -> str:
+    """Canonical representation of an MCP *card checkout* request.
+
+    Separate from the wallet canonicaliser on purpose:
+
+    * ``quote_reference`` IS part of the card identity. A card checkout is a quote being
+      taken to payment, so presenting the same key with a different quote must conflict
+      rather than replay someone else's priced session. For wallet it stays excluded,
+      and changing that would silently invalidate every stored wallet digest.
+    * ``payment_type`` is pinned to ``Card`` here rather than read from input, because
+      the caller cannot choose it.
+    """
+    canonical = {
+        "version": 1,
+        "operation": operation,
+        "user_id": _normalize_text(user_id),
+        "bundle_code": _normalize_text(bundle_code),
+        "payment_type": "Card",
+        "currency": normalize_currency(currency),
+        "quote_reference": _normalize_text(quote_reference),
+        "related_search": normalize_related_search(related_search),
+    }
+    return json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+
+def build_card_request_hash(user_id: str, operation: str, bundle_code: str, currency: Any,
+                            related_search: Any, quote_reference: Any) -> str:
+    """Canonicalize then hash an MCP card checkout request."""
+    return hash_canonical_request(
+        build_card_canonical_request(user_id=user_id, operation=operation, bundle_code=bundle_code,
+                                     currency=currency, related_search=related_search,
+                                     quote_reference=quote_reference))

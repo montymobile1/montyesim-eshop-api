@@ -26,6 +26,7 @@ from app.schemas.dto_mapper import DtoMapper
 from app.schemas.home import BundleDTO
 from app.schemas.response import ResponseHelper
 from app.services.bundle_service import BundleService
+from app.services.mcp_card_webhook_service import McpCardWebhookService
 from app.services.promotion_service import PromotionService
 from app.services.sync_service import SyncService
 from app.services.task_executor import TaskExecutor
@@ -52,6 +53,9 @@ class CallbackService:
         self.__promotion_service = PromotionService()
         self.__bundle_service = BundleService()
         self.__task_executor = TaskExecutor()
+        # MCP-only (Phase 5A). Constructed here so the routing check in
+        # handle_payment_webhook stays a single, cheap call; it owns no legacy state.
+        self.__mcp_card_webhook = McpCardWebhookService()
 
     def _execute_sync_request(self, sync_request: SyncRequest):
         """Execute a single sync request"""
@@ -130,6 +134,14 @@ class CallbackService:
         except stripe.error.SignatureVerificationError:
             logger.error("Stripe webhook signature verification failed.")
             raise HTTPException(status_code=400, detail="Invalid signature")
+
+        # MCP card checkout (Phase 5A). Both flows ride the same `payment_intent.*`
+        # events, so the split is by the `mcp_source` marker that only MCP-created
+        # intents carry - never by event type. A legacy PaymentIntent has no marker and
+        # therefore falls through to exactly the code path it always took.
+        if self.__mcp_card_webhook.handles(event):
+            await self.__mcp_card_webhook.handle_event(event)
+            return ResponseHelper.success_response()
 
         def task():
             return self.__handle_payment_webhook_data(event=event)

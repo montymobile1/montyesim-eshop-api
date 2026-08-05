@@ -78,5 +78,11 @@
   "MCP_MANUAL_INTERVENTION_REQUIRED": "This purchase needs to be reviewed by support before it can be repeated.",
   "MCP_PURCHASE_TEMPORARILY_UNAVAILABLE": "The purchase could not be validated. Please try again.",
   "MCP_IDEMPOTENCY_SECRET_MISCONFIGURED": "This service is not correctly configured. Please try again later.",
-  "MCP_UNSUPPORTED_CURRENCY": "This purchase can only be made in the supported currency."
+  "MCP_UNSUPPORTED_CURRENCY": "This purchase can only be made in the supported currency.",
+  "MCP_CARD_PURCHASE_DISABLED": "Card checkout is not available right now.",
+  "MCP_CARD_CONFIG_INVALID": "This service is not correctly configured. Please try again later.",
+  "MCP_CARD_QUOTE_INVALID": "This quote is no longer valid. Please request a new one.",
+  "MCP_CARD_PAYMENT_NOT_FOUND": "Payment reference not found.",
+  "MCP_CARD_CHECKOUT_UNAVAILABLE": "The checkout could not be prepared. Please try again.",
+  "MCP_CARD_SESSION_EXPIRED": "The checkout session expired. Please start a new checkout."
 }

@@ -106,3 +106,7 @@ class DatabaseTables(StrEnum):
     TABLE_VOUCHER = "voucher"
 
     TABLE_MCP_PURCHASE_IDEMPOTENCY = "mcp_purchase_idempotency"
+
+    TABLE_MCP_CARD_CHECKOUT = "mcp_card_checkout"
+
+    TABLE_MCP_STRIPE_WEBHOOK_EVENT = "mcp_stripe_webhook_event"

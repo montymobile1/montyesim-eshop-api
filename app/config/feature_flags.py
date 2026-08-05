@@ -36,3 +36,13 @@ def get_bool_env(name: str, default: bool = False) -> bool:
 def is_mcp_purchase_enabled() -> bool:
     """True only when ``MCP_PURCHASE_ENABLED`` is explicitly truthy. Defaults to False."""
     return get_bool_env(MCP_PURCHASE_ENABLED_FLAG, default=False)
+
+
+def is_mcp_card_purchase_enabled() -> bool:
+    """True only when ``MCP_CARD_PURCHASE_ENABLED`` is explicitly truthy. Defaults to False.
+
+    Independent of ``MCP_PURCHASE_ENABLED``: turning card checkout on or off must not
+    change the Wallet endpoint, and neither flag affects any legacy route.
+    """
+    from app.config.mcp_card_constants import MCP_CARD_PURCHASE_ENABLED_FLAG
+    return get_bool_env(MCP_CARD_PURCHASE_ENABLED_FLAG, default=False)
