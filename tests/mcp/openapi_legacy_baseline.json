@@ -1,0 +1,7547 @@
+{
+ "paths": {
+  "/api/v1/": {
+   "get": {
+    "operationId": "health_check_api_v1__get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Health Check",
+    "tags": [
+     "healthcheck"
+    ]
+   }
+  },
+  "/api/v1/app/about_us": {
+   "get": {
+    "operationId": "about_us_api_v1_app_about_us_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_PageContentResponse_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "About Us",
+    "tags": [
+     "App"
+    ]
+   }
+  },
+  "/api/v1/app/banners": {
+   "get": {
+    "operationId": "banners_api_v1_app_banners_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "description": "PLATFORM_HEADER_MISSING",
+      "in": "header",
+      "name": "x-platform",
+      "required": true,
+      "schema": {
+       "description": "PLATFORM_HEADER_MISSING",
+       "title": "X-Platform",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_List_BannerResponse__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Banners",
+    "tags": [
+     "App"
+    ]
+   }
+  },
+  "/api/v1/app/configurations": {
+   "get": {
+    "operationId": "configurations_api_v1_app_configurations_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_List_GlobalConfiguration__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Configurations",
+    "tags": [
+     "App"
+    ]
+   }
+  },
+  "/api/v1/app/contact": {
+   "post": {
+    "operationId": "contact_api_v1_app_contact_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ContactUsRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Contact",
+    "tags": [
+     "App"
+    ]
+   }
+  },
+  "/api/v1/app/currency": {
+   "get": {
+    "operationId": "configurations_api_v1_app_currency_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_List_CurrencyDto__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Configurations",
+    "tags": [
+     "App"
+    ]
+   }
+  },
+  "/api/v1/app/device": {
+   "delete": {
+    "operationId": "delete_device_api_v1_app_device_delete",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DeleteDeviceRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Delete Device",
+    "tags": [
+     "App"
+    ]
+   },
+   "post": {
+    "operationId": "add_device_api_v1_app_device_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "authorization",
+      "required": false,
+      "schema": {
+       "title": "Authorization",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/DeviceRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Add Device",
+    "tags": [
+     "App"
+    ]
+   }
+  },
+  "/api/v1/app/faq": {
+   "get": {
+    "operationId": "faq_api_v1_app_faq_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_List_FaqResponse__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Faq",
+    "tags": [
+     "App"
+    ]
+   }
+  },
+  "/api/v1/app/privacy_policy": {
+   "get": {
+    "operationId": "about_us_api_v1_app_privacy_policy_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_PageContentResponse_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "About Us",
+    "tags": [
+     "App"
+    ]
+   }
+  },
+  "/api/v1/app/terms-and-conditions": {
+   "get": {
+    "operationId": "terms_and_conditions_api_v1_app_terms_and_conditions_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_PageContentResponse_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Terms And Conditions",
+    "tags": [
+     "App"
+    ]
+   }
+  },
+  "/api/v1/app/user-guide": {
+   "get": {
+    "operationId": "user_guide_api_v1_app_user_guide_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "User Guide",
+    "tags": [
+     "App"
+    ]
+   }
+  },
+  "/api/v1/auth/delete-account": {
+   "delete": {
+    "operationId": "delete_account_api_v1_auth_delete_account_delete",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Delete Account",
+    "tags": [
+     "Auth"
+    ]
+   }
+  },
+  "/api/v1/auth/login": {
+   "post": {
+    "operationId": "login_api_v1_auth_login_post",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LoginRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Login",
+    "tags": [
+     "Auth"
+    ]
+   }
+  },
+  "/api/v1/auth/logout": {
+   "post": {
+    "operationId": "logout_api_v1_auth_logout_post",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Logout",
+    "tags": [
+     "Auth"
+    ]
+   }
+  },
+  "/api/v1/auth/refresh-token": {
+   "post": {
+    "operationId": "refresh_token_api_v1_auth_refresh_token_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "description": "REFRESH_TOKEN_MISSING",
+      "in": "header",
+      "name": "x-refresh-token",
+      "required": true,
+      "schema": {
+       "description": "REFRESH_TOKEN_MISSING",
+       "title": "X-Refresh-Token",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_AuthResponseDTO_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Refresh Token",
+    "tags": [
+     "Auth"
+    ]
+   }
+  },
+  "/api/v1/auth/resend-otp": {
+   "post": {
+    "operationId": "login_api_v1_auth_resend_otp_post",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LoginRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Login",
+    "tags": [
+     "Auth"
+    ]
+   }
+  },
+  "/api/v1/auth/tmp-login": {
+   "post": {
+    "operationId": "temporary_login_api_v1_auth_tmp_login_post",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LoginRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_AuthResponseDTO_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Temporary Login",
+    "tags": [
+     "Auth"
+    ]
+   }
+  },
+  "/api/v1/auth/user-info": {
+   "get": {
+    "operationId": "get_user_info_api_v1_auth_user_info_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_AuthResponseDTO_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get User Info",
+    "tags": [
+     "Auth"
+    ]
+   },
+   "post": {
+    "operationId": "update_user_info_api_v1_auth_user_info_post",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UpdateUserInfoRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_AuthResponseDTO_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Update User Info",
+    "tags": [
+     "Auth"
+    ]
+   }
+  },
+  "/api/v1/auth/validate-token": {
+   "get": {
+    "operationId": "validate_token_api_v1_auth_validate_token_get",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_bool_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Validate Token",
+    "tags": [
+     "Auth"
+    ]
+   }
+  },
+  "/api/v1/auth/verify_otp": {
+   "post": {
+    "operationId": "verify_otp_api_v1_auth_verify_otp_post",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VerifyOtpRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_AuthResponseDTO_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Verify Otp",
+    "tags": [
+     "Auth"
+    ]
+   }
+  },
+  "/api/v1/bundles/by-country": {
+   "get": {
+    "operationId": "bundles_by_country_api_v1_bundles_by_country_get",
+    "parameters": [
+     {
+      "description": "Country Guids to get bundles from",
+      "in": "query",
+      "name": "country_codes",
+      "required": false,
+      "schema": {
+       "description": "Country Guids to get bundles from",
+       "title": "Country Guids ",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_List_BundleDTO__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Bundles By Country",
+    "tags": [
+     "Bundles"
+    ]
+   }
+  },
+  "/api/v1/bundles/by-region/{region_code}": {
+   "get": {
+    "operationId": "bundles_by_region_api_v1_bundles_by_region__region_code__get",
+    "parameters": [
+     {
+      "description": "region_code from the returned regions",
+      "in": "path",
+      "name": "region_code",
+      "required": true,
+      "schema": {
+       "description": "region_code from the returned regions",
+       "title": "Region Code",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_List_BundleDTO__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Bundles By Region",
+    "tags": [
+     "Bundles"
+    ]
+   }
+  },
+  "/api/v1/bundles/countries": {
+   "get": {
+    "operationId": "list_all_countries_api_v1_bundles_countries_get",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_List_CountryDTO__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "List All Countries",
+    "tags": [
+     "Bundles"
+    ]
+   }
+  },
+  "/api/v1/bundles/region": {
+   "get": {
+    "operationId": "list_all_regions_api_v1_bundles_region_get",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_List_RegionDTO__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "List All Regions",
+    "tags": [
+     "Bundles"
+    ]
+   }
+  },
+  "/api/v1/bundles/translate_bundle": {
+   "get": {
+    "operationId": "translate_bundles_api_v1_bundles_translate_bundle_get",
+    "parameters": [
+     {
+      "description": "Page Index",
+      "in": "query",
+      "name": "page_index",
+      "required": false,
+      "schema": {
+       "default": 1,
+       "description": "Page Index",
+       "title": "Page Index",
+       "type": "integer"
+      }
+     },
+     {
+      "description": "Page Size",
+      "in": "query",
+      "name": "page_size",
+      "required": false,
+      "schema": {
+       "default": 10,
+       "description": "Page Size",
+       "title": "Page Size",
+       "type": "integer"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "ar",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Translate Bundles",
+    "tags": [
+     "Bundles"
+    ]
+   }
+  },
+  "/api/v1/bundles/translate_bundle/{bundle_code}": {
+   "get": {
+    "operationId": "translate_bundles_api_v1_bundles_translate_bundle__bundle_code__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "bundle_code",
+      "required": true,
+      "schema": {
+       "title": "Bundle Code",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "ar",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Translate Bundles",
+    "tags": [
+     "Bundles"
+    ]
+   }
+  },
+  "/api/v1/bundles/translate_tag": {
+   "get": {
+    "operationId": "translate_tags_api_v1_bundles_translate_tag_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "ar",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Translate Tags",
+    "tags": [
+     "Bundles"
+    ]
+   }
+  },
+  "/api/v1/bundles/{bundle_code}": {
+   "get": {
+    "operationId": "bundle_by_code_api_v1_bundles__bundle_code__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "bundle_code",
+      "required": true,
+      "schema": {
+       "title": "Bundle Code",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_BundleDTO_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Bundle By Code",
+    "tags": [
+     "Bundles"
+    ]
+   }
+  },
+  "/api/v1/callback/bundle/sync-all": {
+   "post": {
+    "operationId": "bundle_sync_all_api_v1_callback_bundle_sync_all_post",
+    "parameters": [
+     {
+      "description": "Page Index",
+      "in": "query",
+      "name": "page_index",
+      "required": false,
+      "schema": {
+       "default": 1,
+       "description": "Page Index",
+       "title": "Page Index"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Bundle Sync All",
+    "tags": [
+     "Callback"
+    ]
+   }
+  },
+  "/api/v1/callback/bundle/sync-one": {
+   "post": {
+    "operationId": "bundle_sync_all_api_v1_callback_bundle_sync_one_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Bundle Sync All",
+    "tags": [
+     "Callback"
+    ]
+   }
+  },
+  "/api/v1/callback/bundle/sync-one-by-id/{id}": {
+   "post": {
+    "operationId": "bundle_sync_all_api_v1_callback_bundle_sync_one_by_id__id__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "id",
+      "required": true,
+      "schema": {
+       "title": "Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Bundle Sync All",
+    "tags": [
+     "Callback"
+    ]
+   }
+  },
+  "/api/v1/callback/currency/exchange_rate": {
+   "post": {
+    "operationId": "currency_exchange_rate_api_v1_callback_currency_exchange_rate_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Currency Exchange Rate",
+    "tags": [
+     "Callback"
+    ]
+   }
+  },
+  "/api/v1/callback/payment-webhook": {
+   "post": {
+    "operationId": "payment_webhook_api_v1_callback_payment_webhook_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Payment Webhook",
+    "tags": [
+     "Callback"
+    ]
+   }
+  },
+  "/api/v1/callback/payment-webhook-fake": {
+   "post": {
+    "operationId": "payment_webhook_api_v1_callback_payment_webhook_fake_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Payment Webhook",
+    "tags": [
+     "Callback"
+    ]
+   }
+  },
+  "/api/v1/callback/plan_status_callback": {
+   "post": {
+    "operationId": "consumption_limit_api_v1_callback_plan_status_callback_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Consumption Limit",
+    "tags": [
+     "Callback"
+    ]
+   }
+  },
+  "/api/v1/home/": {
+   "get": {
+    "operationId": "home_api_v1_home__get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_HomeResponseDto_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Home",
+    "tags": [
+     "Home"
+    ]
+   }
+  },
+  "/api/v1/home/cruise": {
+   "get": {
+    "operationId": "get_cruise_bundles_api_v1_home_cruise_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_HomeResponseDto_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Cruise Bundles",
+    "tags": [
+     "Home"
+    ]
+   }
+  },
+  "/api/v1/home/land": {
+   "get": {
+    "operationId": "get_land_bundles_api_v1_home_land_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_HomeResponseDto_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Land Bundles",
+    "tags": [
+     "Home"
+    ]
+   }
+  },
+  "/api/v1/promotion/history": {
+   "get": {
+    "operationId": "check_promotion_validation_api_v1_promotion_history_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "x-currency",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Check Promotion Validation",
+    "tags": [
+     "Promotion"
+    ]
+   }
+  },
+  "/api/v1/promotion/referral-info": {
+   "get": {
+    "operationId": "get_referral_info_api_v1_promotion_referral_info_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "x-currency",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Referral Info",
+    "tags": [
+     "Promotion"
+    ]
+   }
+  },
+  "/api/v1/promotion/validation": {
+   "post": {
+    "operationId": "check_promotion_validation_api_v1_promotion_validation_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PromotionValidationRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_BundleDTO_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Check Promotion Validation",
+    "tags": [
+     "Promotion"
+    ]
+   }
+  },
+  "/api/v1/user/bundle-exists/{code}": {
+   "get": {
+    "operationId": "bundle_exists_api_v1_user_bundle_exists__code__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "code",
+      "required": true,
+      "schema": {
+       "title": "Code",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_bool_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Bundle Exists",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/bundle-label-by-iccid/{iccid}": {
+   "post": {
+    "operationId": "update_bundle_label_api_v1_user_bundle_label_by_iccid__iccid__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "iccid",
+      "required": true,
+      "schema": {
+       "title": "Iccid",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UpdateBundleLabelRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_dict_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Update Bundle Label",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/bundle-label/{code}": {
+   "post": {
+    "operationId": "update_bundle_label_api_v1_user_bundle_label__code__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "code",
+      "required": true,
+      "schema": {
+       "title": "Code",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UpdateBundleLabelRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_dict_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Update Bundle Label",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/bundle/assign": {
+   "post": {
+    "operationId": "assign_api_v1_user_bundle_assign_post",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AssignRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "anyOf": [
+          {
+           "$ref": "#/components/schemas/Response_PaymentIntentResponse_"
+          },
+          {
+           "$ref": "#/components/schemas/Response_bool_"
+          }
+         ],
+         "title": "Response Assign Api V1 User Bundle Assign Post"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Assign",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/bundle/assign-top-up": {
+   "post": {
+    "operationId": "assign_top_up_api_v1_user_bundle_assign_top_up_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AssignTopUpRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_PaymentIntentResponse_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Assign Top Up",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/bundle/resend_order_otp/{order_id}": {
+   "post": {
+    "operationId": "resend_order_otp_api_v1_user_bundle_resend_order_otp__order_id__post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "order_id",
+      "required": true,
+      "schema": {
+       "title": "Order Id",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Resend Order Otp",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/bundle/verify_order_otp": {
+   "post": {
+    "operationId": "verify_order_otp_api_v1_user_bundle_verify_order_otp_post",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VerifyOtpRequestDto"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_bool_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Verify Order Otp",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/consumption/{iccid}": {
+   "get": {
+    "operationId": "consumption_api_v1_user_consumption__iccid__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "iccid",
+      "required": true,
+      "schema": {
+       "title": "Iccid",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_ConsumptionResponse_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Consumption",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/my-esim": {
+   "get": {
+    "operationId": "get_order_details_api_v1_user_my_esim_get",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_List_EsimBundleResponse__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Order Details",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/my-esim-by-order/{order_id}": {
+   "get": {
+    "operationId": "get_order_details_api_v1_user_my_esim_by_order__order_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "order_id",
+      "required": true,
+      "schema": {
+       "title": "Order Id",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_EsimBundleResponse_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Order Details",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/my-esim/{iccid}": {
+   "get": {
+    "operationId": "get_order_details_api_v1_user_my_esim__iccid__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "iccid",
+      "required": true,
+      "schema": {
+       "title": "Iccid",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_EsimBundleResponse_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Order Details",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/order-history": {
+   "get": {
+    "operationId": "get_order_history_api_v1_user_order_history_get",
+    "parameters": [
+     {
+      "description": "Page Index",
+      "in": "query",
+      "name": "page_index",
+      "required": false,
+      "schema": {
+       "default": 1,
+       "description": "Page Index",
+       "title": "Page Index",
+       "type": "integer"
+      }
+     },
+     {
+      "description": "Page Size",
+      "in": "query",
+      "name": "page_size",
+      "required": false,
+      "schema": {
+       "default": 10,
+       "description": "Page Size",
+       "title": "Page Size",
+       "type": "integer"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_List_UserOrderHistoryResponse__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Order History",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/order-history/{order_id}": {
+   "get": {
+    "operationId": "get_order_history_by_id_api_v1_user_order_history__order_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "order_id",
+      "required": true,
+      "schema": {
+       "title": "Order Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_UserOrderHistoryResponse_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Order History By Id",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/order/cancel/{id}": {
+   "delete": {
+    "operationId": "cancel_order_api_v1_user_order_cancel__id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "id",
+      "required": true,
+      "schema": {
+       "title": "Id",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Cancel Order",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/read-user-notification/": {
+   "post": {
+    "operationId": "read_user_notification_api_v1_user_read_user_notification__post",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_dict_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Read User Notification",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/related-topup/{bundle_code}/{iccid}": {
+   "get": {
+    "operationId": "get_related_topup_api_v1_user_related_topup__bundle_code___iccid__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "bundle_code",
+      "required": true,
+      "schema": {
+       "title": "Bundle Code",
+       "type": "string"
+      }
+     },
+     {
+      "in": "path",
+      "name": "iccid",
+      "required": true,
+      "schema": {
+       "title": "Iccid",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "accept-language",
+      "required": false,
+      "schema": {
+       "default": "en",
+       "title": "Accept-Language",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_List_BundleDTO__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get Related Topup",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/user/user-notification": {
+   "get": {
+    "operationId": "user_notification_api_v1_user_user_notification_get",
+    "parameters": [
+     {
+      "description": "Page Index",
+      "in": "query",
+      "name": "page_index",
+      "required": false,
+      "schema": {
+       "default": 1,
+       "description": "Page Index",
+       "title": "Page Index",
+       "type": "integer"
+      }
+     },
+     {
+      "description": "Page Size",
+      "in": "query",
+      "name": "page_size",
+      "required": false,
+      "schema": {
+       "default": 10,
+       "description": "Page Size",
+       "title": "Page Size",
+       "type": "integer"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_List_UserNotificationResponse__"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "User Notification",
+    "tags": [
+     "User"
+    ]
+   }
+  },
+  "/api/v1/voucher/redeem": {
+   "post": {
+    "operationId": "assign_api_v1_voucher_redeem_post",
+    "parameters": [
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     },
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/VoucherRequestRedeem"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Assign",
+    "tags": [
+     "Voucher"
+    ]
+   }
+  },
+  "/api/v1/wallet/top-up": {
+   "post": {
+    "operationId": "top_up_wallet_api_v1_wallet_top_up_post",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/TopUpWalletRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_PaymentIntentResponse_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Top Up Wallet",
+    "tags": [
+     "Wallet"
+    ]
+   }
+  },
+  "/api/v1/wallet/user_wallet_by_id/{user_wallet_id}": {
+   "get": {
+    "operationId": "get_user_wallet_by_id_api_v1_wallet_user_wallet_by_id__user_wallet_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "user_wallet_id",
+      "required": true,
+      "schema": {
+       "title": "User Wallet Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_UserWalletResponse_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get User Wallet By Id",
+    "tags": [
+     "Wallet"
+    ]
+   }
+  },
+  "/api/v1/wallet/user_wallet_by_user": {
+   "get": {
+    "operationId": "get_user_wallet_by_user_id_api_v1_wallet_user_wallet_by_user_get",
+    "parameters": [
+     {
+      "in": "header",
+      "name": "x-currency",
+      "required": false,
+      "schema": {
+       "default": "USD",
+       "title": "X-Currency",
+       "type": "string"
+      }
+     },
+     {
+      "description": "DEVICE_ID_MISSING",
+      "in": "header",
+      "name": "x-device-id",
+      "required": true,
+      "schema": {
+       "description": "DEVICE_ID_MISSING",
+       "title": "X-Device-Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Response_UserWalletResponse_"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "security": [
+     {
+      "HTTPBearer": []
+     }
+    ],
+    "summary": "Get User Wallet By User Id",
+    "tags": [
+     "Wallet"
+    ]
+   }
+  }
+ },
+ "schemas": {
+  "AssignRequest": {
+   "properties": {
+    "affiliate_code": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Affiliate Code"
+    },
+    "bundle_code": {
+     "title": "Bundle Code",
+     "type": "string"
+    },
+    "payment_type": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/PaymentTypeEnum"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "Card"
+    },
+    "promo_code": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Promo Code"
+    },
+    "related_search": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/RelatedSearchRequestDto"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    }
+   },
+   "required": [
+    "bundle_code",
+    "related_search",
+    "promo_code",
+    "affiliate_code"
+   ],
+   "title": "AssignRequest",
+   "type": "object"
+  },
+  "AssignTopUpRequest": {
+   "properties": {
+    "bundle_code": {
+     "title": "Bundle Code",
+     "type": "string"
+    },
+    "iccid": {
+     "title": "Iccid",
+     "type": "string"
+    },
+    "payment_type": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "Card",
+     "title": "Payment Type"
+    }
+   },
+   "required": [
+    "iccid",
+    "bundle_code"
+   ],
+   "title": "AssignTopUpRequest",
+   "type": "object"
+  },
+  "AuthResponseDTO": {
+   "properties": {
+    "access_token": {
+     "title": "Access Token",
+     "type": "string"
+    },
+    "is_verified": {
+     "title": "Is Verified",
+     "type": "boolean"
+    },
+    "refresh_token": {
+     "title": "Refresh Token",
+     "type": "string"
+    },
+    "user_info": {
+     "$ref": "#/components/schemas/UserInfo"
+    },
+    "user_token": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "User Token"
+    }
+   },
+   "required": [
+    "access_token",
+    "refresh_token",
+    "user_info",
+    "is_verified"
+   ],
+   "title": "AuthResponseDTO",
+   "type": "object"
+  },
+  "BannerResponse": {
+   "properties": {
+    "action": {
+     "title": "Action",
+     "type": "string"
+    },
+    "description": {
+     "title": "Description",
+     "type": "string"
+    },
+    "image": {
+     "title": "Image",
+     "type": "string"
+    },
+    "title": {
+     "title": "Title",
+     "type": "string"
+    }
+   },
+   "required": [
+    "title",
+    "description",
+    "image",
+    "action"
+   ],
+   "title": "BannerResponse",
+   "type": "object"
+  },
+  "BundleCategoryDTO": {
+   "properties": {
+    "code": {
+     "title": "Code",
+     "type": "string"
+    },
+    "title": {
+     "title": "Title",
+     "type": "string"
+    },
+    "type": {
+     "title": "Type",
+     "type": "string"
+    }
+   },
+   "required": [
+    "type",
+    "title",
+    "code"
+   ],
+   "title": "BundleCategoryDTO",
+   "type": "object"
+  },
+  "BundleDTO": {
+   "properties": {
+    "activity_policy": {
+     "default": "The validity period starts when the eSIM connects to any supported networks.",
+     "title": "Activity Policy",
+     "type": "string"
+    },
+    "bundle_category": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/BundleCategoryDTO"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "bundle_code": {
+     "title": "Bundle Code",
+     "type": "string"
+    },
+    "bundle_info_code": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Bundle Info Code"
+    },
+    "bundle_marketing_name": {
+     "title": "Bundle Marketing Name",
+     "type": "string"
+    },
+    "bundle_name": {
+     "title": "Bundle Name",
+     "type": "string"
+    },
+    "bundle_region": {
+     "default": [],
+     "items": {
+      "$ref": "#/components/schemas/RegionDTO"
+     },
+     "title": "Bundle Region",
+     "type": "array"
+    },
+    "count_countries": {
+     "title": "Count Countries",
+     "type": "integer"
+    },
+    "countries": {
+     "items": {
+      "$ref": "#/components/schemas/CountryDTO"
+     },
+     "title": "Countries",
+     "type": "array"
+    },
+    "currency_code": {
+     "title": "Currency Code",
+     "type": "string"
+    },
+    "display_subtitle": {
+     "title": "Display Subtitle",
+     "type": "string"
+    },
+    "display_title": {
+     "title": "Display Title",
+     "type": "string"
+    },
+    "gprs_limit": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": 0,
+     "title": "Gprs Limit"
+    },
+    "gprs_limit_display": {
+     "title": "Gprs Limit Display",
+     "type": "string"
+    },
+    "icon": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "https://placehold.co/400x400",
+     "title": "Icon"
+    },
+    "is_active": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": true,
+     "title": "Is Active"
+    },
+    "is_stockable": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": true,
+     "title": "Is Stockable"
+    },
+    "label": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Label"
+    },
+    "original_price": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": 0,
+     "title": "Original Price"
+    },
+    "plan_type": {
+     "default": "Data only",
+     "title": "Plan Type",
+     "type": "string"
+    },
+    "price": {
+     "title": "Price",
+     "type": "number"
+    },
+    "price_display": {
+     "title": "Price Display",
+     "type": "string"
+    },
+    "supported_ships": {
+     "default": [],
+     "items": {
+      "$ref": "#/components/schemas/CountryDTO"
+     },
+     "title": "Supported Ships",
+     "type": "array"
+    },
+    "unlimited": {
+     "title": "Unlimited",
+     "type": "boolean"
+    },
+    "validity": {
+     "title": "Validity",
+     "type": "integer"
+    },
+    "validity_display": {
+     "title": "Validity Display",
+     "type": "string"
+    },
+    "validity_label": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Validity Label"
+    }
+   },
+   "required": [
+    "display_title",
+    "display_subtitle",
+    "bundle_code",
+    "bundle_category",
+    "bundle_marketing_name",
+    "bundle_name",
+    "count_countries",
+    "currency_code",
+    "gprs_limit_display",
+    "price",
+    "price_display",
+    "unlimited",
+    "validity",
+    "validity_display",
+    "countries"
+   ],
+   "title": "BundleDTO",
+   "type": "object"
+  },
+  "BundleMessage": {
+   "properties": {
+    "description": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Description"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    }
+   },
+   "title": "BundleMessage",
+   "type": "object"
+  },
+  "ConsumptionResponse": {
+   "properties": {
+    "data_allocated": {
+     "title": "Data Allocated",
+     "type": "number"
+    },
+    "data_allocated_display": {
+     "title": "Data Allocated Display",
+     "type": "string"
+    },
+    "data_remaining": {
+     "title": "Data Remaining",
+     "type": "number"
+    },
+    "data_remaining_display": {
+     "title": "Data Remaining Display",
+     "type": "string"
+    },
+    "data_used": {
+     "title": "Data Used",
+     "type": "number"
+    },
+    "data_used_display": {
+     "title": "Data Used Display",
+     "type": "string"
+    },
+    "expiry_date": {
+     "title": "Expiry Date",
+     "type": "string"
+    },
+    "plan_status": {
+     "title": "Plan Status",
+     "type": "string"
+    }
+   },
+   "required": [
+    "data_allocated",
+    "data_used",
+    "data_remaining",
+    "data_allocated_display",
+    "data_used_display",
+    "data_remaining_display",
+    "plan_status",
+    "expiry_date"
+   ],
+   "title": "ConsumptionResponse",
+   "type": "object"
+  },
+  "ContactUsRequest": {
+   "properties": {
+    "content": {
+     "title": "Content",
+     "type": "string"
+    },
+    "email": {
+     "format": "email",
+     "title": "Email",
+     "type": "string"
+    }
+   },
+   "required": [
+    "email",
+    "content"
+   ],
+   "title": "ContactUsRequest",
+   "type": "object"
+  },
+  "CountryDTO": {
+   "properties": {
+    "alternative_country": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Alternative Country"
+    },
+    "country": {
+     "title": "Country",
+     "type": "string"
+    },
+    "country_code": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Country Code"
+    },
+    "icon": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "https://placehold.co/400x400",
+     "title": "Icon"
+    },
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "iso3_code": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Iso3 Code"
+    },
+    "operator_list": {
+     "anyOf": [
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Operator List"
+    },
+    "zone_name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Zone Name"
+    }
+   },
+   "required": [
+    "id",
+    "alternative_country",
+    "country",
+    "country_code",
+    "iso3_code",
+    "zone_name"
+   ],
+   "title": "CountryDTO",
+   "type": "object"
+  },
+  "CountryRequestDto": {
+   "properties": {
+    "country_name": {
+     "title": "Country Name",
+     "type": "string"
+    },
+    "iso3_code": {
+     "title": "Iso3 Code",
+     "type": "string"
+    }
+   },
+   "required": [
+    "iso3_code",
+    "country_name"
+   ],
+   "title": "CountryRequestDto",
+   "type": "object"
+  },
+  "CurrencyDto": {
+   "properties": {
+    "currency": {
+     "title": "Currency",
+     "type": "string"
+    }
+   },
+   "required": [
+    "currency"
+   ],
+   "title": "CurrencyDto",
+   "type": "object"
+  },
+  "DeleteDeviceRequest": {
+   "properties": {
+    "email": {
+     "format": "email",
+     "title": "Email",
+     "type": "string"
+    }
+   },
+   "required": [
+    "email"
+   ],
+   "title": "DeleteDeviceRequest",
+   "type": "object"
+  },
+  "DeviceRequest": {
+   "properties": {
+    "app_version": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "App Version"
+    },
+    "device_model": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Device Model"
+    },
+    "fcm_token": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Fcm Token"
+    },
+    "is_rooted": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Is Rooted"
+    },
+    "manufacturer": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Manufacturer"
+    },
+    "os": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Os"
+    },
+    "os_version": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Os Version"
+    },
+    "ram_size": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Ram Size"
+    },
+    "screen_resolution": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Screen Resolution"
+    }
+   },
+   "title": "DeviceRequest",
+   "type": "object"
+  },
+  "EsimBundleResponse": {
+   "additionalProperties": false,
+   "properties": {
+    "activation_code": {
+     "title": "Activation Code",
+     "type": "string"
+    },
+    "activity_policy": {
+     "title": "Activity Policy",
+     "type": "string"
+    },
+    "bundle_category": {
+     "$ref": "#/components/schemas/BundleCategoryDTO"
+    },
+    "bundle_code": {
+     "title": "Bundle Code",
+     "type": "string"
+    },
+    "bundle_expired": {
+     "title": "Bundle Expired",
+     "type": "boolean"
+    },
+    "bundle_marketing_name": {
+     "title": "Bundle Marketing Name",
+     "type": "string"
+    },
+    "bundle_message": {
+     "items": {
+      "$ref": "#/components/schemas/BundleMessage"
+     },
+     "title": "Bundle Message",
+     "type": "array"
+    },
+    "bundle_name": {
+     "title": "Bundle Name",
+     "type": "string"
+    },
+    "count_countries": {
+     "title": "Count Countries",
+     "type": "integer"
+    },
+    "countries": {
+     "items": {
+      "$ref": "#/components/schemas/CountryDTO"
+     },
+     "title": "Countries",
+     "type": "array"
+    },
+    "currency_code": {
+     "title": "Currency Code",
+     "type": "string"
+    },
+    "display_subtitle": {
+     "title": "Display Subtitle",
+     "type": "string"
+    },
+    "display_title": {
+     "title": "Display Title",
+     "type": "string"
+    },
+    "gprs_limit_display": {
+     "title": "Gprs Limit Display",
+     "type": "string"
+    },
+    "iccid": {
+     "title": "Iccid",
+     "type": "string"
+    },
+    "icon": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Icon"
+    },
+    "is_topup_allowed": {
+     "title": "Is Topup Allowed",
+     "type": "boolean"
+    },
+    "label_name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Label Name"
+    },
+    "order_number": {
+     "title": "Order Number",
+     "type": "string"
+    },
+    "order_status": {
+     "title": "Order Status",
+     "type": "string"
+    },
+    "payment_date": {
+     "title": "Payment Date",
+     "type": "string"
+    },
+    "plan_started": {
+     "title": "Plan Started",
+     "type": "boolean"
+    },
+    "plan_type": {
+     "title": "Plan Type",
+     "type": "string"
+    },
+    "price": {
+     "title": "Price",
+     "type": "number"
+    },
+    "price_display": {
+     "title": "Price Display",
+     "type": "string"
+    },
+    "qr_code_value": {
+     "title": "Qr Code Value",
+     "type": "string"
+    },
+    "searched_countries": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/RelatedSearchRequestDto"
+      },
+      {
+       "items": {
+        "type": "string"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Searched Countries"
+    },
+    "shared_with": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Shared With"
+    },
+    "smdp_address": {
+     "title": "Smdp Address",
+     "type": "string"
+    },
+    "supported_ships": {
+     "default": [],
+     "items": {
+      "$ref": "#/components/schemas/CountryDTO"
+     },
+     "title": "Supported Ships",
+     "type": "array"
+    },
+    "transaction_history": {
+     "items": {
+      "$ref": "#/components/schemas/TransactionHistoryResponse"
+     },
+     "title": "Transaction History",
+     "type": "array"
+    },
+    "unlimited": {
+     "title": "Unlimited",
+     "type": "boolean"
+    },
+    "validity": {
+     "title": "Validity",
+     "type": "integer"
+    },
+    "validity_date": {
+     "title": "Validity Date",
+     "type": "string"
+    },
+    "validity_display": {
+     "title": "Validity Display",
+     "type": "string"
+    },
+    "validity_label": {
+     "title": "Validity Label",
+     "type": "string"
+    }
+   },
+   "required": [
+    "is_topup_allowed",
+    "plan_started",
+    "bundle_expired",
+    "order_number",
+    "order_status",
+    "qr_code_value",
+    "activation_code",
+    "smdp_address",
+    "validity_date",
+    "iccid",
+    "payment_date",
+    "display_title",
+    "display_subtitle",
+    "bundle_code",
+    "bundle_category",
+    "bundle_marketing_name",
+    "bundle_name",
+    "count_countries",
+    "currency_code",
+    "gprs_limit_display",
+    "price",
+    "price_display",
+    "unlimited",
+    "validity",
+    "validity_label",
+    "validity_display",
+    "plan_type",
+    "activity_policy",
+    "bundle_message",
+    "countries",
+    "icon",
+    "transaction_history"
+   ],
+   "title": "EsimBundleResponse",
+   "type": "object"
+  },
+  "FaqResponse": {
+   "properties": {
+    "answer": {
+     "title": "Answer",
+     "type": "string"
+    },
+    "question": {
+     "title": "Question",
+     "type": "string"
+    }
+   },
+   "required": [
+    "question",
+    "answer"
+   ],
+   "title": "FaqResponse",
+   "type": "object"
+  },
+  "GlobalConfiguration": {
+   "properties": {
+    "key": {
+     "title": "Key",
+     "type": "string"
+    },
+    "value": {
+     "title": "Value",
+     "type": "string"
+    }
+   },
+   "required": [
+    "key",
+    "value"
+   ],
+   "title": "GlobalConfiguration",
+   "type": "object"
+  },
+  "HTTPValidationError": {
+   "properties": {
+    "detail": {
+     "items": {
+      "$ref": "#/components/schemas/ValidationError"
+     },
+     "title": "Detail",
+     "type": "array"
+    }
+   },
+   "title": "HTTPValidationError",
+   "type": "object"
+  },
+  "HomeResponseDto": {
+   "properties": {
+    "countries": {
+     "items": {
+      "$ref": "#/components/schemas/CountryDTO"
+     },
+     "title": "Countries",
+     "type": "array"
+    },
+    "cruise_bundles": {
+     "items": {
+      "$ref": "#/components/schemas/BundleDTO"
+     },
+     "title": "Cruise Bundles",
+     "type": "array"
+    },
+    "global_bundles": {
+     "items": {
+      "$ref": "#/components/schemas/BundleDTO"
+     },
+     "title": "Global Bundles",
+     "type": "array"
+    },
+    "regions": {
+     "items": {
+      "$ref": "#/components/schemas/RegionDTO"
+     },
+     "title": "Regions",
+     "type": "array"
+    }
+   },
+   "required": [
+    "countries",
+    "cruise_bundles",
+    "global_bundles",
+    "regions"
+   ],
+   "title": "HomeResponseDto",
+   "type": "object"
+  },
+  "LoginRequest": {
+   "properties": {
+    "email": {
+     "anyOf": [
+      {
+       "format": "email",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Email"
+    },
+    "otp_channel": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/OtpChannelEnum"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "phone": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Phone"
+    }
+   },
+   "title": "LoginRequest",
+   "type": "object"
+  },
+  "OtpChannelEnum": {
+   "enum": [
+    "EMAIL",
+    "SMS"
+   ],
+   "title": "OtpChannelEnum",
+   "type": "string"
+  },
+  "PageContentResponse": {
+   "properties": {
+    "page_content": {
+     "title": "Page Content",
+     "type": "string"
+    },
+    "page_intro": {
+     "title": "Page Intro",
+     "type": "string"
+    },
+    "page_title": {
+     "title": "Page Title",
+     "type": "string"
+    }
+   },
+   "required": [
+    "page_title",
+    "page_content",
+    "page_intro"
+   ],
+   "title": "PageContentResponse",
+   "type": "object"
+  },
+  "PaymentDetailsDTO": {
+   "properties": {
+    "address": {
+     "title": "Address",
+     "type": "string"
+    },
+    "card_display": {
+     "title": "Card Display",
+     "type": "string"
+    },
+    "card_number": {
+     "title": "Card Number",
+     "type": "string"
+    },
+    "country": {
+     "title": "Country",
+     "type": "string"
+    },
+    "description": {
+     "title": "Description",
+     "type": "string"
+    },
+    "display_brand": {
+     "title": "Display Brand",
+     "type": "string"
+    },
+    "id": {
+     "title": "Id",
+     "type": "string"
+    },
+    "payment_method": {
+     "title": "Payment Method",
+     "type": "string"
+    },
+    "receipt_email": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Receipt Email"
+    }
+   },
+   "required": [
+    "id",
+    "description",
+    "payment_method",
+    "card_number",
+    "address",
+    "display_brand",
+    "country",
+    "card_display"
+   ],
+   "title": "PaymentDetailsDTO",
+   "type": "object"
+  },
+  "PaymentIntentResponse": {
+   "additionalProperties": false,
+   "properties": {
+    "billing_country_code": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Billing Country Code"
+    },
+    "customer_ephemeral_key_secret": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Customer Ephemeral Key Secret"
+    },
+    "customer_id": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Customer Id"
+    },
+    "has_tax": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": false,
+     "title": "Has Tax"
+    },
+    "merchant_display_name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Merchant Display Name"
+    },
+    "merchant_identifier": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Merchant Identifier"
+    },
+    "order_id": {
+     "title": "Order Id",
+     "type": "string"
+    },
+    "otp_expiration": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Otp Expiration"
+    },
+    "payment_intent_client_secret": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Payment Intent Client Secret"
+    },
+    "payment_status": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/PaymentStatusEnum"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "PENDING"
+    },
+    "publishable_key": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Publishable Key"
+    },
+    "stripe_url_scheme": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "stripe",
+     "title": "Stripe Url Scheme"
+    },
+    "subtotal_price_display": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "0.00",
+     "title": "Subtotal Price Display"
+    },
+    "tax_price_display": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "0.00",
+     "title": "Tax Price Display"
+    },
+    "test_env": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": true,
+     "title": "Test Env"
+    },
+    "total_price_display": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "0.00",
+     "title": "Total Price Display"
+    }
+   },
+   "required": [
+    "order_id"
+   ],
+   "title": "PaymentIntentResponse",
+   "type": "object"
+  },
+  "PaymentStatusEnum": {
+   "enum": [
+    "COMPLETED",
+    "PENDING",
+    "PENDING_VERIFICATION"
+   ],
+   "title": "PaymentStatusEnum",
+   "type": "string"
+  },
+  "PaymentTypeEnum": {
+   "enum": [
+    "Card",
+    "Wallet",
+    "DCB"
+   ],
+   "title": "PaymentTypeEnum",
+   "type": "string"
+  },
+  "PromotionValidationRequest": {
+   "properties": {
+    "bundle_code": {
+     "title": "Bundle Code",
+     "type": "string"
+    },
+    "promo_code": {
+     "title": "Promo Code",
+     "type": "string"
+    }
+   },
+   "required": [
+    "promo_code",
+    "bundle_code"
+   ],
+   "title": "PromotionValidationRequest",
+   "type": "object"
+  },
+  "RegionDTO": {
+   "properties": {
+    "guid": {
+     "title": "Guid",
+     "type": "string"
+    },
+    "icon": {
+     "title": "Icon",
+     "type": "string"
+    },
+    "region_code": {
+     "title": "Region Code",
+     "type": "string"
+    },
+    "region_name": {
+     "title": "Region Name",
+     "type": "string"
+    },
+    "zone_name": {
+     "title": "Zone Name",
+     "type": "string"
+    }
+   },
+   "required": [
+    "region_code",
+    "region_name",
+    "zone_name",
+    "icon",
+    "guid"
+   ],
+   "title": "RegionDTO",
+   "type": "object"
+  },
+  "RegionRequestDto": {
+   "properties": {
+    "iso_code": {
+     "title": "Iso Code",
+     "type": "string"
+    },
+    "region_name": {
+     "title": "Region Name",
+     "type": "string"
+    }
+   },
+   "required": [
+    "iso_code",
+    "region_name"
+   ],
+   "title": "RegionRequestDto",
+   "type": "object"
+  },
+  "RelatedSearchRequestDto": {
+   "properties": {
+    "countries": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/components/schemas/CountryRequestDto"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Countries"
+    },
+    "region": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/RegionRequestDto"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    }
+   },
+   "title": "RelatedSearchRequestDto",
+   "type": "object"
+  },
+  "Response": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {},
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response",
+   "type": "object"
+  },
+  "Response_AuthResponseDTO_": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/AuthResponseDTO"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[AuthResponseDTO]",
+   "type": "object"
+  },
+  "Response_BundleDTO_": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/BundleDTO"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[BundleDTO]",
+   "type": "object"
+  },
+  "Response_ConsumptionResponse_": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/ConsumptionResponse"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[ConsumptionResponse]",
+   "type": "object"
+  },
+  "Response_EsimBundleResponse_": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/EsimBundleResponse"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[EsimBundleResponse]",
+   "type": "object"
+  },
+  "Response_HomeResponseDto_": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/HomeResponseDto"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[HomeResponseDto]",
+   "type": "object"
+  },
+  "Response_List_BannerResponse__": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/components/schemas/BannerResponse"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[List[BannerResponse]]",
+   "type": "object"
+  },
+  "Response_List_BundleDTO__": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/components/schemas/BundleDTO"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[List[BundleDTO]]",
+   "type": "object"
+  },
+  "Response_List_CountryDTO__": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/components/schemas/CountryDTO"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[List[CountryDTO]]",
+   "type": "object"
+  },
+  "Response_List_CurrencyDto__": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/components/schemas/CurrencyDto"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[List[CurrencyDto]]",
+   "type": "object"
+  },
+  "Response_List_EsimBundleResponse__": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/components/schemas/EsimBundleResponse"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[List[EsimBundleResponse]]",
+   "type": "object"
+  },
+  "Response_List_FaqResponse__": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/components/schemas/FaqResponse"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[List[FaqResponse]]",
+   "type": "object"
+  },
+  "Response_List_GlobalConfiguration__": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/components/schemas/GlobalConfiguration"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[List[GlobalConfiguration]]",
+   "type": "object"
+  },
+  "Response_List_RegionDTO__": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/components/schemas/RegionDTO"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[List[RegionDTO]]",
+   "type": "object"
+  },
+  "Response_List_UserNotificationResponse__": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/components/schemas/UserNotificationResponse"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[List[UserNotificationResponse]]",
+   "type": "object"
+  },
+  "Response_List_UserOrderHistoryResponse__": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "items": {
+        "$ref": "#/components/schemas/UserOrderHistoryResponse"
+       },
+       "type": "array"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[List[UserOrderHistoryResponse]]",
+   "type": "object"
+  },
+  "Response_PageContentResponse_": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/PageContentResponse"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[PageContentResponse]",
+   "type": "object"
+  },
+  "Response_PaymentIntentResponse_": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/PaymentIntentResponse"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[PaymentIntentResponse]",
+   "type": "object"
+  },
+  "Response_UserOrderHistoryResponse_": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/UserOrderHistoryResponse"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[UserOrderHistoryResponse]",
+   "type": "object"
+  },
+  "Response_UserWalletResponse_": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/UserWalletResponse"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[UserWalletResponse]",
+   "type": "object"
+  },
+  "Response_bool_": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[bool]",
+   "type": "object"
+  },
+  "Response_dict_": {
+   "properties": {
+    "data": {
+     "anyOf": [
+      {
+       "additionalProperties": true,
+       "type": "object"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Data"
+    },
+    "developerMessage": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Developermessage"
+    },
+    "message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Message"
+    },
+    "responseCode": {
+     "title": "Responsecode",
+     "type": "integer"
+    },
+    "status": {
+     "title": "Status",
+     "type": "string"
+    },
+    "title": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Title"
+    },
+    "totalCount": {
+     "title": "Totalcount",
+     "type": "integer"
+    }
+   },
+   "required": [
+    "status",
+    "totalCount",
+    "title",
+    "message",
+    "developerMessage",
+    "responseCode"
+   ],
+   "title": "Response[dict]",
+   "type": "object"
+  },
+  "TopUpWalletRequest": {
+   "properties": {
+    "amount": {
+     "title": "Amount",
+     "type": "number"
+    }
+   },
+   "required": [
+    "amount"
+   ],
+   "title": "TopUpWalletRequest",
+   "type": "object"
+  },
+  "TransactionHistoryResponse": {
+   "properties": {
+    "bundle": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/BundleDTO"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "bundle_expired": {
+     "title": "Bundle Expired",
+     "type": "boolean"
+    },
+    "bundle_type": {
+     "$ref": "#/components/schemas/UserBundleType"
+    },
+    "created_at": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Created At"
+    },
+    "iccid": {
+     "title": "Iccid",
+     "type": "string"
+    },
+    "plan_started": {
+     "title": "Plan Started",
+     "type": "boolean"
+    },
+    "user_order_id": {
+     "title": "User Order Id",
+     "type": "string"
+    }
+   },
+   "required": [
+    "user_order_id",
+    "iccid",
+    "bundle_type",
+    "plan_started",
+    "bundle_expired",
+    "created_at"
+   ],
+   "title": "TransactionHistoryResponse",
+   "type": "object"
+  },
+  "UpdateBundleLabelRequest": {
+   "properties": {
+    "label": {
+     "title": "Label",
+     "type": "string"
+    }
+   },
+   "required": [
+    "label"
+   ],
+   "title": "UpdateBundleLabelRequest",
+   "type": "object"
+  },
+  "UpdateUserInfoRequest": {
+   "properties": {
+    "currency": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Currency"
+    },
+    "email": {
+     "anyOf": [
+      {
+       "format": "email",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Email"
+    },
+    "first_name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "First Name"
+    },
+    "language": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Language"
+    },
+    "last_name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Last Name"
+    },
+    "msisdn": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Msisdn"
+    },
+    "should_notify": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": false,
+     "title": "Should Notify"
+    }
+   },
+   "title": "UpdateUserInfoRequest",
+   "type": "object"
+  },
+  "UserBundleType": {
+   "enum": [
+    "Primary Bundle",
+    "TopUp Bundle"
+   ],
+   "title": "UserBundleType",
+   "type": "string"
+  },
+  "UserInfo": {
+   "additionalProperties": false,
+   "properties": {
+    "balance": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": 0,
+     "title": "Balance"
+    },
+    "country": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Country"
+    },
+    "country_code": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Country Code"
+    },
+    "currency_code": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Currency Code"
+    },
+    "email": {
+     "anyOf": [
+      {
+       "format": "email",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Email"
+    },
+    "email_editable": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": true,
+     "title": "Email Editable"
+    },
+    "first_name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "First Name"
+    },
+    "is_newsletter_subscribed": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": false,
+     "title": "Is Newsletter Subscribed"
+    },
+    "is_verified": {
+     "title": "Is Verified",
+     "type": "boolean"
+    },
+    "language": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "En",
+     "title": "Language"
+    },
+    "last_name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Last Name"
+    },
+    "msisdn": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Msisdn"
+    },
+    "phone_editable": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": true,
+     "title": "Phone Editable"
+    },
+    "referral_code": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Referral Code"
+    },
+    "role_name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "User",
+     "title": "Role Name"
+    },
+    "should_notify": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": false,
+     "title": "Should Notify"
+    },
+    "user_token": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "User Token"
+    }
+   },
+   "required": [
+    "is_verified"
+   ],
+   "title": "UserInfo",
+   "type": "object"
+  },
+  "UserNotificationResponse": {
+   "additionalProperties": false,
+   "properties": {
+    "category": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Category"
+    },
+    "content": {
+     "title": "Content",
+     "type": "string"
+    },
+    "datetime": {
+     "title": "Datetime",
+     "type": "string"
+    },
+    "iccid": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Iccid"
+    },
+    "notification_id": {
+     "title": "Notification Id",
+     "type": "integer"
+    },
+    "status": {
+     "anyOf": [
+      {
+       "type": "boolean"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": false,
+     "title": "Status"
+    },
+    "title": {
+     "title": "Title",
+     "type": "string"
+    },
+    "transaction": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "",
+     "title": "Transaction"
+    },
+    "transaction_message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "",
+     "title": "Transaction Message"
+    },
+    "transaction_status": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "",
+     "title": "Transaction Status"
+    },
+    "translated_message": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Translated Message"
+    }
+   },
+   "required": [
+    "notification_id",
+    "title",
+    "content",
+    "datetime"
+   ],
+   "title": "UserNotificationResponse",
+   "type": "object"
+  },
+  "UserOrderHistoryResponse": {
+   "properties": {
+    "bundle_details": {
+     "$ref": "#/components/schemas/BundleDTO"
+    },
+    "company_address": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Company Address"
+    },
+    "company_email": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Company Email"
+    },
+    "company_name": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Company Name"
+    },
+    "company_phone": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Company Phone"
+    },
+    "company_website": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Company Website"
+    },
+    "order_amount": {
+     "title": "Order Amount",
+     "type": "number"
+    },
+    "order_currency": {
+     "title": "Order Currency",
+     "type": "string"
+    },
+    "order_date": {
+     "title": "Order Date",
+     "type": "string"
+    },
+    "order_display_price": {
+     "title": "Order Display Price",
+     "type": "string"
+    },
+    "order_number": {
+     "title": "Order Number",
+     "type": "string"
+    },
+    "order_status": {
+     "title": "Order Status",
+     "type": "string"
+    },
+    "order_type": {
+     "title": "Order Type",
+     "type": "string"
+    },
+    "payment_details": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/PaymentDetailsDTO"
+      },
+      {
+       "type": "null"
+      }
+     ]
+    },
+    "payment_type": {
+     "anyOf": [
+      {
+       "$ref": "#/components/schemas/PaymentTypeEnum"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": "Card"
+    },
+    "quantity": {
+     "anyOf": [
+      {
+       "type": "integer"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "default": 1,
+     "title": "Quantity"
+    }
+   },
+   "required": [
+    "order_number",
+    "order_status",
+    "order_amount",
+    "order_currency",
+    "order_display_price",
+    "order_date",
+    "order_type",
+    "bundle_details"
+   ],
+   "title": "UserOrderHistoryResponse",
+   "type": "object"
+  },
+  "UserWalletResponse": {
+   "properties": {
+    "balance": {
+     "title": "Balance",
+     "type": "number"
+    },
+    "currency": {
+     "title": "Currency",
+     "type": "string"
+    }
+   },
+   "required": [
+    "balance",
+    "currency"
+   ],
+   "title": "UserWalletResponse",
+   "type": "object"
+  },
+  "ValidationError": {
+   "properties": {
+    "ctx": {
+     "title": "Context",
+     "type": "object"
+    },
+    "input": {
+     "title": "Input"
+    },
+    "loc": {
+     "items": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "integer"
+       }
+      ]
+     },
+     "title": "Location",
+     "type": "array"
+    },
+    "msg": {
+     "title": "Message",
+     "type": "string"
+    },
+    "type": {
+     "title": "Error Type",
+     "type": "string"
+    }
+   },
+   "required": [
+    "loc",
+    "msg",
+    "type"
+   ],
+   "title": "ValidationError",
+   "type": "object"
+  },
+  "VerifyOtpRequest": {
+   "properties": {
+    "phone": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Phone"
+    },
+    "user_email": {
+     "anyOf": [
+      {
+       "format": "email",
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "User Email"
+    },
+    "verification_pin": {
+     "title": "Verification Pin",
+     "type": "string"
+    }
+   },
+   "required": [
+    "verification_pin"
+   ],
+   "title": "VerifyOtpRequest",
+   "type": "object"
+  },
+  "VerifyOtpRequestDto": {
+   "properties": {
+    "iccid": {
+     "anyOf": [
+      {
+       "type": "string"
+      },
+      {
+       "type": "null"
+      }
+     ],
+     "title": "Iccid"
+    },
+    "order_id": {
+     "title": "Order Id",
+     "type": "string"
+    },
+    "otp": {
+     "title": "Otp",
+     "type": "string"
+    }
+   },
+   "required": [
+    "otp",
+    "order_id"
+   ],
+   "title": "VerifyOtpRequestDto",
+   "type": "object"
+  },
+  "VoucherRequestRedeem": {
+   "properties": {
+    "code": {
+     "title": "Code",
+     "type": "string"
+    }
+   },
+   "required": [
+    "code"
+   ],
+   "title": "VoucherRequestRedeem",
+   "type": "object"
+  }
+ }
+}

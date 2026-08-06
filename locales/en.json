@@ -69,5 +69,15 @@
   "REFERRAL_MESSAGE_DEFAULT": "Get {amount} {currency} credit for every friend that signs up and completes a purchase",
   "OTP_IS": "Your OTP is",
   "TOP_UP_AMOUNT_LIMIT_EXCEEDED": "This transaction cannot be completed because the maximum daily top-up amount of USD 100 would be exceeded.",
-  "TOP_UP_LIMIT_REACHED": "You have reached the maximum number of top-ups allowed per day."
+  "TOP_UP_LIMIT_REACHED": "You have reached the maximum number of top-ups allowed per day.",
+  "MCP_PURCHASE_DISABLED": "MCP purchasing is not available.",
+  "MCP_CARD_PURCHASE_DISABLED": "MCP card checkout is not available.",
+  "MCP_ANONYMOUS_NOT_ALLOWED": "Please sign in to complete this purchase.",
+  "MCP_UNSUPPORTED_CURRENCY": "This purchase cannot be settled in the requested currency.",
+  "MCP_CARD_CONFIG_INVALID": "Card checkout is not available right now.",
+  "MCP_CARD_CHECKOUT_UNAVAILABLE": "A payment page could not be opened. Nothing was charged.",
+  "MCP_PAYMENT_NOT_FOUND": "Payment not found.",
+  "MCP_MANUAL_INTERVENTION_REQUIRED": "This purchase needs to be reviewed. Please contact support.",
+  "MCP_DEPENDENCY_UNAVAILABLE": "The service is temporarily unavailable. Please try again.",
+  "MCP_TIMEOUT": "The request took too long to complete. The outcome is unknown."
 }
