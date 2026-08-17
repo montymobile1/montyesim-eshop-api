@@ -165,8 +165,6 @@ class AppService:
         app_cache_key = self.__config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
         if app_cache_key:
             response.append(GlobalConfiguration(key="CATALOG.BUNDLES_CACHE_VERSION", value=app_cache_key.value))
-        response.append(
-            GlobalConfiguration(key="whatsapp_number".upper(), value=os.getenv("WHATSAPP_NUMBER", "961123123")))
         response.append(GlobalConfiguration(key="supabase_base_url".upper(), value=os.getenv("SUPABASE_URL")))
         response.append(
             GlobalConfiguration(key="supabase_base_anon_key".upper(), value=os.getenv("SUPABASE_ANON_KEY", "")))
