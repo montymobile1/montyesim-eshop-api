@@ -23,6 +23,7 @@ class PaymentTypeEnum(StrEnum):
     CARD = "Card"
     WALLET = "Wallet"
     DCB = "DCB"
+    LINK_AJA = "LinkAja"
 
 
 class PromotionStatusEnum(StrEnum):

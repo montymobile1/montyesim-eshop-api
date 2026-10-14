@@ -79,5 +79,13 @@
   "MCP_PAYMENT_NOT_FOUND": "Payment not found.",
   "MCP_MANUAL_INTERVENTION_REQUIRED": "This purchase needs to be reviewed. Please contact support.",
   "MCP_DEPENDENCY_UNAVAILABLE": "The service is temporarily unavailable. Please try again.",
-  "MCP_TIMEOUT": "The request took too long to complete. The outcome is unknown."
+  "MCP_TIMEOUT": "The request took too long to complete. The outcome is unknown.",
+  "LINKAJA_DISABLED": "LinkAja payments are not available.",
+  "LINKAJA_NOT_CONFIGURED": "LinkAja payments are temporarily unavailable. Please try another payment method.",
+  "LINKAJA_PAYMENT_FAILED": "LinkAja payment failed.",
+  "LINKAJA_CONFIGURATION_INVALID": "LinkAja payments are temporarily unavailable. Please try another payment method.",
+  "LINKAJA_PROVIDER_ERROR": "LinkAja is currently unavailable. Please try again or use another payment method.",
+  "LINKAJA_CALLBACK_UNVERIFIED": "The LinkAja notification could not be verified.",
+  "LINKAJA_ORDER_NOT_FOUND": "The order for this LinkAja payment could not be found.",
+  "LINKAJA_CALLBACK_INVALID": "The LinkAja notification was rejected."
 }

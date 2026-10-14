@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional, List
 
-from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
+from pydantic import BaseModel, EmailStr, field_validator, ConfigDict, model_serializer
 
 from app.config.constants import PaymentStatusEnum
 from app.config.db import PaymentTypeEnum
@@ -73,7 +73,29 @@ class PaymentIntentResponse(BaseModel):
     subtotal_price_display: Optional[str] = "0.00"
     has_tax: Optional[bool] = False
     otp_expiration: Optional[int] = None
+    # Provider-neutral redirect target for payment types that complete off-app
+    # (LinkAja and any future redirect/deep-link provider).
+    payment_url: Optional[str] = None
     model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    @model_serializer(mode="wrap")
+    def __serialize_without_unset_provider_fields(self, handler):
+        """Omit `payment_url` entirely when it is not set.
+
+        Card / Wallet / DCB never populate it, so their serialized JSON stays
+        byte-identical to what it was before LinkAja existed - no new
+        `"payment_url": null` key appears in those responses, and strict clients
+        (Swift `Codable`, `kotlinx.serialization` with `ignoreUnknownKeys=false`)
+        keep working untouched.
+
+        A `model_serializer` rather than `response_model_exclude_none` on the
+        route, because that would also drop the *existing* null fields
+        (`otp_expiration`, `publishable_key`, ...) that current clients expect.
+        """
+        data = handler(self)
+        if data.get("payment_url") is None:
+            data.pop("payment_url", None)
+        return data
 
 
 class UpdateBundleLabelRequest(BaseModel):
