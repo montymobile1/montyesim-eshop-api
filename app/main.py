@@ -12,9 +12,11 @@ from pydantic import ValidationError
 from starlette.responses import JSONResponse
 
 from app.api.v1 import router
+from app.api.v1.callback import link_aja_notify_router
 from app.exceptions import CustomException
 from app.schemas.response import ResponseHelper
 from app.i18n import translate, get_locale, set_locale
+from app.services.integration.link_aja import is_link_aja_enabled
 from app.services.scheduler_service import SchedulerService
 
 
@@ -22,10 +24,19 @@ from app.services.scheduler_service import SchedulerService
 async def lifespan(app: FastAPI):
     app.state.scheduler_service = SchedulerService()
     app.state.scheduler_service.start_scheduler()
+    # LinkAja does not retry its notify, so pending LinkAja orders are reconciled
+    # by polling. Started only when LINKAJA_ENABLED is true; otherwise nothing is
+    # imported or scheduled.
+    link_aja_scheduler = None
+    if is_link_aja_enabled():
+        from app.services.link_aja_reconciliation_service import start_link_aja_reconciliation
+        link_aja_scheduler = start_link_aja_reconciliation()
     try:
         yield
     finally:
         app.state.scheduler_service.shutdown_scheduler()
+        if link_aja_scheduler:
+            link_aja_scheduler.shutdown(wait=False)
 
 
 esim_app = FastAPI(lifespan=lifespan, title="eSIM Reseller Backend Open Source",
@@ -151,3 +162,6 @@ esim_app.add_middleware(GZipMiddleware, minimum_size=500)
 api_version = "/api/v1"
 api_version_2 = "/api/v2"
 esim_app.include_router(prefix=api_version, router=router)
+# LinkAja notify at the spec's root-level path (no API version prefix); same
+# handler as /api/v1/callback/linkaja. See app/api/v1/callback.py.
+esim_app.include_router(link_aja_notify_router, tags=["Callback"])

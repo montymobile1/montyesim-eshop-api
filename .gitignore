@@ -176,3 +176,9 @@ cython_debug/
 
 /*.json
 test.py
+
+# LinkAja credentials and spec material: never commit
+*.pem
+*.key
+*.pdf
+CredDev/

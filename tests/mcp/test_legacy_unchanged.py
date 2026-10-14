@@ -51,6 +51,23 @@ MCP_MODULES = {
 }
 
 
+#: The LinkAja payment method's additions to the OpenAPI document. They are
+#: listed explicitly so that anything else that changes still fails these tests.
+LINKAJA_PATHS = {
+    "/api/v1/callback/linkaja",
+    "/bi/applink/v1.0/debit/notify",
+}
+#: Optional properties LinkAja added to existing schemas. Card / Wallet / DCB
+#: responses never serialize them (see PaymentIntentResponse's serializer).
+LINKAJA_SCHEMA_PROPERTIES = {
+    "PaymentIntentResponse": {"payment_url"},
+}
+#: Enum values LinkAja appended to existing schemas. Existing values keep their order.
+LINKAJA_ENUM_VALUES = {
+    "PaymentTypeEnum": ["LinkAja"],
+}
+
+
 def git_diff(*paths) -> str:
     result = subprocess.run(["git", "diff", "HEAD", "--", *paths],
                             cwd=PROJECT_ROOT, capture_output=True, text=True)
@@ -132,20 +149,32 @@ def test_legacy_openapi_paths_are_unchanged(openapi_spec, legacy_openapi_baselin
 
 
 def test_legacy_openapi_schemas_are_unchanged(openapi_spec, legacy_openapi_baseline):
-    """(4) Every pre-existing component schema is byte-identical."""
+    """(4) Every pre-existing component schema is byte-identical, apart from the
+    optional LinkAja properties in LINKAJA_SCHEMA_PROPERTIES and the enum values
+    appended in LINKAJA_ENUM_VALUES."""
     live = openapi_spec["components"]["schemas"]
     for name, definition in legacy_openapi_baseline["schemas"].items():
         assert name in live, f"legacy schema {name} disappeared"
-        assert live[name] == definition, f"legacy schema {name} changed shape"
+        current = live[name]
+        added = LINKAJA_SCHEMA_PROPERTIES.get(name, set())
+        if added:
+            assert added <= set(current.get("properties", {})), f"{name} lost {sorted(added)}"
+            current = {**current, "properties": {key: value for key, value in current["properties"].items()
+                                                 if key not in added}}
+        appended = LINKAJA_ENUM_VALUES.get(name, [])
+        if appended:
+            assert current["enum"][-len(appended):] == appended, f"{name} lost {appended}"
+            current = {**current, "enum": current["enum"][:-len(appended)]}
+        assert current == definition, f"legacy schema {name} changed shape"
 
 
-def test_openapi_gained_only_the_three_mcp_paths(openapi_spec, legacy_openapi_baseline):
+def test_openapi_gained_only_the_three_mcp_paths_and_the_linkaja_paths(openapi_spec, legacy_openapi_baseline):
     added = set(openapi_spec["paths"]) - set(legacy_openapi_baseline["paths"])
     assert added == {
         "/api/v1/mcp/user/bundle/assign",
         "/api/v1/mcp/user/bundle/card/checkout",
         "/api/v1/mcp/user/bundle/card/status/{payment_reference}",
-    }
+    } | LINKAJA_PATHS
 
 
 def test_openapi_gained_only_mcp_schemas(openapi_spec, legacy_openapi_baseline):

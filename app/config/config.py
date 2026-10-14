@@ -86,6 +86,13 @@ def dcb_service_instance() -> DCBService:
     return DCBService(send_otp_url=os.getenv("DCB_SEND_OTP_URL", ""), verify_otp_url="", api_key="", charge_url="")
 
 
+def link_aja_service_instance() -> "LinkAjaService":
+    # Imported lazily and constructed from the environment at call time, so a
+    # deployment with no LinkAja configuration is completely unaffected.
+    from app.services.integration.link_aja import LinkAjaService
+    return LinkAjaService()
+
+
 def get_auth_user_banned_until(user_id: str) -> str | None:
     # The gotrue client's pydantic User model drops the banned_until field,
     # so it has to be read from the raw admin API response.
