@@ -1,8 +1,13 @@
+from typing import Optional
+
 from fastapi import APIRouter, Request
 from fastapi.params import Query
+from loguru import logger
+from starlette.responses import JSONResponse, RedirectResponse
 
 from app.schemas.response import ResponseHelper
 from app.services.callback_service import CallbackService
+from app.services.integration.link_aja import LinkAjaConfig, frontend_return_url, valid_order_id
 from app.services.link_aja_callback_service import LinkAjaCallbackService
 
 router = APIRouter()
@@ -38,6 +43,24 @@ async def link_aja_callback(request: Request):
     configured every request is rejected and no provisioning occurs.
     """
     return await get_link_aja_callback_service().handle_callback(request)
+
+
+@router.get("/linkaja", include_in_schema=False)
+def link_aja_return(order_id: Optional[str] = Query(default=None)):
+    """LinkAja sends the customer back to the urlParams URL (the same URL as
+    the notify, opened as a GET). No auth and no processing: this only
+    redirects to LINKAJA_FRONTEND_RETURN_URL and never reads or changes an
+    order. Payment state comes only from the signed notify (POST) or the
+    reconciliation job.
+    """
+    order_id = valid_order_id(order_id)
+    target = frontend_return_url(LinkAjaConfig.from_env().frontend_return_url, order_id)
+    if not target:
+        logger.warning("[LinkAja] return redirect not possible: LINKAJA_FRONTEND_RETURN_URL is not set "
+                       "or is not an http(s) URL")
+        return JSONResponse(status_code=404, content={"detail": "Not Found"})
+    logger.info(f"[LinkAja] customer returned (order_id={order_id or 'missing or invalid'})")
+    return RedirectResponse(url=target, status_code=302, headers={"Cache-Control": "no-store"})
 
 
 # LinkAja's spec names the notify URI "…/bi/applink/v1.0/debit/notify" (v1.1

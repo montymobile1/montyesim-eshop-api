@@ -36,6 +36,15 @@ DEFAULT_READ_TIMEOUT = 30.0
 # urlParams[].isDeeplink: our notify URL is a plain web URL, not an app deeplink.
 DEFAULT_IS_DEEPLINK = "N"
 
+# EndpointUrl forms of the notify string-to-sign (§5.1.3) that can be tried.
+# The spec does not say which one LinkAja signs, and our urlParams URL carries
+# a query string (?order_id=...):
+#   path        /api/v1/callback/linkaja
+#   path_query  /api/v1/callback/linkaja?order_id=...
+#   full_url    https://<host>/api/v1/callback/linkaja?order_id=...
+NOTIFY_ENDPOINT_FORMS = ("path", "path_query", "full_url")
+DEFAULT_NOTIFY_SIGNATURE_FORMS = "path"
+
 
 def _env(name: str, default: str = "") -> str:
     """Read an env var, treating whitespace-only as absent."""
@@ -95,8 +104,14 @@ class LinkAjaConfig:
     # USD -> IDR rate. BUSINESS DECISION: see amount.py. Blank fails closed.
     usd_to_idr_rate: str = ""
     # Public URL of our notify endpoint. LinkAja calls it after the payment, and
-    # it is sent to them as urlParams[0].url (type PAY_RETURN).
+    # it is sent to them as urlParams[0].url (type PAY_RETURN) with
+    # "?order_id=<order id>" appended. LinkAja uses the same URL to send the
+    # customer back (a GET), which redirects to frontend_return_url.
     notify_url: str = ""
+    # Frontend page the customer lands on after paying, e.g.
+    # "https://<frontend>/plans?order_id={order_id}". `{order_id}` is replaced
+    # with the order id (or removed when the GET has no valid one).
+    frontend_return_url: str = ""
     # Not sent to LinkAja by any request; kept for reference only.
     callback_url: str = ""
     success_url: str = ""
@@ -114,9 +129,13 @@ class LinkAjaConfig:
     notify_public_key: str = ""
     notify_public_key_path: str = ""
     # The "EndpointUrl" LinkAja puts in the notify stringToSign. Not pinned by
-    # the spec (full URL or path?); when empty, the path of the request as
-    # received is used.
+    # the spec (full URL or path?); when empty, it is built from the request as
+    # received, in the forms listed by notify_signature_forms.
     notify_endpoint_url: str = ""
+    # Comma-separated EndpointUrl forms tried, in order, when
+    # notify_endpoint_url is empty: "path", "path_query", "full_url" (see
+    # NOTIFY_ENDPOINT_FORMS). Default: the path without the query string.
+    notify_signature_forms: str = DEFAULT_NOTIFY_SIGNATURE_FORMS
 
     # --- transport --------------------------------------------------------
     connect_timeout: float = DEFAULT_CONNECT_TIMEOUT
@@ -146,6 +165,7 @@ class LinkAjaConfig:
             url_param_is_deeplink=_env("LINKAJA_URL_PARAM_IS_DEEPLINK", DEFAULT_IS_DEEPLINK) or DEFAULT_IS_DEEPLINK,
             usd_to_idr_rate=_env("LINKAJA_USD_TO_IDR_RATE"),
             notify_url=_env("LINKAJA_NOTIFY_URL"),
+            frontend_return_url=_env("LINKAJA_FRONTEND_RETURN_URL"),
             callback_url=_env("LINKAJA_CALLBACK_URL"),
             success_url=_env("LINKAJA_SUCCESS_URL"),
             cancel_url=_env("LINKAJA_CANCEL_URL"),
@@ -155,6 +175,8 @@ class LinkAjaConfig:
             notify_public_key=_env("LINKAJA_NOTIFY_PUBLIC_KEY"),
             notify_public_key_path=_env("LINKAJA_NOTIFY_PUBLIC_KEY_PATH"),
             notify_endpoint_url=_env("LINKAJA_NOTIFY_ENDPOINT_URL"),
+            notify_signature_forms=(_env("LINKAJA_NOTIFY_SIGNATURE_FORMS", DEFAULT_NOTIFY_SIGNATURE_FORMS)
+                                    or DEFAULT_NOTIFY_SIGNATURE_FORMS),
             connect_timeout=_env_float("LINKAJA_CONNECT_TIMEOUT", DEFAULT_CONNECT_TIMEOUT),
             read_timeout=_env_float("LINKAJA_READ_TIMEOUT", DEFAULT_READ_TIMEOUT),
         )
@@ -209,6 +231,18 @@ class LinkAjaConfig:
                 details="LinkAja callback verification is not configured: "
                         "LINKAJA_NOTIFY_PUBLIC_KEY or LINKAJA_NOTIFY_PUBLIC_KEY_PATH"
             )
+        self.signature_forms()
+
+    def signature_forms(self) -> List[str]:
+        """The EndpointUrl forms to try, in order. An unknown or empty list is a
+        configuration error (fails closed) rather than a silent default."""
+        forms = [f.strip().lower() for f in (self.notify_signature_forms or "").split(",") if f.strip()]
+        unknown = [f for f in forms if f not in NOTIFY_ENDPOINT_FORMS]
+        if not forms or unknown:
+            raise LinkAjaConfigurationException(
+                details=f"LINKAJA_NOTIFY_SIGNATURE_FORMS must list one or more of "
+                        f"{', '.join(NOTIFY_ENDPOINT_FORMS)}")
+        return list(dict.fromkeys(forms))
 
 
 def link_aja_config() -> LinkAjaConfig:

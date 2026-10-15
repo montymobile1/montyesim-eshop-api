@@ -59,9 +59,11 @@ from app.services.integration.link_aja import (
     ORDER_DATA_KEY,
     TokenCache,
     embed_order_data,
+    frontend_return_url,
     is_link_aja_enabled,
     is_provisioning_status,
     map_provider_status,
+    notify_url_for_order,
     read_order_data,
     reset_token_caches,
 )
@@ -1038,11 +1040,13 @@ def _verified(status=LinkAjaPaymentStatus.SUCCESS, order_id="order-1", reference
                                  approval_code=approval_code, merchant_id="MERCHANT-TEST")
 
 
-def _notify_request(body: bytes, headers: dict, path=_NOTIFY_SPEC_PATH) -> MagicMock:
+def _notify_request(body: bytes, headers: dict, path=_NOTIFY_SPEC_PATH, query="") -> MagicMock:
     request = MagicMock()
     request.body = AsyncMock(return_value=body)
     request.headers = headers
     request.url.path = path
+    request.url.query = query
+    request.url.__str__.return_value = f"http://testserver{path}" + (f"?{query}" if query else "")
     return request
 
 
@@ -1598,13 +1602,13 @@ def test_notify_route_errors_use_snap_codes_not_the_api_envelope(notify_app):
     assert "status" not in response.json() and "developerMessage" not in response.json()
 
 
-def test_notify_routes_are_post_only(notify_app):
+def test_spec_notify_alias_is_post_only(notify_app):
+    """Only /api/v1/callback/linkaja answers the customer's GET return; the
+    spec-path alias stays POST only."""
     from fastapi.testclient import TestClient
 
     app, _ = notify_app
-    client = TestClient(app)
-    assert client.get(_NOTIFY_API_PATH).status_code == 405
-    assert client.get(_NOTIFY_SPEC_PATH).status_code == 405
+    assert TestClient(app).get(_NOTIFY_SPEC_PATH).status_code == 405
 
 
 def test_stripe_webhook_service_is_untouched_by_link_aja():
@@ -1617,6 +1621,241 @@ def test_stripe_webhook_service_is_untouched_by_link_aja():
     assert "PaymentTypeEnum.CARD" in source
     assert "LINK_AJA" not in source
     assert "link_aja" not in source.lower()
+
+
+# ---------------------------------------------------------------------------
+# 10b. One urlParams URL for the notify (POST) and the customer return (GET)
+# ---------------------------------------------------------------------------
+
+_ORDER_UUID = "3f2b8c1e-9a4d-4e6f-8b7a-1c2d3e4f5a6b"
+_FRONTEND_TEMPLATE = "https://esim-shop.invalid/plans?order_id={order_id}"
+
+
+def _notify_app_with(config):
+    """Like `notify_app`, but with a given LinkAja config. The service getter
+    is a MagicMock so tests can assert the GET never even builds it."""
+    from fastapi import FastAPI
+
+    routes = _route_module()
+    service, m = _make_callback_service(config=config)
+    routes.get_link_aja_callback_service = MagicMock(return_value=service)
+
+    app = FastAPI()
+    app.include_router(routes.router, prefix="/api/v1/callback")
+    app.include_router(routes.link_aja_notify_router)
+    return app, m, routes.get_link_aja_callback_service
+
+
+def _return_get(app, params=None, env=_FRONTEND_TEMPLATE):
+    from fastapi.testclient import TestClient
+
+    with patch.dict(os.environ):
+        if env is None:
+            os.environ.pop("LINKAJA_FRONTEND_RETURN_URL", None)
+        else:
+            os.environ["LINKAJA_FRONTEND_RETURN_URL"] = env
+        return TestClient(app).get(_NOTIFY_API_PATH, params=params, follow_redirects=False)
+
+
+def test_notify_url_for_order_appends_the_order_id():
+    assert notify_url_for_order(_NOTIFY_URL, "order-1") == _NOTIFY_URL + "?order_id=order-1"
+    assert notify_url_for_order("https://h.invalid/cb?x=1&order_id=old", _ORDER_UUID) == \
+        f"https://h.invalid/cb?x=1&order_id={_ORDER_UUID}"
+    assert notify_url_for_order("", "order-1") == ""
+
+
+def test_create_payment_url_params_carry_the_order_id():
+    service = LinkAjaService(config=_full_config())
+    body = service._build_create_payment_body(_payment_request(order_id=_ORDER_UUID))
+    assert body["urlParams"][0]["url"] == f"{_NOTIFY_URL}?order_id={_ORDER_UUID}"
+
+
+def test_frontend_return_url_is_read_from_the_environment():
+    with patch.dict(os.environ, {"LINKAJA_FRONTEND_RETURN_URL": _FRONTEND_TEMPLATE,
+                                 "LINKAJA_NOTIFY_SIGNATURE_FORMS": "path,full_url"}):
+        config = LinkAjaConfig.from_env()
+    assert config.frontend_return_url == _FRONTEND_TEMPLATE
+    assert config.notify_signature_forms == "path,full_url"
+
+
+def test_signature_forms_default_to_the_path_only():
+    with patch.dict(os.environ, {}, clear=True):
+        assert LinkAjaConfig.from_env().signature_forms() == ["path"]
+
+
+@pytest.mark.parametrize("forms", ["bogus", "path,full", " , "])
+def test_unknown_signature_forms_fail_closed(forms):
+    with pytest.raises(LinkAjaConfigurationException) as exc:
+        _notify_config(notify_signature_forms=forms).validate_for_callback()
+    assert "LINKAJA_NOTIFY_SIGNATURE_FORMS" in exc.value.details
+
+
+@pytest.mark.parametrize("template, order_id, expected", [
+    (_FRONTEND_TEMPLATE, _ORDER_UUID, f"https://esim-shop.invalid/plans?order_id={_ORDER_UUID}"),
+    (_FRONTEND_TEMPLATE, _ORDER_UUID.upper(), f"https://esim-shop.invalid/plans?order_id={_ORDER_UUID}"),
+    (_FRONTEND_TEMPLATE, None, "https://esim-shop.invalid/plans"),
+    (_FRONTEND_TEMPLATE, "order-1", "https://esim-shop.invalid/plans"),
+    (_FRONTEND_TEMPLATE, "https://evil.invalid", "https://esim-shop.invalid/plans"),
+    ("https://esim-shop.invalid/plans?lang=id&order_id={order_id}", "bad", "https://esim-shop.invalid/plans?lang=id"),
+    ("https://esim-shop.invalid/orders/{order_id}", _ORDER_UUID, f"https://esim-shop.invalid/orders/{_ORDER_UUID}"),
+    ("https://esim-shop.invalid/plans", _ORDER_UUID, "https://esim-shop.invalid/plans"),
+    ("", _ORDER_UUID, None),
+    ("javascript:alert(1)", _ORDER_UUID, None),
+    ("/plans?order_id={order_id}", _ORDER_UUID, None),
+])
+def test_frontend_return_url_building(template, order_id, expected):
+    assert frontend_return_url(template, order_id) == expected
+
+
+def test_get_return_redirects_to_the_frontend_with_the_order_id():
+    app, _, _ = _notify_app_with(_notify_config())
+    response = _return_get(app, params={"order_id": _ORDER_UUID})
+    assert response.status_code == 302
+    assert response.headers["location"] == f"https://esim-shop.invalid/plans?order_id={_ORDER_UUID}"
+    assert response.headers["cache-control"] == "no-store"
+
+
+@pytest.mark.parametrize("params", [None, {"order_id": ""}, {"order_id": "order-1"},
+                                    {"order_id": "https://evil.invalid/x"}, {"order_id": "1' OR '1'='1"}])
+def test_get_return_without_a_valid_order_id_redirects_without_it(params):
+    app, _, _ = _notify_app_with(_notify_config())
+    response = _return_get(app, params=params)
+    assert response.status_code == 302
+    assert response.headers["location"] == "https://esim-shop.invalid/plans"
+
+
+def test_get_return_without_a_configured_frontend_url_does_not_redirect():
+    app, _, _ = _notify_app_with(_notify_config())
+    response = _return_get(app, params={"order_id": _ORDER_UUID}, env=None)
+    assert response.status_code == 404
+    assert "location" not in response.headers
+
+
+def test_get_return_never_processes_or_provisions():
+    """The GET is not authenticated, so it must not touch orders at all: it
+    never builds the callback service, reads or updates an order, or schedules
+    provisioning - not even for a pending order with a valid id."""
+    app, m, get_service = _notify_app_with(_notify_config())
+    for params in ({"order_id": "order-1"}, {"order_id": _ORDER_UUID}, None):
+        assert _return_get(app, params=params).status_code == 302
+    get_service.assert_not_called()
+    m["order_repo"].get_by_id.assert_not_called()
+    m["order_repo"].update_by.assert_not_called()
+    m["order_repo"].list.assert_not_called()
+    m["bundle_service"].buy_bundle.assert_not_called()
+    assert m["executor"].tasks == []
+    assert m["order"].payment_status == OrderStatusEnum.PENDING
+
+
+def test_get_return_works_while_link_aja_is_disabled():
+    """No processing means nothing to gate: the redirect only needs its URL."""
+    app, _, get_service = _notify_app_with(_full_config(enabled=False))
+    with patch.dict(os.environ, {"LINKAJA_ENABLED": "false"}):
+        response = _return_get(app, params={"order_id": _ORDER_UUID})
+    assert response.status_code == 302
+    get_service.assert_not_called()
+
+
+def test_get_return_is_not_in_the_openapi_schema():
+    app, _, _ = _notify_app_with(_notify_config())
+    operations = app.openapi()["paths"][_NOTIFY_API_PATH]
+    assert set(operations) == {"post"}
+
+
+def test_post_notify_with_the_query_string_still_works():
+    """The POST arrives on the urlParams URL, query string included. With the
+    default form the signature covers the path only."""
+    from fastapi.testclient import TestClient
+
+    app, m, _ = _notify_app_with(_notify_config())
+    body = _json.dumps(_SPEC_NOTIFY_BODY).encode()
+
+    response = TestClient(app).post(f"{_NOTIFY_API_PATH}?order_id=order-1", content=body,
+                                    headers=_signed_notify_headers(body, endpoint_url=_NOTIFY_API_PATH))
+
+    assert response.status_code == 200
+    assert response.json()["responseCode"] == "2005600"
+    assert len(m["executor"].tasks) == 1
+
+
+def test_post_notify_takes_the_order_from_the_body_not_the_query():
+    from fastapi.testclient import TestClient
+
+    app, m, _ = _notify_app_with(_notify_config())
+    body = _json.dumps(_SPEC_NOTIFY_BODY).encode()
+
+    response = TestClient(app).post(f"{_NOTIFY_API_PATH}?order_id={_ORDER_UUID}", content=body,
+                                    headers=_signed_notify_headers(body, endpoint_url=_NOTIFY_API_PATH))
+
+    assert response.status_code == 200
+    m["order_repo"].get_by_id.assert_called_once()
+    assert "order-1" in m["order_repo"].get_by_id.call_args.args + tuple(
+        m["order_repo"].get_by_id.call_args.kwargs.values())
+    assert _ORDER_UUID not in str(m["order_repo"].get_by_id.call_args)
+
+
+_QUERY = "order_id=order-1"
+
+
+@pytest.mark.parametrize("forms, signed_over, ok", [
+    ("path", _NOTIFY_API_PATH, True),
+    ("path", f"{_NOTIFY_API_PATH}?{_QUERY}", False),
+    ("path_query", f"{_NOTIFY_API_PATH}?{_QUERY}", True),
+    ("path_query", _NOTIFY_API_PATH, False),
+    ("full_url", f"https://esim.invalid{_NOTIFY_API_PATH}?{_QUERY}", True),
+    ("full_url", f"http://testserver{_NOTIFY_API_PATH}?{_QUERY}", False),
+    ("path,path_query,full_url", _NOTIFY_API_PATH, True),
+    ("path,path_query,full_url", f"{_NOTIFY_API_PATH}?{_QUERY}", True),
+    ("path,path_query,full_url", f"https://esim.invalid{_NOTIFY_API_PATH}?{_QUERY}", True),
+    ("path,path_query,full_url", "/somewhere/else", False),
+])
+def test_notify_endpoint_url_forms(forms, signed_over, ok):
+    """`full_url` takes scheme and host from LINKAJA_NOTIFY_URL (here
+    https://esim.invalid), not from the request as seen behind a proxy."""
+    from fastapi.testclient import TestClient
+
+    app, m, _ = _notify_app_with(_notify_config(notify_signature_forms=forms))
+    body = _json.dumps(_SPEC_NOTIFY_BODY).encode()
+
+    response = TestClient(app).post(f"{_NOTIFY_API_PATH}?{_QUERY}", content=body,
+                                    headers=_signed_notify_headers(body, endpoint_url=signed_over))
+
+    assert response.status_code == (200 if ok else 401)
+    assert len(m["executor"].tasks) == (1 if ok else 0)
+
+
+@pytest.mark.parametrize("signed_over, form", [
+    (_NOTIFY_API_PATH, "path"),
+    (f"{_NOTIFY_API_PATH}?{_QUERY}", "path_query"),
+    (f"https://esim.invalid{_NOTIFY_API_PATH}?{_QUERY}", "full_url"),
+])
+def test_the_verified_form_is_logged_without_the_signature(signed_over, form):
+    from loguru import logger
+
+    service = LinkAjaService(config=_notify_config(notify_signature_forms="path,path_query,full_url"))
+    body = _spec_notify_bytes()
+    headers = _signed_notify_headers(body, endpoint_url=signed_over)
+    captured = []
+    sink_id = logger.add(lambda message: captured.append(str(message)), level="DEBUG")
+    try:
+        assert service.verify_callback(raw_body=body, headers=headers, request_path=_NOTIFY_API_PATH,
+                                       query_string=_QUERY).verified
+    finally:
+        logger.remove(sink_id)
+    assert any(f"EndpointUrl form={form}" in line for line in captured)
+    assert not any(headers["X-SIGNATURE"] in line for line in captured)
+
+
+def test_pinned_endpoint_url_wins_over_the_forms():
+    pinned = f"https://esim.invalid{_NOTIFY_API_PATH}"
+    service = LinkAjaService(config=_notify_config(notify_endpoint_url=pinned,
+                                                   notify_signature_forms="path,path_query"))
+    body = _spec_notify_bytes()
+    assert service.verify_callback(raw_body=body, headers=_signed_notify_headers(body, endpoint_url=pinned),
+                                   request_path=_NOTIFY_API_PATH, query_string=_QUERY).verified
+    with pytest.raises(LinkAjaCallbackVerificationException):
+        service.verify_callback(raw_body=body, headers=_signed_notify_headers(body, endpoint_url=_NOTIFY_API_PATH),
+                                request_path=_NOTIFY_API_PATH, query_string=_QUERY)
 
 
 # ---------------------------------------------------------------------------
@@ -1911,7 +2150,7 @@ async def test_create_payment_without_rate_makes_no_http_call():
 _SPEC_CREATE_PAYMENT_BODY = {
     "partnerReferenceNo": "dsfhbvdf", "merchantId": "MERCHANT-TEST", "terminalId": "MERCHANT-TEST",
     "amount": {"value": "29880.00", "currency": "IDR"},
-    "urlParams": [{"url": _NOTIFY_URL, "type": "PAY_RETURN", "isDeeplink": "N"}],
+    "urlParams": [{"url": _NOTIFY_URL + "?order_id=dsfhbvdf", "type": "PAY_RETURN", "isDeeplink": "N"}],
     "additionalInfo": {"trxDate": "20260901135300", "terminalName": "TERMINAL-TEST",
                        "items": [{"id": "1", "name": "MERCHANT-TEST", "unitPrice": "29880.00", "qty": "1"}]},
 }
@@ -1955,13 +2194,13 @@ def test_url_params_carry_the_notify_url_not_the_success_url():
     """LinkAja confirmed: urlParams[0].url is our notify endpoint (LINKAJA_NOTIFY_URL)."""
     service = LinkAjaService(config=_full_config(success_url="https://www.google.com/"))
     body = service._build_create_payment_body(_payment_request())
-    assert body["urlParams"] == [{"url": _NOTIFY_URL, "type": "PAY_RETURN", "isDeeplink": "N"}]
+    assert body["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "PAY_RETURN", "isDeeplink": "N"}]
 
 
 def test_create_payment_is_deeplink_is_configurable():
     service = LinkAjaService(config=_full_config(url_param_is_deeplink="Y"))
     body = service._build_create_payment_body(_payment_request())
-    assert body["urlParams"] == [{"url": _NOTIFY_URL, "type": "PAY_RETURN", "isDeeplink": "Y"}]
+    assert body["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "PAY_RETURN", "isDeeplink": "Y"}]
 
 
 @pytest.mark.asyncio
@@ -1998,7 +2237,7 @@ async def test_create_payment_end_to_end_request_shape_and_signatures():
     sent = _json.loads(content)
     assert sent["partnerReferenceNo"] == "order-1"
     assert sent["amount"] == {"value": "175840.00", "currency": "IDR"}
-    assert sent["urlParams"] == [{"url": _NOTIFY_URL, "type": "PAY_RETURN", "isDeeplink": "N"}]
+    assert sent["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "PAY_RETURN", "isDeeplink": "N"}]
 
 
 @pytest.mark.parametrize("payload", [

@@ -26,6 +26,7 @@ rejected and nothing provisions.
 import json
 from decimal import Decimal, InvalidOperation
 from typing import Any, Mapping, Optional
+from urllib.parse import urlsplit
 
 from loguru import logger
 
@@ -42,6 +43,7 @@ from .dto import (
     map_provider_status,
 )
 from .order_data import LinkAjaOrderData
+from .return_url import notify_url_for_order
 from .exceptions import (
     LinkAjaCallbackInvalidException,
     LinkAjaCallbackVerificationException,
@@ -283,7 +285,9 @@ class LinkAjaService:
     def _build_create_payment_body(self, payment_request: LinkAjaPaymentRequest) -> dict:
         """Request body of §4.2 (p.11-12). `urlParams` is the v1.1 name (p.2
         revision history). LinkAja confirmed its `url` is our notify endpoint
-        (LINKAJA_NOTIFY_URL), with type PAY_RETURN and isDeeplink "N"."""
+        (LINKAJA_NOTIFY_URL), with type PAY_RETURN and isDeeplink "N". The order
+        id is appended (?order_id=...) because LinkAja also opens this URL to
+        send the customer back; see return_url.py."""
         value = to_linkaja_amount(payment_request.amount_minor_units, payment_request.currency,
                                   self.__config.usd_to_idr_rate)
         return {
@@ -292,7 +296,8 @@ class LinkAjaService:
             "terminalId": self.__config.terminal_id,
             "amount": {"value": value, "currency": LINKAJA_CURRENCY},
             "urlParams": [{
-                "url": payment_request.notify_url or self.__config.notify_url,
+                "url": notify_url_for_order(payment_request.notify_url or self.__config.notify_url,
+                                            payment_request.merchant_order_id),
                 "type": URL_PARAM_TYPE,
                 "isDeeplink": self.__config.url_param_is_deeplink,
             }],
@@ -393,7 +398,8 @@ class LinkAjaService:
     # ------------------------------------------------------------------
 
     def verify_callback(self, raw_body: bytes, headers: Mapping[str, str],
-                        request_path: str = "") -> LinkAjaCallbackResult:
+                        request_path: str = "", query_string: str = "",
+                        request_url: str = "") -> LinkAjaCallbackResult:
         """Authenticate and parse an inbound LinkAja notify.
 
         Security-critical and fail-closed. An unverified callback must never
@@ -401,16 +407,35 @@ class LinkAjaService:
         result: there is no code path that yields a `LinkAjaCallbackResult` with
         `verified=False` from here.
 
-        `request_path` is the path LinkAja actually called; it is the
-        EndpointUrl of the string-to-sign unless `LINKAJA_NOTIFY_ENDPOINT_URL`
-        pins a different value.
+        `request_path`, `query_string` and `request_url` describe the request
+        LinkAja actually made. Unless `LINKAJA_NOTIFY_ENDPOINT_URL` pins the
+        EndpointUrl, it is built from them in each form listed in
+        `LINKAJA_NOTIFY_SIGNATURE_FORMS` (default: the path, no query string).
         """
         self.ensure_enabled()
         self.__config.validate_for_callback()
-        self._verify_signature(raw_body, headers, request_path)
+        self._verify_signature(raw_body, headers, request_path, query_string, request_url)
         return self._parse_callback_body(raw_body)
 
-    def _verify_signature(self, raw_body: bytes, headers: Mapping[str, str], request_path: str = "") -> None:
+    def _endpoint_candidates(self, request_path: str, query_string: str, request_url: str) -> list:
+        """(form, EndpointUrl) pairs to verify against, in the configured order.
+
+        `full_url` takes scheme and host from LINKAJA_NOTIFY_URL (the URL we
+        gave LinkAja), so a TLS-terminating proxy cannot change it; the request
+        URL is only the fallback.
+        """
+        if self.__config.notify_endpoint_url:
+            return [("pinned", self.__config.notify_endpoint_url)]
+        if not request_path:
+            return []
+        with_query = f"{request_path}?{query_string}" if query_string else request_path
+        origin = urlsplit(self.__config.notify_url or request_url)
+        full_url = f"{origin.scheme}://{origin.netloc}{with_query}" if origin.scheme and origin.netloc else ""
+        values = {"path": request_path, "path_query": with_query, "full_url": full_url}
+        return [(form, values[form]) for form in self.__config.signature_forms() if values[form]]
+
+    def _verify_signature(self, raw_body: bytes, headers: Mapping[str, str], request_path: str = "",
+                          query_string: str = "", request_url: str = "") -> None:
         """§5.1.3: X-SIGNATURE = Base64(SHA256withRSA(privateKey,
         "POST:<EndpointUrl>:<lowerhex(sha256(minify(body)))>:<X-TIMESTAMP>")),
         checked against LinkAja's public key."""
@@ -422,18 +447,22 @@ class LinkAjaService:
             raise LinkAjaCallbackVerificationException(
                 details="LinkAja notify is missing the X-SIGNATURE or X-TIMESTAMP header")
 
-        endpoint_url = self.__config.notify_endpoint_url or request_path
-        if not endpoint_url:
+        candidates = self._endpoint_candidates(request_path, query_string, request_url)
+        if not candidates:
             raise LinkAjaCallbackVerificationException(
                 details="LinkAja notify EndpointUrl is unknown: LINKAJA_NOTIFY_ENDPOINT_URL is not set "
                         "and the request path was not supplied")
 
         public_key = self._notify_public_key()
-        if not verify_notify_signature(public_key, signature, NOTIFY_METHOD, endpoint_url, raw_body, timestamp):
-            # Log the shape, never the signature: a logged signature is replayable.
-            logger.warning(f"[LinkAja] notify rejected: invalid signature (endpoint={endpoint_url}, "
-                           f"timestamp={timestamp}, body={len(raw_body)} bytes)")
-            raise LinkAjaCallbackVerificationException(details="LinkAja notify signature is invalid")
+        for form, endpoint_url in candidates:
+            if verify_notify_signature(public_key, signature, NOTIFY_METHOD, endpoint_url, raw_body, timestamp):
+                logger.info(f"[LinkAja] notify signature verified (EndpointUrl form={form})")
+                return
+        # Log the shape, never the signature: a logged signature is replayable.
+        tried = ", ".join(f"{form}={endpoint_url}" for form, endpoint_url in candidates)
+        logger.warning(f"[LinkAja] notify rejected: invalid signature (tried {tried}; "
+                       f"timestamp={timestamp}, body={len(raw_body)} bytes)")
+        raise LinkAjaCallbackVerificationException(details="LinkAja notify signature is invalid")
 
     def _parse_callback_body(self, raw_body: bytes) -> LinkAjaCallbackResult:
         """Body of §4.3 (p.14-16). Only authenticated bodies reach here."""

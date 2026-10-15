@@ -35,6 +35,7 @@ from .exceptions import (
     LinkAjaProviderException,
 )
 from .order_data import ORDER_DATA_KEY, LinkAjaOrderData, embed_order_data, read_order_data
+from .return_url import frontend_return_url, notify_url_for_order, valid_order_id
 from .service import NOTIFY_SUCCESS_CODE, NOTIFY_SUCCESS_MESSAGE, LinkAjaService
 from .token_cache import TokenCache, reset_token_caches
 
@@ -62,6 +63,9 @@ __all__ = [
     "LinkAjaOrderData",
     "embed_order_data",
     "read_order_data",
+    "frontend_return_url",
+    "notify_url_for_order",
+    "valid_order_id",
     "map_provider_status",
     "is_provisioning_status",
     "LinkAjaException",

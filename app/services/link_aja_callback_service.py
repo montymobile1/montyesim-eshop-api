@@ -125,13 +125,18 @@ class LinkAjaCallbackService:
         raw_body = await request.body()
         headers = dict(request.headers)
         path = request.url.path
+        # The query string (?order_id=..., see return_url.py) only matters for
+        # the signature's EndpointUrl. The order is always taken from the
+        # signed body (originalPartnerReferenceNo), never from the query.
+        query = request.url.query or ""
 
         logger.info(f"[LinkAja] notify received on {path} ({len(raw_body)} bytes)")
 
         try:
             # Fails closed: nothing below this line runs for an unauthenticated request.
             result = self.__link_aja_service.verify_callback(raw_body=raw_body, headers=headers,
-                                                             request_path=path)
+                                                             request_path=path, query_string=query,
+                                                             request_url=str(request.url))
             ack = await self.process_verified_callback(result)
         except (LinkAjaException, CustomException) as exc:
             logger.error(f"[LinkAja] notify rejected: {exc.name}: {exc.details}")
