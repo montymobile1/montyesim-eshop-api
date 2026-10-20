@@ -30,7 +30,7 @@ from loguru import logger
 from app.exceptions import CustomException
 from app.models.user import UsersCopyModel
 from app.schemas.auth import LoginRequest, VerifyOtpRequest
-from app.services.user_otp_service import UserOtpService
+from app.services.user_otp_service import UserOtpService, hash_otp
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PHONE_A = "+96170111111"
@@ -183,9 +183,33 @@ class FakeClientFactory:
 
 class FakeQuery:
     def __init__(self, rows):
-        self.rows, self.preds = rows, []
+        self.rows, self.preds, self.changes = rows, [], None
+        self.negate, self.order_by, self.max_rows = False, None, None
+
+    @property
+    def not_(self):
+        self.negate = True
+        return self
+
+    def is_(self, key, value):
+        assert value == "null"
+        negate, self.negate = self.negate, False
+        self.preds.append(lambda r: (r.get(key) is None) != negate)
+        return self
+
+    def order(self, key, desc=False):
+        self.order_by = (key, desc)
+        return self
+
+    def limit(self, size):
+        self.max_rows = size
+        return self
 
     def select(self, *_):
+        return self
+
+    def update(self, data):
+        self.changes = dict(data)
         return self
 
     def eq(self, key, value):
@@ -201,17 +225,44 @@ class FakeQuery:
         return self
 
     def execute(self):
-        return SimpleNamespace(data=[dict(r) for r in self.rows if all(p(r) for p in self.preds)])
+        matched = [r for r in self.rows if all(p(r) for p in self.preds)]
+        if self.order_by:
+            matched.sort(key=lambda r: r[self.order_by[0]], reverse=self.order_by[1])
+        matched = matched[:self.max_rows] if self.max_rows is not None else matched
+        for r in matched if self.changes is not None else ():
+            r.update(self.changes)
+        return SimpleNamespace(data=[dict(r) for r in matched])
 
 
 class FakeOtpStore:
+    """Rows hold the code's hash, as in the real table; the plain codes are kept aside for the tests."""
+
     def __init__(self):
         self.rows = []
+        self.codes = {}  # id(row) -> plain code
+        self.last_issued = None
         self.lock = threading.Lock()
+        self.last_id = 0
+        self.issued = {}  # hash -> code, so concurrent requests map each row to its own code
+
+    def issue(self):
+        """Stands in for UserOtpService._new_code, remembering the code it hands out."""
+        self.last_issued = f"{secrets.randbelow(10 ** 6):06d}"
+        self.issued[hash_otp(self.last_issued)] = self.last_issued
+        return self.last_issued
+
+    def next_id(self):
+        """Serial primary key, as user_otp.id."""
+        with self.lock:
+            self.last_id += 1
+            return self.last_id
 
     def add(self, mobile, email, otp, minutes=5, is_used=False):
         expire_at = (datetime.now(timezone.utc) + timedelta(minutes=minutes)).isoformat()
-        self.rows.append({"mobile": mobile, "email": email, "otp": otp, "expire_at": expire_at, "is_used": is_used})
+        row = {"id": self.next_id(), "mobile": mobile, "email": email, "otp": hash_otp(otp), "expire_at": expire_at,
+               "is_used": is_used}
+        self.rows.append(row)
+        self.codes[id(row)] = otp
 
     # supabase_client().table(...) used by UserOtpService
     def table(self, _name):
@@ -219,7 +270,10 @@ class FakeOtpStore:
 
     # UserOtpRepo methods used by UserOtpService
     def create(self, data):
-        self.rows.append(dict(data))
+        row = {"id": self.next_id(), **data}
+        self.rows.append(row)
+        self.codes[id(row)] = self.issued.get(row["otp"], self.last_issued)
+        return SimpleNamespace(**row)
 
     def list(self, where):
         return [r for r in self.rows if all(r.get(k) == v for k, v in where.items())]
@@ -279,7 +333,8 @@ def stubbed(server, factory, otp_store):
             patch("app.services.auth_service.get_config", side_effect=config), \
             patch("app.services.auth_service.is_user_banned", return_value=False), \
             patch("app.services.user_otp_service.supabase_client", return_value=otp_store), \
-            patch("app.services.user_otp_service.get_config", side_effect=config):
+            patch("app.services.user_otp_service.get_config", side_effect=config), \
+            patch.object(UserOtpService, "_new_code", side_effect=otp_store.issue):
         yield SimpleNamespace(auth_supabase=auth_supabase)
 
 
@@ -309,7 +364,7 @@ async def login(service, phone=PHONE_A):
 
 
 def last_otp(otp_store, phone):
-    return [r for r in otp_store.rows if r["mobile"] == phone][-1]["otp"]
+    return otp_store.codes[id([r for r in otp_store.rows if r["mobile"] == phone][-1])]
 
 
 async def verify(service, phone, pin, device_id="device-1"):
