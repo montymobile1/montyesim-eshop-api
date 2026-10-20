@@ -62,7 +62,7 @@ class LookupItem(BaseModel):
     model_config = ConfigDict(extra="allow")
 
 
-class StatusPatch(BaseModel):
+class AdminStatusPatch(BaseModel):
     """Body of ``PATCH /<resource>/{id}/status``."""
     is_active: bool
     reason: Optional[str] = Field(None, min_length=1, max_length=500)

@@ -72,6 +72,7 @@ Admin code raises its own error classes (`app/exceptions/admin.py`), which go th
 - **total count with paging**: `q()` selects with the total row count, and `paged(query, page)` returns one page plus the total;
 - **a stable order**: `created_at desc, id desc` unless the repository says otherwise, so pages never repeat or skip rows (bug MS-5067);
 - **safe search and filters**: `or_ilike` and `filters` match user text literally. `%`, `_`, commas, quotes and parentheses cannot add filters or act as wildcards (bug MS-5068). Column names are checked against a strict pattern;
+- **known limitation**: PostgREST treats `*` in a `like`/`ilike` pattern as `%` before the query runs, and offers no escape for it. Searching for `*` therefore matches like a wildcard. No search field in the portal relies on a literal `*`;
 - **audited writes**: `insert_audited`, `update_audited` and `delete_audited` call the `admin_*_audited` SQL functions, which save the change and its audit row in one transaction. `update_audited` and `delete_audited` accept a `guard`, the values the row must still have, else 409 `guard_failed`;
 - **clear errors**: a duplicate becomes 409 with the field code from the repository's `UNIQUE_CONFLICTS` (for example `duplicate_code`), a foreign key violation 409 `referenced`, the SQL codes AD404, AD409 and AD422 become 404, 409 and 422, and any other failure 502 `DATABASE_ERROR` with the cause only in the log.
 
