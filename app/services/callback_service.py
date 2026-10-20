@@ -12,7 +12,7 @@ from soupsieve.util import lower
 from app.config.config import STRIPE_WEBHOOK_SECRET, esim_hub_service_instance, send_email, get_email_template
 from app.config.constants import PaymentIntentEvents, UserWalletTransactionSource
 from app.config.db import PaymentTypeEnum
-from app.config.helper import get_config
+from app.config.helper import get_config, get_secret
 from app.config.notification_types import send_consumption_80_bundle_notification, \
     send_consumption_100_bundle_notification, send_plan_started_notification, \
     send_wallet_top_up_failed_notification
@@ -161,7 +161,7 @@ class CallbackService:
         reseller_id = json_request["resellerId"]
         rate = float(json_request["newRate"])
         logger.info(f"receiving exchange rate update request {json_request}")
-        if reseller_id and reseller_id != get_config("RESELLER_ID"):
+        if reseller_id and reseller_id != get_secret("RESELLER_ID"):
             logger.info(f"ignoring exchange rate update request for reseller {reseller_id}")
             return ResponseHelper.success_response()
         if system_currency_code != "USD":
@@ -219,7 +219,7 @@ class CallbackService:
     async def __run_one_sync_internal(self, bundle_id: str, operation: str, reseller_id: str = None):
         """Internal method that actually performs tkhe sync work - called by queue processor"""
         try:
-            if reseller_id and reseller_id == get_config("RESELLER_ID"):
+            if reseller_id and reseller_id == get_secret("RESELLER_ID"):
                 if operation == "delete":
                     logger.info(f"deleting bundle {bundle_id} for reseller {reseller_id}")
                     await self.__sync_service.delete_bundle(bundle_id=bundle_id)
