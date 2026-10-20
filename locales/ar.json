@@ -87,5 +87,15 @@
   "LINKAJA_PROVIDER_ERROR": "خدمة LinkAja غير متاحة حاليًا. يرجى المحاولة مرة أخرى أو استخدام طريقة دفع أخرى.",
   "LINKAJA_CALLBACK_UNVERIFIED": "تعذر التحقق من إشعار LinkAja.",
   "LINKAJA_ORDER_NOT_FOUND": "تعذر العثور على الطلب الخاص بعملية الدفع عبر LinkAja.",
-  "LINKAJA_CALLBACK_INVALID": "تم رفض إشعار LinkAja."
+  "LINKAJA_CALLBACK_INVALID": "تم رفض إشعار LinkAja.",
+  "ADMIN_UNAUTHORIZED": "جلستك غير موجودة أو منتهية. يرجى تسجيل الدخول مرة أخرى.",
+  "ADMIN_FORBIDDEN": "ليس لديك صلاحية لتنفيذ هذا الإجراء.",
+  "ADMIN_NOT_FOUND": "السجل المطلوب غير موجود.",
+  "ADMIN_CONFLICT": "يتعارض الطلب مع الحالة الحالية للسجل.",
+  "ADMIN_PAYLOAD_TOO_LARGE": "حجم الطلب كبير جدًا.",
+  "ADMIN_VALIDATION_FAILED": "الطلب غير صالح.",
+  "ADMIN_TOO_MANY_ATTEMPTS": "محاولات تسجيل دخول كثيرة جدًا. يرجى المحاولة لاحقًا.",
+  "ADMIN_UPSTREAM_ERROR": "فشلت خدمة تعتمد عليها لوحة الإدارة. يرجى المحاولة مرة أخرى.",
+  "ADMIN_LOGIN_FAILED": "البريد الإلكتروني أو كلمة المرور غير صحيحة.",
+  "ADMIN_ROLE_REQUIRED": "هذا الحساب غير مسموح له باستخدام لوحة الإدارة."
 }

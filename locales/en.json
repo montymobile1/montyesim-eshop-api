@@ -87,5 +87,15 @@
   "LINKAJA_PROVIDER_ERROR": "LinkAja is currently unavailable. Please try again or use another payment method.",
   "LINKAJA_CALLBACK_UNVERIFIED": "The LinkAja notification could not be verified.",
   "LINKAJA_ORDER_NOT_FOUND": "The order for this LinkAja payment could not be found.",
-  "LINKAJA_CALLBACK_INVALID": "The LinkAja notification was rejected."
+  "LINKAJA_CALLBACK_INVALID": "The LinkAja notification was rejected.",
+  "ADMIN_UNAUTHORIZED": "Your session is missing or has expired. Please sign in again.",
+  "ADMIN_FORBIDDEN": "You do not have permission to perform this action.",
+  "ADMIN_NOT_FOUND": "The requested record was not found.",
+  "ADMIN_CONFLICT": "The request conflicts with the current state of the record.",
+  "ADMIN_PAYLOAD_TOO_LARGE": "The request is too large.",
+  "ADMIN_VALIDATION_FAILED": "The request is invalid.",
+  "ADMIN_TOO_MANY_ATTEMPTS": "Too many sign-in attempts. Please try again later.",
+  "ADMIN_UPSTREAM_ERROR": "A service the admin portal depends on failed. Please try again.",
+  "ADMIN_LOGIN_FAILED": "Invalid email or password.",
+  "ADMIN_ROLE_REQUIRED": "This account is not allowed to use the admin portal."
 }
