@@ -12,7 +12,7 @@ from pydantic import EmailStr
 from supabase import create_client, Client
 from supabase.lib.client_options import SyncClientOptions
 
-from app.config.helper import get_config
+from app.config.helper import get_config, get_secret
 from app.services.integration.dcb_service import DCBService
 from app.services.integration.esim_hub_service import EsimHubService
 
@@ -74,7 +74,7 @@ def supabase_client(url: str = None, key: str = None) -> Client:
 def esim_hub_service_instance():
     return EsimHubService(
         base_url=os.getenv("ESIM_HUB_BASE_URL"),
-        api_key=get_config("ESIM_HUB_API_KEY"),
+        api_key=get_secret("ESIM_HUB_API_KEY"),
         tenant_key=os.getenv("ESIM_HUB_TENANT_KEY"))
 
 

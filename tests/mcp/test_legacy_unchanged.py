@@ -66,6 +66,11 @@ LINKAJA_SCHEMA_PROPERTIES = {
 LINKAJA_ENUM_VALUES = {
     "PaymentTypeEnum": ["LinkAja"],
 }
+#: Properties the config allowlist story made nullable (a computed /configurations value can be null);
+#: still required, string otherwise.
+NULLABLE_PROPERTIES = {
+    "GlobalConfiguration": {"value"},
+}
 
 
 def git_diff(*paths) -> str:
@@ -150,8 +155,8 @@ def test_legacy_openapi_paths_are_unchanged(openapi_spec, legacy_openapi_baselin
 
 def test_legacy_openapi_schemas_are_unchanged(openapi_spec, legacy_openapi_baseline):
     """(4) Every pre-existing component schema is byte-identical, apart from the
-    optional LinkAja properties in LINKAJA_SCHEMA_PROPERTIES and the enum values
-    appended in LINKAJA_ENUM_VALUES."""
+    optional LinkAja properties in LINKAJA_SCHEMA_PROPERTIES, the enum values
+    appended in LINKAJA_ENUM_VALUES and the properties made nullable in NULLABLE_PROPERTIES."""
     live = openapi_spec["components"]["schemas"]
     for name, definition in legacy_openapi_baseline["schemas"].items():
         assert name in live, f"legacy schema {name} disappeared"
@@ -161,6 +166,12 @@ def test_legacy_openapi_schemas_are_unchanged(openapi_spec, legacy_openapi_basel
             assert added <= set(current.get("properties", {})), f"{name} lost {sorted(added)}"
             current = {**current, "properties": {key: value for key, value in current["properties"].items()
                                                  if key not in added}}
+        for prop in NULLABLE_PROPERTIES.get(name, set()):
+            before = definition["properties"][prop]
+            nullable = {"anyOf": [{key: value for key, value in before.items() if key != "title"}, {"type": "null"}],
+                        "title": before["title"]}
+            assert current["properties"][prop] == nullable, f"{name}.{prop} changed beyond becoming nullable"
+            current = {**current, "properties": {**current["properties"], prop: before}}
         appended = LINKAJA_ENUM_VALUES.get(name, [])
         if appended:
             assert current["enum"][-len(appended):] == appended, f"{name} lost {appended}"

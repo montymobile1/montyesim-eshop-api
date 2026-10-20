@@ -15,7 +15,7 @@ from app.config.config import authenticate, supabase_client, dcb_service_instanc
     is_user_banned
 from app.config.constants import ErrorMessages, OtpChannelEnum
 from app.config.db import ConfigKeysEnum
-from app.config.helper import get_config
+from app.config.helper import get_config, get_secret, MissingSecretError
 from app.config.utils import truncate_two_decimals_decimal
 from app.exceptions import CustomException, BadRequestException
 from app.models.user import UserModel, UsersCopyModel
@@ -49,8 +49,11 @@ REVIEW_ACCOUNT_ENV = ("REVIEW_ACCOUNT_EMAIL", "REVIEW_ACCOUNT_PIN", "REVIEW_ACCO
 def review_account() -> tuple[str, str, str] | None:
     """The store-review account (email, pin, password), from the environment only; None (bypass off) unless all
     three are set. Never stored, logged or returned."""
-    email, pin, password = (os.getenv(name) for name in REVIEW_ACCOUNT_ENV)
-    return (email, pin, password) if email and pin and password else None
+    try:
+        email, pin, password = (get_secret(name) for name in REVIEW_ACCOUNT_ENV)
+    except MissingSecretError:
+        return None
+    return email, pin, password
 
 
 if review_account() is None:
