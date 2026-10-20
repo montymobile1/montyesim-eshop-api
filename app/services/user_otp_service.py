@@ -48,7 +48,7 @@ class UserOtpService:
         # Check if OTP already exists for this mobile
         existing_otps = self.__user_otp_repo.list(where={"mobile": mobile, "is_used": False, "otp": otp_hash})
         if existing_otps or len(existing_otps) > 0:
-            return self.generate_otp(mobile)
+            return self.generate_otp(mobile, email)
         expiration_time = int(get_config(ConfigKeysEnum.OTP_EXPIRATION_TIME))
         expire_at = (datetime.now(tz=dt_timezone.utc) + timedelta(minutes=expiration_time)).isoformat()
         created = self.__user_otp_repo.create({

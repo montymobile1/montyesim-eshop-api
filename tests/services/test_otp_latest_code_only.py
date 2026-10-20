@@ -234,6 +234,23 @@ async def test_collision_retry_issues_one_code_and_expires_the_rest(auth_service
     assert len(active) == 1
 
 
+@pytest.mark.asyncio
+async def test_collision_retry_keeps_the_email_so_the_code_verifies(auth_service, otp_store):
+    """The re-drawn code was stored without the email verify matches on, so it never verified."""
+    otp_store.add(PHONE_A, synthetic_email(PHONE_A), "123456", minutes=-1)  # unused, expired
+    draws = iter(["123456", "654321"])
+
+    def draw():
+        otp_store.last_issued = next(draws)
+        return otp_store.last_issued
+
+    with patch("app.services.user_otp_service.UserOtpService._new_code", side_effect=draw):
+        await request_code(auth_service, "login", "phone")
+
+    assert otp_store.rows[-1]["email"] == synthetic_email(PHONE_A)
+    await assert_logs_in(auth_service, "654321")
+
+
 # --------------------------------------------------------------------------- what must not change
 
 @pytest.mark.asyncio
