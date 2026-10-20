@@ -112,6 +112,7 @@ def test_generate_otp_uses_the_generator_seam():
     with patch.object(UserOtpService, "_new_code", return_value="012345") as new_code, \
             patch.object(service, "_UserOtpService__recent_otp_limit", return_value=False), \
             patch.object(service, "_UserOtpService__has_active_otp", return_value=False), \
+            patch.object(service, "_UserOtpService__expire_other_active_otps"), \
             patch("app.services.user_otp_service.get_config", return_value="5"):
         assert service.generate_otp("+96170111111", "a@b.c") == "012345"
     new_code.assert_called_once()
