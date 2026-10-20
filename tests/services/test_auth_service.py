@@ -13,7 +13,14 @@ from app.services.auth_service import AuthService
 
 @pytest.fixture
 def auth_service():
-    service = AuthService()
+    # AuthService() reads app_config through Supabase (dcb_service_instance); keep construction offline.
+    with patch("app.services.auth_service.dcb_service_instance"), \
+            patch("app.services.auth_service.UserWalletService"), \
+            patch("app.services.auth_service.TaskExecutor"), \
+            patch("app.services.auth_service.UserOtpService"), \
+            patch("app.services.auth_service.DeviceRepo"), \
+            patch("app.services.auth_service.UserRepo"):
+        service = AuthService()
     service._AuthService__user_repo = MagicMock()
     service._AuthService__device_repo = MagicMock()
     service._AuthService__user_wallet_service = AsyncMock()
@@ -322,11 +329,13 @@ async def test_verify_otp_phone_normal_user_unchanged(auth_service):
     with patch("app.services.auth_service.supabase_client") as mock_supabase, \
             patch("app.schemas.dto_mapper.DtoMapper.to_auth_response") as mock_dto_mapper, \
             patch.object(auth_service, "create_wallet_if_not_exists", new_callable=AsyncMock) as mock_wallet:
-        mock_supabase.return_value.auth.sign_in_with_password.return_value = MagicMock()
+        # Phone sign-in mints the session via an admin magic link; the session must be for user "9".
+        mock_supabase.return_value.auth.verify_otp.return_value.user.id = "9"
         mock_dto_mapper.return_value = MagicMock()
         mock_wallet.return_value = MagicMock()
 
         await auth_service._AuthService__handle_phone_otp_verify(verify_request, "device123")
+        mock_supabase.return_value.auth.sign_in_with_password.assert_not_called()
 
         # Static bypass must NOT apply to normal users -> normal validation runs.
         auth_service._AuthService__user_otp_service.verify_otp.assert_called_once()

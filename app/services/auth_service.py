@@ -1,9 +1,13 @@
 import logging
 import os
+import re
+import secrets
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import Request
+from gotrue import AuthResponse
+from gotrue.errors import AuthApiError
 from loguru import logger
 from soupsieve.util import lower
 
@@ -24,6 +28,19 @@ from app.schemas.user_wallet import UserWalletRequestDto, UserWalletResponse
 from app.services.task_executor import TaskExecutor
 from app.services.user_otp_service import UserOtpService
 from app.services.user_wallet_service import UserWalletService
+
+# Same default as LoginRequest.extract_phone in app/schemas/auth.py.
+DEFAULT_PHONE_REGEX = r"^\+\d{1,3}\d{4,14}(?:x.+)?$"
+# A magic-link token_hash is single use and a newer link for the same user replaces it, so a
+# verify racing with another sign-in of the same user (other worker/instance) can fail; retry.
+MAX_SESSION_MINT_ATTEMPTS = 3
+# Error codes GoTrue returns when a token_hash was replaced or already consumed.
+RETRYABLE_VERIFY_ERROR_CODES = ("otp_expired",)
+
+
+def generate_random_password() -> str:
+    """Password for phone users: never stored, logged or returned; phone users sign in by OTP only."""
+    return secrets.token_urlsafe(32)
 
 
 class AuthService:
@@ -323,7 +340,7 @@ class AuthService:
         else:
             user = supabase_client().auth.sign_up({
                 "email": user_email,
-                "password": f"static_password_{login_request.phone}",
+                "password": generate_random_password(),
                 "options": {
                     "data": {
                         "otp": otp,
@@ -337,7 +354,7 @@ class AuthService:
                     }
                 }
             })
-            logging.info(f"created new user: {user}")
+            logging.info(f"created new user: {user.user.id if user and user.user else None}")
         logger.info(f"sending otp to phone number {user_otp_language=} {login_request.phone=}")
         login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
         if login_request.otp_channel is None:
@@ -393,6 +410,9 @@ class AuthService:
                 "password": "esim_oss@2025"
             })
             return ResponseHelper.success_data_response(DtoMapper.to_auth_response(response), 0)
+        if not re.match(os.getenv("PHONE_REGEX", DEFAULT_PHONE_REGEX), verify_otp_request.phone):
+            raise CustomException(code=400, name=ErrorMessages.INVALID_PHONE_NUMBER,
+                                  details="Invalid phone number")
         user = self.__user_repo.get_first_by(filters={"metadata ->> msisdn ": verify_otp_request.phone}, where={})
         if not user:
             raise CustomException(code=400, name=ErrorMessages.USER_NOT_FOUND,
@@ -401,15 +421,49 @@ class AuthService:
         self.__user_otp_service.verify_otp(otp=verify_otp_request.verification_pin,
                                            mobile=verify_otp_request.phone, email=user_email)
 
-        response = supabase_client().auth.sign_in_with_password({
-            "email": user_email,
-            "password": f"static_password_{verify_otp_request.phone}",
-        })
+        response = self.__create_phone_user_session(user_id=user.id, email=user_email)
         self.__upsert_device(user_id=response.user.id, device_id=device_id, is_logged_in=True)
         user_wallet = await self.create_wallet_if_not_exists(user_id=response.user.id,
                                                              currency_code=os.getenv("DEFAULT_CURRENCY"))
         return ResponseHelper.success_data_response(
             DtoMapper.to_auth_response(supabase_response=response, user_wallet=user_wallet), 0)
+
+    @staticmethod
+    def __create_phone_user_session(user_id: str, email: str) -> AuthResponse:
+        """Mint a session for a phone user whose OTP was already verified, without any password.
+
+        An admin magic link is generated (GoTrue does not send an email for admin links) and its
+        token_hash is verified at once on a fresh client, so the user's session never lands on a
+        client that is used for anything else. Never falls back to a password grant.
+        """
+        for attempt in range(1, MAX_SESSION_MINT_ATTEMPTS + 1):
+            try:
+                link = supabase_client().auth.admin.generate_link({"type": "magiclink", "email": email})
+                token_hash = link.properties.hashed_token
+                verification_type = link.properties.verification_type or "magiclink"
+            except Exception as e:
+                logger.error(f"phone sign-in: generate_link failed for user {user_id}: {type(e).__name__}")
+                raise CustomException(code=500, name=ErrorMessages.VERIFY_FAILED, details="Could not create session")
+            if not token_hash:
+                logger.error(f"phone sign-in: generate_link returned no token for user {user_id}")
+                raise CustomException(code=500, name=ErrorMessages.VERIFY_FAILED, details="Could not create session")
+            try:
+                response = supabase_client().auth.verify_otp({"token_hash": token_hash, "type": verification_type})
+            except AuthApiError as e:
+                if e.code in RETRYABLE_VERIFY_ERROR_CODES and attempt < MAX_SESSION_MINT_ATTEMPTS:
+                    logger.warning(f"phone sign-in: token replaced by a concurrent sign-in for user {user_id}, "
+                                   f"retrying ({attempt}/{MAX_SESSION_MINT_ATTEMPTS})")
+                    continue
+                logger.error(f"phone sign-in: verify failed for user {user_id}: {e.code} {e.status}")
+                raise CustomException(code=500, name=ErrorMessages.VERIFY_FAILED, details="Could not create session")
+            except Exception as e:
+                logger.error(f"phone sign-in: verify failed for user {user_id}: {type(e).__name__}")
+                raise CustomException(code=500, name=ErrorMessages.VERIFY_FAILED, details="Could not create session")
+            if response.session is None or response.user is None or response.user.id != user_id:
+                logger.error(f"phone sign-in: verify returned no session for user {user_id}")
+                raise CustomException(code=500, name=ErrorMessages.VERIFY_FAILED, details="Could not create session")
+            return response
+        raise CustomException(code=500, name=ErrorMessages.VERIFY_FAILED, details="Could not create session")
 
     def __upsert_device(self, user_id: str, device_id: str, is_logged_in: bool = False):
         data = {
