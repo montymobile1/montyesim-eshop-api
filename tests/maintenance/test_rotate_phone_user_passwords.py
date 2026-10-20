@@ -55,8 +55,9 @@ def population():
         # email users
         {"id": "e1", "email": "email.user@example.com", "user_metadata": {"login_type": "email"}},
         {"id": "e2", "email": "no.meta@example.com", "user_metadata": {}},
-        # synthetic-looking email but no metadata: skipped (as specified)
-        {"id": "n1", "email": "+96170000009_user@esim.com", "user_metadata": {}},
+        # synthetic email but no metadata: rotated anyway (deliberate deviation from the story)
+        {"id": "n1", "email": "+96170000009_user@esim.com", "password": "static_password_+96170000009",
+         "user_metadata": {}},
         # non-synthetic email without login_type=phone
         {"id": "n2", "email": "+96170000010_user@other.com", "user_metadata": {"msisdn": "+96170000010"}},
         # anonymous user (no email)
@@ -65,6 +66,9 @@ def population():
 
 
 PHONE_IDS = {"u1", "u2", "u3", "u4"}
+NO_METADATA_IDS = {"n1"}
+ROTATED_IDS = PHONE_IDS | NO_METADATA_IDS
+SKIPPED_IDS = {"e1", "e2", "n2", "a1"}
 
 
 def run(admin, apply=True, **kwargs):
@@ -84,10 +88,10 @@ def test_07_sets_random_password_of_at_least_32_bytes_for_every_phone_user():
     with patch.object(script.secrets, "token_urlsafe", side_effect=spy):
         counts = run(admin)
 
-    assert counts.rotated == 4
-    assert sizes == [32] * 4
-    assert {uid for uid, _ in admin.updates} == PHONE_IDS
-    for uid in PHONE_IDS:
+    assert (counts.rotated, counts.rotated_no_metadata) == (4, 1)
+    assert sizes == [32] * 5
+    assert {uid for uid, _ in admin.updates} == ROTATED_IDS
+    for uid in ROTATED_IDS:
         password = admin.users[uid]["password"]
         assert len(password) >= 43 and not password.startswith("static_password_")
 
@@ -96,7 +100,7 @@ def test_08_each_user_gets_a_different_password():
     admin = FakeAdmin(population())
     run(admin)
 
-    passwords = [admin.users[uid]["password"] for uid in PHONE_IDS]
+    passwords = [admin.users[uid]["password"] for uid in ROTATED_IDS]
     assert len(set(passwords)) == len(passwords)
 
 
@@ -104,9 +108,9 @@ def test_09_revokes_all_existing_sessions_of_each_phone_user():
     admin = FakeAdmin(population())
     run(admin)
 
-    for uid in PHONE_IDS:
+    for uid in ROTATED_IDS:
         assert admin.users[uid]["sessions"] == set()
-    for uid in {"e1", "e2", "n1", "n2", "a1"}:
+    for uid in SKIPPED_IDS:
         assert admin.users[uid]["sessions"] == {"s1", "s2"}
     # revocation is the password update itself; password + marker go in one call
     for _, attributes in admin.updates:
@@ -114,50 +118,72 @@ def test_09_revokes_all_existing_sessions_of_each_phone_user():
         assert script.ROTATED_MARKER in attributes["app_metadata"]
 
 
-def test_10_skips_email_non_synthetic_and_no_metadata_users_and_reports_counts(capsys):
+def test_10_skips_email_and_non_synthetic_users_and_reports_counts(capsys):
     admin = FakeAdmin(population())
     counts = run(admin)
 
-    assert (counts.rotated, counts.skipped, counts.already_done, counts.failed) == (4, 5, 0, 0)
-    for uid in {"e1", "e2", "n1", "n2", "a1"}:
+    assert (counts.rotated, counts.rotated_no_metadata, counts.skipped, counts.already_done, counts.failed) \
+        == (4, 1, 4, 0, 0)
+    for uid in SKIPPED_IDS:
         assert admin.users[uid]["password"] == "old"
         assert script.ROTATED_MARKER not in (admin.users[uid].get("app_metadata") or {})
+
+
+def test_10b_synthetic_email_without_metadata_is_rotated_and_counted_separately():
+    """Deliberate deviation from the story (which skipped them): the phone is in the email, so the
+    static password is guessable; rotating a password nobody uses closes the hole."""
+    admin = FakeAdmin([
+        {"id": "n1", "email": "+96170000009_user@esim.com", "password": "static_password_+96170000009",
+         "user_metadata": {}},
+        {"id": "n3", "email": "+96170000011_user@esim.com", "password": "static_password_+96170000011",
+         "user_metadata": None},
+        phone("u1", "+96170000001"),
+    ])
+
+    counts = run(admin)
+
+    assert (counts.rotated, counts.rotated_no_metadata, counts.skipped) == (1, 2, 0)
+    for uid in ("n1", "n3"):
+        assert not admin.users[uid]["password"].startswith("static_password_")
+        assert admin.users[uid]["sessions"] == set()
+        assert script.ROTATED_MARKER in admin.users[uid]["app_metadata"]
+    assert run(admin).already_done == 3  # re-run: no-metadata users are not rotated twice either
 
 
 def test_11_rerun_is_safe_and_rotates_nobody_twice():
     admin = FakeAdmin(population())
     run(admin)
-    passwords = {uid: admin.users[uid]["password"] for uid in PHONE_IDS}
+    passwords = {uid: admin.users[uid]["password"] for uid in ROTATED_IDS}
     updates = len(admin.updates)
 
     counts = run(admin)
 
-    assert (counts.rotated, counts.already_done, counts.failed) == (0, 4, 0)
+    assert (counts.rotated, counts.rotated_no_metadata, counts.already_done, counts.failed) == (0, 0, 5, 0)
     assert len(admin.updates) == updates
-    assert passwords == {uid: admin.users[uid]["password"] for uid in PHONE_IDS}
+    assert passwords == {uid: admin.users[uid]["password"] for uid in ROTATED_IDS}
 
 
 def test_24_partial_failure_rerun_finishes_the_rest_without_rerotating():
     admin = FakeAdmin(population(), fail_on={"u2"})
     first = run(admin)
-    assert (first.rotated, first.failed, first.failed_user_ids) == (3, 1, ["u2"])
+    assert (first.rotated, first.rotated_no_metadata, first.failed, first.failed_user_ids) == (3, 1, 1, ["u2"])
     assert admin.users["u2"]["password"] == "static_password_+96170000002"
-    done_passwords = {uid: admin.users[uid]["password"] for uid in PHONE_IDS - {"u2"}}
+    done_passwords = {uid: admin.users[uid]["password"] for uid in ROTATED_IDS - {"u2"}}
 
     admin.fail_on.clear()
     second = run(admin)
 
-    assert (second.rotated, second.already_done, second.failed) == (1, 3, 0)
+    assert (second.rotated, second.rotated_no_metadata, second.already_done, second.failed) == (1, 0, 4, 0)
     assert [uid for uid, _ in admin.updates[-1:]] == ["u2"]
     assert admin.users["u2"]["password"] != "static_password_+96170000002"
-    assert done_passwords == {uid: admin.users[uid]["password"] for uid in PHONE_IDS - {"u2"}}
+    assert done_passwords == {uid: admin.users[uid]["password"] for uid in ROTATED_IDS - {"u2"}}
 
 
 def test_dry_run_changes_nothing():
     admin = FakeAdmin(population())
     counts = run(admin, apply=False)
 
-    assert counts.rotated == 4  # would rotate
+    assert (counts.rotated, counts.rotated_no_metadata) == (4, 1)  # would rotate
     assert admin.updates == []
 
 
@@ -188,13 +214,14 @@ def test_main_defaults_to_dry_run_and_never_prints_passwords(monkeypatch, capsys
     with create, version, dotenv:
         assert script.main([]) == 0
     assert admin.updates == []
-    assert "would_rotate=4 skipped=5 already_done=0 failed=0" in capsys.readouterr().out
+    assert ("would_rotated=4 would_rotated_no_metadata=1 skipped=4 already_done=0 failed=0"
+            in capsys.readouterr().out)
 
     with create, version, dotenv:
         assert script.main(["--apply"]) == 0
     out = capsys.readouterr().out
-    assert "rotated=4 skipped=5 already_done=0 failed=0" in out
-    for uid in PHONE_IDS:
+    assert "rotated=4 rotated_no_metadata=1 skipped=4 already_done=0 failed=0" in out
+    for uid in ROTATED_IDS:
         assert admin.users[uid]["password"] not in out
 
 

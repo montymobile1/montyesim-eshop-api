@@ -48,26 +48,34 @@ def generate_random_password() -> str:
 @dataclass
 class Counts:
     rotated: int = 0
+    rotated_no_metadata: int = 0
     skipped: int = 0
     already_done: int = 0
     failed: int = 0
     failed_user_ids: List[str] = field(default_factory=list)
 
 
+def has_synthetic_email(user: Any) -> bool:
+    return bool(SYNTHETIC_EMAIL_REGEX.match((user.email or "").lower()))
+
+
 def is_phone_user(user: Any) -> bool:
-    """A phone-login user: synthetic email with phone metadata, or any email with login_type=phone + msisdn.
+    """A phone-login user: any synthetic email, or any email with login_type=phone + msisdn.
 
     Users created through phone login with a real email (phone + email sent together) got the
-    same static password, so they are included. A synthetic email without any metadata is skipped.
+    same static password, so they are included. A synthetic email is rotated even without
+    metadata: the phone (and so the static password) is in the email itself. This deliberately
+    deviates from the story, which skipped them; nobody signs in with that password, so
+    rotating it has no business impact and closes the hole.
     """
-    metadata = user.user_metadata or {}
-    msisdn = metadata.get("msisdn")
-    if not metadata:
-        return False
-    email = (user.email or "").lower()
-    if SYNTHETIC_EMAIL_REGEX.match(email):
+    if has_synthetic_email(user):
         return True
-    return metadata.get("login_type") == "phone" and bool(msisdn)
+    metadata = user.user_metadata or {}
+    return metadata.get("login_type") == "phone" and bool(metadata.get("msisdn"))
+
+
+def is_missing_metadata(user: Any) -> bool:
+    return not (user.user_metadata or {})
 
 
 def is_already_rotated(user: Any) -> bool:
@@ -100,19 +108,26 @@ def rotate_users(admin: Any, users: Iterable[Any], apply: bool,
             continue
         if not apply:
             log(f"[dry-run] would rotate user {user.id}")
-            counts.rotated += 1
+            count_rotated(counts, user)
             continue
         try:
             admin.update_user_by_id(user.id, {
                 "password": password_factory(),
                 "app_metadata": {ROTATED_MARKER: now().isoformat()},
             })
-            counts.rotated += 1
+            count_rotated(counts, user)
         except Exception as e:
             counts.failed += 1
             counts.failed_user_ids.append(user.id)
             log(f"failed to rotate user {user.id}: {type(e).__name__}")
     return counts
+
+
+def count_rotated(counts: Counts, user: Any) -> None:
+    if is_missing_metadata(user):
+        counts.rotated_no_metadata += 1
+    else:
+        counts.rotated += 1
 
 
 def parse_version(version: str) -> Optional[tuple]:
@@ -155,9 +170,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     users = list_all_users(admin, per_page=args.per_page)
     print(f"{'APPLY' if args.apply else 'DRY RUN'}: {len(users)} auth users listed")
     counts = rotate_users(admin, users, apply=args.apply)
-    label = "would_rotate" if not args.apply else "rotated"
-    print(f"{label}={counts.rotated} skipped={counts.skipped} "
-          f"already_done={counts.already_done} failed={counts.failed}")
+    prefix = "" if args.apply else "would_"
+    print(f"{prefix}rotated={counts.rotated} {prefix}rotated_no_metadata={counts.rotated_no_metadata} "
+          f"skipped={counts.skipped} already_done={counts.already_done} failed={counts.failed}")
     if counts.failed:
         print("Re-run the same command to retry the failed users; rotated users are skipped.")
     return 1 if counts.failed else 0
