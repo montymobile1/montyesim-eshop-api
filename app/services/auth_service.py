@@ -43,6 +43,20 @@ def generate_random_password() -> str:
     return secrets.token_urlsafe(32)
 
 
+REVIEW_ACCOUNT_ENV = ("REVIEW_ACCOUNT_EMAIL", "REVIEW_ACCOUNT_PIN", "REVIEW_ACCOUNT_PASSWORD")
+
+
+def review_account() -> tuple[str, str, str] | None:
+    """The store-review account (email, pin, password), from the environment only; None (bypass off) unless all
+    three are set. Never stored, logged or returned."""
+    email, pin, password = (os.getenv(name) for name in REVIEW_ACCOUNT_ENV)
+    return (email, pin, password) if email and pin and password else None
+
+
+if review_account() is None:
+    logger.warning(f"store-review account disabled: {', '.join(REVIEW_ACCOUNT_ENV)} are not all set")
+
+
 class AuthService:
 
     def __init__(self):
@@ -241,11 +255,12 @@ class AuthService:
     def __handle_email_login(self, login_request: LoginRequest, language: str = "en") -> Response[None]:
         user_exists: UserModel = self.__user_repo.get_first_by(
             where={"email": login_request.email})
-        if login_request.email == "test.apple@example.com":
+        review = review_account()
+        if review and login_request.email == review[0]:
             if not user_exists:
                 supabase_client().auth.sign_up({
                     "email": login_request.email,
-                    "password": "esim_oss@2025"
+                    "password": review[2]
                 })
             return ResponseHelper.success_response()
 
@@ -297,18 +312,19 @@ class AuthService:
                                                                      "metadata->>msisdn": login_request.phone})
         user_otp_language = language
 
-        if ("phone" in get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
-                and login_request.email == "test.apple@example.com"):
+        review = review_account()
+        if (review and "phone" in get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
+                and login_request.email == review[0]):
             test_user: UsersCopyModel = self.__user_repo.get_first_by(
-                where={"email": "test.apple@example.com"})
+                where={"email": review[0]})
             if test_user:
                 # Ensure the static test account always has the known password used at verify.
                 supabase_client().auth.admin.update_user_by_id(
-                    uid=test_user.id, attributes={"password": "esim_oss@2025"})
+                    uid=test_user.id, attributes={"password": review[2]})
             else:
                 supabase_client().auth.sign_up({
                     "email": login_request.email,
-                    "password": "esim_oss@2025"
+                    "password": review[2]
                 })
             return ResponseHelper.success_response()
         # if old_user:
@@ -371,10 +387,11 @@ class AuthService:
     async def __handle_email_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
         logger.info(f"verify_otp email otp request received: {verify_otp_request.model_copy(update={'verification_pin': '******'})}")
-        if verify_otp_request.user_email == "test.apple@example.com" and verify_otp_request.verification_pin == "123123":
+        review = review_account()
+        if review and verify_otp_request.user_email == review[0] and verify_otp_request.verification_pin == review[1]:
             response = supabase_client().auth.sign_in_with_password({
                 "email": verify_otp_request.user_email,
-                "password": "esim_oss@2025"
+                "password": review[2]
             })
             return ResponseHelper.success_data_response(DtoMapper.to_auth_response(response), 0)
         try:
@@ -397,13 +414,14 @@ class AuthService:
     async def __handle_phone_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
         logger.info(f"verify_otp phone request received: {verify_otp_request.model_copy(update={'verification_pin': '******'})}")
-        # Static test account: accept OTP 123123 and return success immediately.
+        # Static test account: accept the review pin and return success immediately.
         # No Supabase sign-in, no OTP record, no normal validation, no OTP generation/SMS.
-        if (verify_otp_request.user_email == "test.apple@example.com"
-                and verify_otp_request.verification_pin == "123123"):
+        review = review_account()
+        if (review and verify_otp_request.user_email == review[0]
+                and verify_otp_request.verification_pin == review[1]):
             response = supabase_client().auth.sign_in_with_password({
                 "email": verify_otp_request.user_email,
-                "password": "esim_oss@2025"
+                "password": review[2]
             })
             return ResponseHelper.success_data_response(DtoMapper.to_auth_response(response), 0)
         if not re.match(os.getenv("PHONE_REGEX", DEFAULT_PHONE_REGEX), verify_otp_request.phone):
