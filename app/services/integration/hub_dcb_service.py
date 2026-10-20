@@ -4,7 +4,7 @@ from decimal import Decimal
 import httpx
 from loguru import logger
 
-from app.config.helper import get_config
+from app.config.helper import get_config, get_secret
 from app.config.i18n import I18n
 from app.services.integration.dcb_service import DCBService
 
@@ -15,7 +15,7 @@ class HubDcbService(DCBService):
         send_otp_url = get_config("DCB_HUB_SEND_SMS_URL", "")
         charge_url = get_config("DCB_HUB_CHARGE_URL", "")
         verify_otp_url = get_config("DCB_HUB_VERIFY_OTP_URL", "")
-        api_key = get_config("DCB_HUB_API_KEY", "")
+        api_key = get_secret("DCB_HUB_API_KEY")
         self.__source_msisdn = get_config("DCB_HUB_SOURCE_MSISDN", "")
         super().__init__(send_otp_url=send_otp_url, charge_url=charge_url, verify_otp_url=verify_otp_url,
                          api_key=api_key)

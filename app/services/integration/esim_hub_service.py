@@ -5,7 +5,7 @@ import httpx
 from loguru import logger
 
 from app.config.api import EsimHubEndpoint
-from app.config.helper import get_config
+from app.config.helper import get_secret
 from app.exceptions import EsimHubException
 from app.models.user import UsersCopyModel
 from app.schemas.app import ExchangeRate
@@ -13,6 +13,10 @@ from app.schemas.bundle import ConsumptionResponse
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.esim_hub import EsimHubOrderResponse, GlobalConfigurationResponse, ContentResponse
 from app.schemas.home import RegionDTO, CountryDTO, BundleDTO, AllBundleResponse
+
+
+# Request headers holding credentials, masked in logs.
+SECRET_HEADERS = ("Api-Key", "Tenant")
 
 
 class EsimHubService:
@@ -369,7 +373,7 @@ class EsimHubService:
     async def get_exchange_rates(self, currency_codes: List[str]) -> List[ExchangeRate]:
         params = {
             "CurrencyCodes": currency_codes,
-            "ResellerGuid": get_config("RESELLER_ID", ""),
+            "ResellerGuid": get_secret("RESELLER_ID"),
         }
         try:
             response = await self.__do_request(method="GET", path=EsimHubEndpoint.API_EXCHANGE_RATE, params=params)
@@ -408,7 +412,8 @@ class EsimHubService:
                 )
 
             logger.debug("Request: curl -X {} {} {} Response: {}".format(method, base_url + path, " ".join(
-                [f'--header "{key}: {value}"' for key, value in headers.items()]), response))
+                [f'--header "{key}: {"******" if key in SECRET_HEADERS else value}"' for key, value in headers.items()]),
+                response))
             if response.status_code != httpx.codes.OK:
                 try:
                     json_response = response.json()

@@ -5,6 +5,7 @@ os.environ["STRIPE_PUBLIC_KEY"] = "dummy"
 os.environ["STRIPE_WEBHOOK_SECRET"] = "dummy"
 os.environ["STRIPE_SECRET_KEY"] = "dummy"
 os.environ["OTP_HMAC_SECRET"] = "test-otp-hmac-secret"
+os.environ.setdefault("ESIM_HUB_API_KEY", "test-esim-hub-api-key")
 
 import pytest
 from unittest.mock import MagicMock, patch
