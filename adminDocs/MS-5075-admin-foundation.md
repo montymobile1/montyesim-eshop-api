@@ -1,8 +1,8 @@
-# MS-5075: admin login and permissions
+# MS-5075: admin API foundation
 
-Story: MS-5075, admin API foundation. Branch: `TEOS-139-be-planning-for-changes`. Date: 2026-10-20.
+Story: MS-5075, admin API foundation: login, permissions, base repository, audit and image storage. Branch: `TEOS-139-be-planning-for-changes`. Date: 2026-10-20.
 
-Status: the login and permissions part is done and tested. The rest of the foundation is still to do (see the last section). Nothing is committed and no migration has been applied.
+Status: done and tested. Nothing is committed and no migration has been applied.
 
 ## No current flow changed
 
@@ -65,6 +65,46 @@ Use `"admin"` for a regular admin. To remove access, remove the `role` key.
 
 Admin code raises its own error classes (`app/exceptions/admin.py`), which go through the existing `CustomException` handler.
 
+### Base repository for admin queries
+
+`app/repo/admin/base.py` holds `AdminBaseRepository`. It extends the existing `BaseRepository` without changing it, and every admin repository extends it. It gives each repository:
+
+- **total count with paging**: `q()` selects with the total row count, and `paged(query, page)` returns one page plus the total;
+- **a stable order**: `created_at desc, id desc` unless the repository says otherwise, so pages never repeat or skip rows (bug MS-5067);
+- **safe search and filters**: `or_ilike` and `filters` match user text literally. `%`, `_`, commas, quotes and parentheses cannot add filters or act as wildcards (bug MS-5068). Column names are checked against a strict pattern;
+- **audited writes**: `insert_audited`, `update_audited` and `delete_audited` call the `admin_*_audited` SQL functions, which save the change and its audit row in one transaction. `update_audited` and `delete_audited` accept a `guard`, the values the row must still have, else 409 `guard_failed`;
+- **clear errors**: a duplicate becomes 409 with the field code from the repository's `UNIQUE_CONFLICTS` (for example `duplicate_code`), a foreign key violation 409 `referenced`, the SQL codes AD404, AD409 and AD422 become 404, 409 and 422, and any other failure 502 `DATABASE_ERROR` with the cause only in the log.
+
+Example:
+
+```python
+class PromotionAdminRepo(AdminBaseRepository):
+    UNIQUE_CONFLICTS = {"promotion_code_key": "duplicate_code"}
+
+    def search(self, text, page):
+        query = self.or_ilike(self.q(), ["name", "code"], text)
+        return self.paged(query, page)
+```
+
+### Audit
+
+- Database writes are audited by the SQL functions, in the same transaction as the change.
+- `AuditService.log` (`app/services/admin/audit_service.py`) is for actions that are not one database write, such as ban and unban in Supabase Auth, or exports. It writes through the `admin_write_audit` SQL function.
+- `audit_context(user, request, reason)` builds the actor, IP and reason of a request. The actor always comes from the token and the IP from the request headers, never from the request body.
+
+### App cache key
+
+There is no separate Python service for it, by decision of the team. The audited SQL functions take a `rotate_cache` switch (`rotate_cache=True` in Python), which rotates `APP_CACHE_KEY` in the same transaction as the change. It is off by default. Each page story turns it on only where the portal rotates the key today, so the storefront keeps dropping its bundle cache exactly as it does now. `admin_rotate_cache_key()` can also be called on its own through `repo.rpc`.
+
+### Image storage
+
+`MediaStorageService` (`app/services/admin/media_storage_service.py`), used by the banner and group stories:
+
+- checks the real file content: PNG, JPEG or WebP, at most `ADMIN_MAX_UPLOAD_BYTES` (413) and 4000 by 4000 pixels (422);
+- stores the file under a name the server generates, `<folder>/<uuid>.<ext>`, in the `ADMIN_MEDIA_BUCKET` bucket (`media`, the bucket the portal uploads to today), and never overwrites a file;
+- returns the public URL, and reads the path back from a stored URL with `path_from_url`;
+- deletes files after a failed save (`remove_staged`) or after a successful one (`remove_after_commit`). A file that cannot be deleted is logged and added to `storage_cleanup_queue`; it never fails the request.
+
 ### Login protection
 
 - Failed logins are counted per IP and email. After `ADMIN_LOGIN_RATE_LIMIT` failures (default 5 in 300 seconds) the next attempt gets 429 without reaching Supabase. A successful login resets the count.
@@ -86,8 +126,13 @@ Admin code raises its own error classes (`app/exceptions/admin.py`), which go th
 | `app/schemas/admin/common.py` | Paging parameters, list envelope, lookup item, status body (used by later stories) |
 | `app/schemas/admin/auth.py` | Login, refresh, profile and session shapes |
 | `app/services/admin/auth_service.py` | Login, refresh, logout and the failed-login counter |
+| `app/repo/admin/base.py` | `AdminBaseRepository`, `AuditContext`, `Paged` |
+| `app/repo/admin/audit_log_repo.py` | Audit rows through `admin_write_audit` |
+| `app/repo/admin/storage_cleanup_queue_repo.py` | Files waiting for a delete retry |
+| `app/services/admin/audit_service.py` | `AuditService`, `audit_context` |
+| `app/services/admin/media_storage_service.py` | Image checks, upload, public URL, deletes with retry queue |
 | `migrations/admin/*.sql`, `README.md`, `900_seed_super_admin.sql.example` | Foundation SQL: schema drift, audit log, unique constraints, triggers, audited write functions, storage cleanup queue. Written, not applied |
-| `tests/admin/...` | 57 tests (permissions, auth service, HTTP contract) |
+| `tests/admin/...` | 105 tests (permissions, auth service, HTTP contract, base repository, audit, image storage) |
 | `adminDocs/` | This folder |
 
 ### Existing files, appended only
@@ -96,6 +141,7 @@ Admin code raises its own error classes (`app/exceptions/admin.py`), which go th
 |---|---|
 | `app/api/v1/__init__.py` | One import and one `include_router` line mounting the admin router at `/admin` |
 | `app/config/constants.py` | 10 new `ErrorMessages` members at the end (`ADMIN_*`) |
+| `app/config/db.py` | 2 new `DatabaseTables` members at the end: `TABLE_AUDIT_LOG`, `TABLE_STORAGE_CLEANUP_QUEUE` |
 | `locales/en.json`, `locales/ar.json` | The 10 matching messages at the end. The previous last line only gained a trailing comma |
 | `requirements.txt` | `python-multipart==0.0.20`, `openpyxl==3.1.5`, `pytest-mock==3.14.0` (uploads and exports in later stories, test helper) |
 | `.env.example` | `SUPABASE_JWT_SECRET` (optional) and the `ADMIN_*` settings below |
@@ -118,7 +164,7 @@ Admin code raises its own error classes (`app/exceptions/admin.py`), which go th
 $env:PYTHONPATH="."; pytest tests/admin -q
 ```
 
-57 passed. The admin tests mock Supabase and need no Firebase file or database.
+105 passed. The admin tests mock Supabase and need no Firebase file or database.
 
 ## For the team leader's review of the SQL
 
@@ -127,7 +173,7 @@ $env:PYTHONPATH="."; pytest tests/admin -q
 - `010_audit_log.sql` removes the public and signed-in roles' access to `audit_log`. That is safe only if the unmigrated portal pages use the service-role key.
 - `audit_log.record_id` is a UUID, but some tables have integer ids. For those, the id is stored in `operation_details.record_id`.
 
-## Still to do in MS-5075
+## Left to later stories
 
-- `app/repo/admin/base.py`: base repository with safe search escaping, paging and database error mapping.
-- Audit, cache-key and media storage services, and the audit log, users copy and storage cleanup repositories.
+- The users copy repository (admin emails shown in the audit log and settings history) comes with the audit log and settings history stories.
+- The audited write functions are tested here with mocks only. They run against the database once the team leader applies `migrations/admin/`.

@@ -6,7 +6,7 @@ Each story gets one record in this folder, named after its Jira key, listing eve
 
 | Story | Record | Status |
 |---|---|---|
-| MS-5075, admin foundation: login and permissions part | [MS-5075-admin-login-and-permissions.md](MS-5075-admin-login-and-permissions.md) | Login part done; rest of the foundation pending |
+| MS-5075, admin API foundation | [MS-5075-admin-foundation.md](MS-5075-admin-foundation.md) | Done |
 
 ## Rules for every admin story
 
