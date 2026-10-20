@@ -4,6 +4,7 @@ os.environ["SUPABASE_KEY"] = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy.dummy"
 os.environ["STRIPE_PUBLIC_KEY"] = "dummy"
 os.environ["STRIPE_WEBHOOK_SECRET"] = "dummy"
 os.environ["STRIPE_SECRET_KEY"] = "dummy"
+os.environ["OTP_HMAC_SECRET"] = "test-otp-hmac-secret"
 
 import pytest
 from unittest.mock import MagicMock, patch

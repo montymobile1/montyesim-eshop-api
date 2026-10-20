@@ -2552,7 +2552,7 @@ create table user_otp
         primary key,
     email      varchar(100) default NULL::character varying,
     mobile     varchar(100) default NULL::character varying,
-    otp        varchar(6) not null,
+    otp        varchar(64) not null,
     expire_at  timestamp,
     is_used    boolean      default false,
     created_at timestamp    default CURRENT_TIMESTAMP

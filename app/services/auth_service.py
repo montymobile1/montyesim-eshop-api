@@ -86,9 +86,7 @@ class AuthService:
         login_type = get_config(ConfigKeysEnum.LOGIN_TYPE, "email")
         if login_type != "email_phone_both":
             return await self.login(login_request=login_request, language=language)
-        otp = self.__user_otp_service.get_active_otp(login_request.phone)
-        if otp is None:
-            otp = self.__user_otp_service.generate_otp(mobile=login_request.phone, email=login_request.email)
+        otp = self.__user_otp_service.reissue_otp(mobile=login_request.phone, email=login_request.email)
 
         if login_request.otp_channel == OtpChannelEnum.SMS:
             await self.__dcb_service.send_otp(otp=otp, msisdn=login_request.phone, locale="en")
@@ -207,7 +205,7 @@ class AuthService:
                 user_metadata.pop("display_email", None)
                 if getattr(update_request, 'msisdn', None) == "":
                     user_metadata['msisdn'] = ""
-            logger.info(f"updating user info for user {user.id} with metadata {user_metadata}")
+            logger.info(f"updating user info for user {user.id} with metadata keys {sorted(user_metadata)}")
             response = supabase_client().auth.admin.update_user_by_id(user.id, {
                 'user_metadata': user_metadata
             })
@@ -331,7 +329,6 @@ class AuthService:
             logger.info(f"generating new otp for user: {user_email}")
             supabase_client().auth.admin.update_user_by_id(uid=user_exists.id, attributes={
                 'user_metadata': {
-                    "otp": otp,
                     "msisdn": login_request.phone,
                     "login_type": "phone"
                 }
@@ -343,7 +340,6 @@ class AuthService:
                 "password": generate_random_password(),
                 "options": {
                     "data": {
-                        "otp": otp,
                         "msisdn": login_request.phone,
                         "referral_code": self.__generate_referral_code(),
                         "login_type": "phone",
@@ -374,7 +370,7 @@ class AuthService:
 
     async def __handle_email_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
-        logger.info(f"verify_otp email otp request received: {verify_otp_request}")
+        logger.info(f"verify_otp email otp request received: {verify_otp_request.model_copy(update={'verification_pin': '******'})}")
         if verify_otp_request.user_email == "test.apple@example.com" and verify_otp_request.verification_pin == "123123":
             response = supabase_client().auth.sign_in_with_password({
                 "email": verify_otp_request.user_email,
@@ -400,7 +396,7 @@ class AuthService:
 
     async def __handle_phone_otp_verify(self, verify_otp_request: VerifyOtpRequest, device_id: str) -> Response[
         AuthResponseDTO]:
-        logger.info(f"verify_otp phone request received: {verify_otp_request}")
+        logger.info(f"verify_otp phone request received: {verify_otp_request.model_copy(update={'verification_pin': '******'})}")
         # Static test account: accept OTP 123123 and return success immediately.
         # No Supabase sign-in, no OTP record, no normal validation, no OTP generation/SMS.
         if (verify_otp_request.user_email == "test.apple@example.com"

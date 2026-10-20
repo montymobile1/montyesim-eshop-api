@@ -28,6 +28,8 @@ SUPABASE_KEY: str = os.getenv("SUPABASE_KEY")
 STRIPE_WEBHOOK_SECRET: str = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PUBLIC_KEY = os.getenv("STRIPE_PUBLIC_KEY")
+# Key of the HMAC under which phone sign-in OTPs are stored (user_otp.otp). Never log it.
+OTP_HMAC_SECRET: str = os.getenv("OTP_HMAC_SECRET")
 
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = os.getenv("SMTP_PORT", 587)
@@ -47,7 +49,8 @@ def validate_required_env_vars():
         "SUPABASE_KEY": SUPABASE_KEY,
         "STRIPE_PUBLIC_KEY": STRIPE_PUBLIC_KEY,
         "STRIPE_WEBHOOK_SECRET": STRIPE_WEBHOOK_SECRET,
-        "STRIPE_SECRET_KEY": STRIPE_SECRET_KEY
+        "STRIPE_SECRET_KEY": STRIPE_SECRET_KEY,
+        "OTP_HMAC_SECRET": OTP_HMAC_SECRET,
     }
 
     missing_vars = [var for var, value in required_vars.items() if not value]
