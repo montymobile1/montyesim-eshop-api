@@ -54,7 +54,7 @@ class UserNotificationResponse(BaseModel):
 
 class GlobalConfiguration(BaseModel):
     key: str
-    value: str
+    value: Optional[str]
 
 
 class ExchangeRate(BaseModel):

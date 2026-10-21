@@ -9,8 +9,8 @@ from loguru import logger
 from app.config.config import esim_hub_service_instance, send_email
 from app.config.constants import ErrorMessages
 from app.config.db import ConfigKeysEnum
-from app.config.helper import get_config
-from app.exceptions import CustomException
+from app.config.helper import get_config, is_secret_key
+from app.exceptions import CustomException, DatabaseException
 from app.models.app import DeviceModel
 from app.models.user import UserModel
 from app.repo.config_repo import ConfigRepo, BannerRepo
@@ -20,6 +20,37 @@ from app.schemas.app import DeviceRequest, ContactUsRequest, DeleteDeviceRequest
 from app.schemas.app import FaqResponse, PageContentResponse
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.response import ResponseHelper, Response
+
+
+# app_config keys returned by /configurations; any other key stays private. Every key a client reads
+# (mobile app incl. old builds, web, iOS / Android SDK; see docs/config-allowlist.md). The computed names are
+# listed too: a row with one of those names keeps being returned ahead of the computed entry, as before.
+CLIENT_CONFIG_KEYS = frozenset({
+    "ALLOWED_PAYMENT_TYPES",
+    "LOGIN_TYPE",
+    "OTP_EXPIRATION_TIME",
+    "TRANSACTION_EXPIRY_TIME",
+    "REFERRAL_CODE_PERCENTAGE",
+    "REFERRAL_CODE_AMOUNT",
+    "CASHBACK_DISCOUNT",
+    "COMPANY_SUPPORT_PHONE",
+    "COMPANY_SUPPORT_EMAIL",
+    "TOP_COUNTRIES_COUNT",
+    "DEFAULT_CURRENCY",
+    "WHATSAPP_NUMBER",
+    "CATALOG.BUNDLES_CACHE_VERSION",
+    "SUPABASE_BASE_URL",
+    "SUPABASE_BASE_ANON_KEY",
+})
+# Public by design although secret-shaped.
+PUBLIC_SECRET_SHAPED_KEYS = frozenset({"SUPABASE_BASE_ANON_KEY"})
+
+
+def is_client_config_key(key: str) -> bool:
+    key = key.upper()
+    if is_secret_key(key) and key not in PUBLIC_SECRET_SHAPED_KEYS:
+        return False
+    return key in CLIENT_CONFIG_KEYS
 
 
 class AppService:
@@ -159,10 +190,16 @@ class AppService:
 
     async def configurations(self) -> Response[List[GlobalConfiguration]]:
         response = []
-        configs = self.__config_repo.list(where={})
+        try:
+            configs = self.__config_repo.list(where={})
+            app_cache_key = self.__config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
+        except DatabaseException:
+            logger.error("configurations: app_config could not be read")
+            raise CustomException(code=503, name=ErrorMessages.REQUEST_FAILED,
+                                  details="Configurations are temporarily unavailable")
         for config in configs:
-            response.append(GlobalConfiguration(key=config.key.upper(), value=config.value))
-        app_cache_key = self.__config_repo.get_first_by({"key": ConfigKeysEnum.APP_CACHE_KEY})
+            if is_client_config_key(config.key):
+                response.append(GlobalConfiguration(key=config.key.upper(), value=config.value))
         if app_cache_key:
             response.append(GlobalConfiguration(key="CATALOG.BUNDLES_CACHE_VERSION", value=app_cache_key.value))
         response.append(GlobalConfiguration(key="supabase_base_url".upper(), value=os.getenv("SUPABASE_URL")))

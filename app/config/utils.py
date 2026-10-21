@@ -201,3 +201,55 @@ def truncate_two_decimals_decimal(value: float) -> Decimal:
 def truncate_two_decimals_decimal_rounded(value: float) -> float:
     d = Decimal(str(value))
     return float(d.quantize(Decimal('0.00'), rounding=ROUND_UP))
+
+
+def create_hosted_checkout_session(user_email: str, amount: int, currency: str, product_name: str,
+                                   metadata: dict, success_url: str, cancel_url: str,
+                                   expires_at: int, idempotency_key: str,
+                                   description: str = None) -> stripe.checkout.Session:
+    """Open a Stripe-hosted payment page and return the Session.
+
+    This is the only Stripe surface added for the MCP adapter, and it exists because the
+    codebase had none to reuse: ``create_payment_intent`` above builds a PaymentIntent for
+    the native SDK payment sheet, which yields a ``client_secret``. A chat client cannot
+    use a client secret -- it needs a URL -- so a hosted Checkout Session is created here
+    instead. Nothing in the legacy flow calls this function.
+
+    ``payment_intent_data.metadata`` carries the same keys ``__handle_card_payment``
+    writes, so the ``payment_intent.succeeded`` event this Session eventually emits is
+    fulfilled by the **existing** ``CallbackService.handle_payment_webhook`` through the
+    path it already uses. No second webhook, no second provisioning flow.
+
+    ``idempotency_key`` is passed to Stripe so a repeated call for the same order returns
+    the Session Stripe already created rather than opening a second payment page.
+    """
+    try:
+        session = stripe.checkout.Session.create(
+            mode="payment",
+            customer_email=user_email,
+            line_items=[{
+                "price_data": {
+                    "currency": currency,
+                    "unit_amount": int(amount),
+                    "product_data": {"name": product_name},
+                },
+                "quantity": 1,
+            }],
+            payment_intent_data={
+                "metadata": metadata,
+                "description": description or product_name,
+            },
+            metadata=metadata,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            expires_at=int(expires_at),
+            idempotency_key=idempotency_key,
+        )
+        logger.info(f"created hosted checkout session for order {metadata.get('order_id')}")
+        return session
+    except stripe.error.StripeError as e:
+        # The provider's own message is logged, never returned: it can name internal
+        # objects and account state. The caller answers with a stable, safe code.
+        logger.error(f"Error while creating hosted checkout session: {str(e)}")
+        raise CustomException(code=503, name=ErrorMessages.PAYMENT_INTENT_EXCEPTION,
+                              details="The payment provider could not open a checkout page") from e

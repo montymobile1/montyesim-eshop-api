@@ -10,7 +10,8 @@ from fastapi import Request
 from loguru import logger
 from soupsieve.util import lower
 
-from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance, supabase_client
+from app.config.config import esim_hub_service_instance, generate_otp, dcb_service_instance, supabase_client, \
+    link_aja_service_instance
 from app.config.constants import ErrorMessages, PaymentStatusEnum, UserWalletTransactionSource
 from app.config.db import DatabaseTables, PaymentTypeEnum, ConfigKeysEnum
 from app.config.helper import get_config
@@ -30,6 +31,7 @@ from app.schemas.home import BundleDTO, CountryDTO
 from app.schemas.response import Response, ResponseHelper
 from app.services.bundle_service import BundleService
 from app.services.currency_service import CurrencyService
+from app.services.integration.link_aja import LinkAjaPaymentRequest, embed_order_data
 from app.services.promotion_service import PromotionService
 from app.services.task_executor import TaskExecutor
 from app.services.user_wallet_service import UserWalletService
@@ -47,6 +49,7 @@ class UserBundleService:
         self.__promotion_service = PromotionService()
         self.__bundle_service = BundleService()
         self.__dcb_service = dcb_service_instance()
+        self.__link_aja_service = link_aja_service_instance()
         self.__currency_service = CurrencyService()
         self.__user_repo = UserRepo()
         self.__task_executor = TaskExecutor()
@@ -133,6 +136,8 @@ class UserBundleService:
             return await self.__handle_card_payment(user=user, order=order, device_id=device_id,
                                                     assign_request=assign_request, rule_id=rule_id, request=request,
                                                     x_currency=x_currency)
+        elif payment_type == PaymentTypeEnum.LINK_AJA:
+            return await self.__handle_link_aja_payment(user=user, order=order, bundle=bundle)
         else:
             raise CustomException(code=400, name=ErrorMessages.INVALID_PAYMENT_TYPE,
                                   details=f"Payment type {payment_type} is not supported")
@@ -695,6 +700,89 @@ class UserBundleService:
         except Exception as e:
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
                                   details=f"Error while creating order: {e}")
+
+    async def __handle_link_aja_payment(self, user: UserModel, order: UserOrderModel,
+                                        bundle: BundleDTO) -> Response[PaymentIntentResponse]:
+        """Initiate a LinkAja payment for an already-created pending order.
+
+        Orchestration only: this method decides *what* happens, while every
+        LinkAja-specific detail (auth, endpoints, payload, parsing) lives behind
+        `LinkAjaService`. That is what keeps the eventual specification work
+        confined to the integration package.
+
+        Fail-closed on two levels - `LINKAJA_ENABLED` defaults to false, and an
+        enabled-but-misconfigured deployment raises a descriptive configuration
+        error. Card / Wallet / DCB are unaffected by either.
+
+        Nothing is provisioned here. The order stays `pending` until a verified
+        LinkAja callback confirms payment success.
+        """
+        logger.info(f"handle_link_aja_payment request for order {order.id} user {user.id}")
+
+        # Enable-gate first, so a deployment that never opted in gets a clean
+        # 400 rather than a 503 about credentials it was never meant to have.
+        if not self.__link_aja_service.is_enabled():
+            logger.warning(f"rejecting LinkAja payment for order {order.id}: LINKAJA_ENABLED is off")
+            self.__user_order_repo.update_by(where={"id": order.id},
+                                             data={"payment_status": OrderStatusEnum.FAILURE,
+                                                   "order_status": OrderStatusEnum.FAILURE})
+            self.__link_aja_service.ensure_enabled()
+
+        amount_minor_units = int(order.modified_amount if order.modified_amount is not None else order.amount)
+        config = self.__link_aja_service.config
+
+        # Quote the IDR amount first and persist it on the order (inside the
+        # bundle_data snapshot, no migration) BEFORE anything is sent to
+        # LinkAja. The notify is reconciled against this stored amount, never
+        # against a recomputation with the rate of the day; and a storage
+        # failure here costs no provider call.
+        quote = self.__link_aja_service.quote_amount(amount_minor_units, order.currency)
+        try:
+            bundle_data = embed_order_data(order.bundle_data, quote)
+        except ValueError as exc:
+            raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
+                                  details=f"Order {order.id} cannot carry the LinkAja amount: {exc}") from exc
+        self.__user_order_repo.update_by(where={"id": order.id}, data={"bundle_data": bundle_data})
+        order.bundle_data = bundle_data
+
+        payment_request = LinkAjaPaymentRequest(
+            # `user_order.id` stays our merchant reference on both sides of the
+            # round-trip; the provider's own reference comes back separately.
+            merchant_order_id=order.id,
+            amount_minor_units=amount_minor_units,
+            currency=order.currency,
+            description=bundle.bundle_name,
+            notify_url=config.notify_url,
+            callback_url=config.callback_url,
+            success_url=config.success_url,
+            cancel_url=config.cancel_url,
+        )
+
+        # Any provider, configuration or transport failure surfaces as a
+        # translated CustomException and leaves the order pending - never
+        # provisioned. Nothing here catches broadly, so no failure can be
+        # mistaken for a successful payment.
+        payment = await self.__link_aja_service.create_payment(payment_request)
+
+        # Defensive: what went on the wire must be what was stored.
+        if payment.amount and payment.amount != quote.amount:
+            logger.error(f"LinkAja amount sent for order {order.id} ({payment.amount}) differs from the "
+                         f"stored quote ({quote.amount})")
+            raise CustomException(code=500, name=ErrorMessages.REQUEST_FAILED,
+                                  details=f"LinkAja amount for order {order.id} does not match its quote")
+
+        # Persist the provider transaction reference on the existing column so a
+        # later callback can be correlated back to this order. No new column and
+        # no migration: `payment_intent_code` is the provider-reference field and
+        # is only ever read by the flow that wrote it.
+        self.__user_order_repo.update_by(
+            where={"id": order.id},
+            data={"payment_intent_code": payment.provider_reference})
+
+        response = PaymentIntentResponse(order_id=order.id,
+                                         payment_status=PaymentStatusEnum.PENDING,
+                                         payment_url=payment.payment_url)
+        return ResponseHelper.success_data_response(response, 0)
 
     async def __handle_card_payment(self, user: UserModel, order: UserOrderModel, device_id: str,
                                     assign_request: AssignRequest | None, rule_id: str,

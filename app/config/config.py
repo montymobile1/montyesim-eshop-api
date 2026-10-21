@@ -12,7 +12,7 @@ from pydantic import EmailStr
 from supabase import create_client, Client
 from supabase.lib.client_options import SyncClientOptions
 
-from app.config.helper import get_config
+from app.config.helper import get_config, get_secret
 from app.services.integration.dcb_service import DCBService
 from app.services.integration.esim_hub_service import EsimHubService
 
@@ -28,6 +28,8 @@ SUPABASE_KEY: str = os.getenv("SUPABASE_KEY")
 STRIPE_WEBHOOK_SECRET: str = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_PUBLIC_KEY = os.getenv("STRIPE_PUBLIC_KEY")
+# Key of the HMAC under which phone sign-in OTPs are stored (user_otp.otp). Never log it.
+OTP_HMAC_SECRET: str = os.getenv("OTP_HMAC_SECRET")
 
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = os.getenv("SMTP_PORT", 587)
@@ -47,7 +49,8 @@ def validate_required_env_vars():
         "SUPABASE_KEY": SUPABASE_KEY,
         "STRIPE_PUBLIC_KEY": STRIPE_PUBLIC_KEY,
         "STRIPE_WEBHOOK_SECRET": STRIPE_WEBHOOK_SECRET,
-        "STRIPE_SECRET_KEY": STRIPE_SECRET_KEY
+        "STRIPE_SECRET_KEY": STRIPE_SECRET_KEY,
+        "OTP_HMAC_SECRET": OTP_HMAC_SECRET,
     }
 
     missing_vars = [var for var, value in required_vars.items() if not value]
@@ -71,7 +74,7 @@ def supabase_client(url: str = None, key: str = None) -> Client:
 def esim_hub_service_instance():
     return EsimHubService(
         base_url=os.getenv("ESIM_HUB_BASE_URL"),
-        api_key=get_config("ESIM_HUB_API_KEY"),
+        api_key=get_secret("ESIM_HUB_API_KEY"),
         tenant_key=os.getenv("ESIM_HUB_TENANT_KEY"))
 
 
@@ -84,6 +87,13 @@ def dcb_service_instance() -> DCBService:
         from app.services.integration.hub_dcb_service import HubDcbService
         return HubDcbService()
     return DCBService(send_otp_url=os.getenv("DCB_SEND_OTP_URL", ""), verify_otp_url="", api_key="", charge_url="")
+
+
+def link_aja_service_instance() -> "LinkAjaService":
+    # Imported lazily and constructed from the environment at call time, so a
+    # deployment with no LinkAja configuration is completely unaffected.
+    from app.services.integration.link_aja import LinkAjaService
+    return LinkAjaService()
 
 
 def get_auth_user_banned_until(user_id: str) -> str | None:
