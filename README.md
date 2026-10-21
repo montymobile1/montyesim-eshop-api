@@ -249,6 +249,36 @@ Or use a process manager like **Gunicorn** with **Uvicorn**:
   gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:esim_app
 ```
 
+## Admin API
+
+The admin portal (admin-open-source) calls this backend under `/api/v1/admin`. The code lives only in admin folders (`app/api/v1/admin/`, `app/services/admin/`, `app/repo/admin/`, `app/schemas/admin/`, `migrations/admin/`, `tests/admin/`); the existing endpoints are unchanged. Full rules, story records and the review guide: `adminDocs/README.md`.
+
+- **Auth:** `POST /api/v1/admin/auth/login` with `{email, password}` returns an access and a refresh token. Send `Authorization: Bearer <access_token>` on every other admin call; no `X-Device-ID`. The role is read from `app_metadata.role` of the Supabase user: `admin` or `super_admin`. `GET /api/v1/admin/auth/me` returns the role and the permission list.
+- **Permissions:** each route needs one `admin.<area>.<action>` permission. The role-to-permission table is `app/config/admin_permissions.py`. 401 means no or invalid session, 403 means a missing permission.
+- **Lists:** `page` (from 1) and `page_size` (default 20, max 100); `search` is literal. The response is the usual envelope with `data = {data: [...], total_count, facets?, totals?}`. An unknown query parameter returns 422.
+- **Errors:** the usual failed envelope; `responseCode` is the HTTP status. For 409 the `developerMessage` is a JSON string with a machine code, for example `{"code":"duplicate_code"}`. Database or storage failures return 502.
+- **Interactive docs:** `/docs`, routes under the admin tag.
+
+### Set up the database for the admin API
+
+Only the team leader applies these files, after review. Steps and rules: `migrations/admin/README.md`.
+
+```sh
+cat migrations/admin/[0-9]*.sql | psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction
+```
+
+Give one account the `super_admin` role with `migrations/admin/900_seed_super_admin.sql.example` (copy it, set the email, run it once). Changes to the existing flow that the admin work leaves to the team leader are listed in `adminDocs/lead-review-old-flow.md`.
+
+### Admin settings (.env)
+
+`ADMIN_MEDIA_BUCKET`, `ADMIN_MAX_UPLOAD_BYTES` (1 MB), `ADMIN_MAX_JSON_BYTES`, `ADMIN_EXPORT_ROW_CAP`, `ADMIN_LOGIN_RATE_LIMIT`. Defaults and descriptions are in `.env.example`.
+
+### Run the admin tests
+
+```powershell
+$env:PYTHONPATH="."; .\.venv\Scripts\python.exe -m pytest tests/admin -q -p no:cacheprovider
+```
+
 ## Contributing
 
 1. Fork the repository

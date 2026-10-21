@@ -57,6 +57,10 @@ LINKAJA_PATHS = {
     "/api/v1/callback/linkaja",
     "/bi/applink/v1.0/debit/notify",
 }
+#: The admin portal API is its own namespace (app/api/v1/admin); every path under it and only
+#: under it is new, and its schemas are all named Admin*.
+ADMIN_PATH_PREFIX = "/api/v1/admin/"
+
 #: Optional properties LinkAja added to existing schemas. Card / Wallet / DCB
 #: responses never serialize them (see PaymentIntentResponse's serializer).
 LINKAJA_SCHEMA_PROPERTIES = {
@@ -181,6 +185,7 @@ def test_legacy_openapi_schemas_are_unchanged(openapi_spec, legacy_openapi_basel
 
 def test_openapi_gained_only_the_three_mcp_paths_and_the_linkaja_paths(openapi_spec, legacy_openapi_baseline):
     added = set(openapi_spec["paths"]) - set(legacy_openapi_baseline["paths"])
+    added = {path for path in added if not path.startswith(ADMIN_PATH_PREFIX)}
     assert added == {
         "/api/v1/mcp/user/bundle/assign",
         "/api/v1/mcp/user/bundle/card/checkout",
@@ -190,7 +195,9 @@ def test_openapi_gained_only_the_three_mcp_paths_and_the_linkaja_paths(openapi_s
 
 def test_openapi_gained_only_mcp_schemas(openapi_spec, legacy_openapi_baseline):
     added = set(openapi_spec["components"]["schemas"]) - set(legacy_openapi_baseline["schemas"])
-    assert all("Mcp" in name for name in added), sorted(added)
+    # Admin schemas are named Admin*; FastAPI names the generated multipart bodies of admin routes
+    # Body_<handler>_api_v1_admin_..., hence the case-insensitive "admin".
+    assert all("Mcp" in name or "admin" in name.lower() for name in added), sorted(added)
 
 
 # --- (5) The MCP flag reaches only MCP routes ----------------------------------------

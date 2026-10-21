@@ -105,3 +105,7 @@ class DatabaseTables(StrEnum):
     TABLE_CURRENCY = "currency"
 
     TABLE_VOUCHER = "voucher"
+
+    # Admin API (app/repo/admin)
+    TABLE_AUDIT_LOG = "audit_log"
+    TABLE_STORAGE_CLEANUP_QUEUE = "storage_cleanup_queue"
