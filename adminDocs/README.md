@@ -12,6 +12,13 @@ Each story gets one record in this folder, named after its Jira key, listing eve
 | MS-5089, MS-5058, MS-5060, vouchers and banners | [MS-5089-MS-5058-MS-5060-vouchers-banners.md](MS-5089-MS-5058-MS-5060-vouchers-banners.md) | Done (wave 1) |
 | MS-5091, MS-5046, MS-5048, settings, settings logs, audit log | [MS-5091-MS-5046-MS-5048-settings-audit-log.md](MS-5091-MS-5046-MS-5048-settings-audit-log.md) | Done (wave 1) |
 | Wave 1 shared changes (no story) | [wave-1-coordination.md](wave-1-coordination.md) | Done (wave 1) |
+| MS-5079, users and user detail | [MS-5079-users.md](MS-5079-users.md) | Done (wave 2) |
+| MS-5083, bundles and assign to groups | [MS-5083-bundles.md](MS-5083-bundles.md) | Done (wave 2) |
+| MS-5085, groups add, edit, reorder | [MS-5085-groups.md](MS-5085-groups.md) | Done (wave 2) |
+| MS-5087, MS-5050, MS-5052, MS-5054, promotion rules, promotions, promo analysis | [MS-5087-MS-5050-MS-5052-MS-5054-promotions.md](MS-5087-MS-5050-MS-5052-MS-5054-promotions.md) | Done (wave 2) |
+| MS-5056, referrals and export | [MS-5056-referrals.md](MS-5056-referrals.md) | Done (wave 2) |
+| Wave 2 shared changes (no story) | [wave-2-coordination.md](wave-2-coordination.md) | Done (wave 2) |
+| Changes to the current flow left to the lead (not applied) | [lead-review-old-flow.md](lead-review-old-flow.md) | For review |
 
 The migration plan is in the admin portal repo, `docs/adminDocs/admin-api-migration-plan.md`.
 
@@ -26,12 +33,12 @@ The stories are delivered in waves. A wave is a group of stories developed in pa
 | Wave 1 | MS-5081 / MS-5082 | Orders, devices, contact us | Done |
 | Wave 1 | MS-5089, MS-5058, MS-5060 / MS-5090, MS-5059, MS-5061 | Vouchers, banners list, banner add and edit | Done |
 | Wave 1 | MS-5091, MS-5046, MS-5048 / MS-5092, MS-5047, MS-5049 | Settings, settings logs, audit log | Done |
-| Wave 2 | MS-5079 / MS-5080 | Users and user detail | To do |
-| Wave 2 | MS-5083 / MS-5084 | Bundles and assign to groups | To do |
-| Wave 2 | MS-5085 / MS-5086 | Groups add, edit, reorder | To do |
-| Wave 2 | MS-5087, MS-5050, MS-5052, MS-5054 / MS-5088, MS-5051, MS-5053, MS-5055 | Promotion rules, promotions, promo analysis | To do |
-| Wave 2 | MS-5056 / MS-5057 | Referrals and export | To do |
-| Wave 3 | MS-5093 / MS-5094 | Clean-up: drop the legacy SQL, remove supabase-js from the portal | To do |
+| Wave 2 | MS-5079 / MS-5080 | Users and user detail | Done |
+| Wave 2 | MS-5083 / MS-5084 | Bundles and assign to groups | Done |
+| Wave 2 | MS-5085 / MS-5086 | Groups add, edit, reorder | Done |
+| Wave 2 | MS-5087, MS-5050, MS-5052, MS-5054 / MS-5088, MS-5051, MS-5053, MS-5055 | Promotion rules, promotions, promo analysis | Done |
+| Wave 2 | MS-5056 / MS-5057 | Referrals and export | Done |
+| Wave 3 | MS-5093 / MS-5094 | Clean-up: remove supabase-js and the legacy modules from the portal; list the legacy SQL functions for the lead's review (nothing dropped by the developer) | To do |
 
 Wave 2 waits for wave 1 because its pages share router files with the lookups (users, bundles, groups, tags, promotion rules). Wave 3 waits for every page.
 
@@ -42,7 +49,7 @@ These waves group the Jira stories. Section 5 of the migration plan also numbers
 ### What to read
 
 1. For each story: its record above. Each record has the same sections: "No current flow changed", endpoints, files (new and changed), SQL, tests, bugs fixed.
-2. For wave 1: also [wave-1-coordination.md](wave-1-coordination.md), the shared files prepared before the stories and adjusted during the review.
+2. For wave 1 and wave 2: also [wave-1-coordination.md](wave-1-coordination.md) and [wave-2-coordination.md](wave-2-coordination.md), the shared files prepared before the stories and the changes made during the review.
 3. Check the rule of this work: every file in the diff is under an admin folder (`app/*/admin/`, `tests/admin/`, `migrations/admin/`, `adminDocs/`), except the appended lines listed in the foundation record and the guard test change listed in the wave 1 coordination record.
 
 ### SQL to apply
@@ -60,6 +67,11 @@ Nothing has been applied. Apply the whole folder in order, twice, to confirm it 
 | `120_settings.sql` | MS-5091 | Settings save |
 | `130_storage_cleanup_queue.sql` | Foundation | Retry of image deletions that failed (banners) |
 | `140_orders_devices_indexes.sql` | MS-5081 | Speed of the orders and devices lists only |
+| `060_admin_search_bundles.sql`, `061_bundles_admin.sql` | MS-5083 | Bundles search and tag filter, status changes, bulk status, tag assignment |
+| `070_groups.sql` | MS-5085 | Group create, edit, delete and tag reorder |
+| `080_users.sql` | MS-5079 | Users list and detail, ban and unban, wallet transactions (`admin_wallet_transactions` is here, not in `090`) |
+| `090_wallet_referrals.sql` | MS-5056 | Referrals list and export, the user detail referrals tab (`admin_referral_transactions` only) |
+| `100_promotions.sql` | MS-5050, MS-5054 | Promotions list and promo analysis (not syntax-checked offline, review first) |
 
 Until these are applied, the admin endpoints work in tests only; the pages that need them return 502 against a real database. Give at least one account the `super_admin` role with `900_seed_super_admin.sql.example` to sign in.
 

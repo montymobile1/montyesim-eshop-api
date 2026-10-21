@@ -40,7 +40,12 @@ data violates a new unique key. Clean those rows, then run again.
 | `030_promotion_rule_id_text.sql` | `promotion_rule.id_text` generated column (guarded) |
 | `040_triggers.sql` | `validate_bundle_codes`, `update_promotion_rule_name` triggers |
 | `050_admin_audit_helpers.sql` | `admin_write_audit`, `admin_rotate_cache_key`, `admin_insert_audited`, `admin_update_audited`, `admin_delete_audited` |
-| `060`-`120` | Resource RPCs (added by later stories) |
+| `060_admin_search_bundles.sql`, `061_bundles_admin.sql` | Bundles search, single and bulk status, tag set (MS-5083) |
+| `070_groups.sql` | Group insert, edit, delete, tag reorder (MS-5085) |
+| `080_users.sql` | `admin_search_users`, `admin_wallet_transactions` (MS-5079) |
+| `090_wallet_referrals.sql` | `admin_referral_transactions` (MS-5056) |
+| `100_promotions.sql` | `admin_search_promotions`, `admin_promotion_usage` and indexes (MS-5050, MS-5054) |
+| `110_audit_search.sql`, `120_settings.sql` | Audit log search, settings save (MS-5048, MS-5091) |
 | `130_storage_cleanup_queue.sql` | Queue of storage objects that could not be deleted |
 | `900_seed_super_admin.sql.example` | Manual: give a user the `super_admin` / `admin` role |
 

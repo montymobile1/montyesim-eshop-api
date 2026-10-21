@@ -77,7 +77,7 @@ def test_create_uploads_then_inserts_with_the_public_url(svc, repo, media):
 
     media.upload.assert_called_once_with(IMAGE_FOLDER, b"data")
     assert IMAGE_FOLDER == "banners-web"
-    repo.insert_audited.assert_called_once_with({**FIELDS, "image": NEW.url}, CTX, rotate_cache=False)
+    repo.insert_audited.assert_called_once_with({**FIELDS, "image": NEW.url}, CTX, rotate_cache=True)
     assert result["image_url"] == NEW.url
     media.remove_staged.assert_not_called()
 
@@ -106,7 +106,7 @@ def test_update_without_image_keeps_it_and_touches_no_file(svc, repo, media):
 
     result = svc.update(3, {**FIELDS, "description": "new"}, None, CTX)
 
-    repo.update_audited.assert_called_once_with(3, {**FIELDS, "description": "new"}, CTX, rotate_cache=False,
+    repo.update_audited.assert_called_once_with(3, {**FIELDS, "description": "new"}, CTX, rotate_cache=True,
                                                 guard=None)
     assert result["image_url"] == OLD_URL
     media.upload.assert_not_called()
@@ -180,7 +180,7 @@ def test_delete_removes_the_image_after_commit(svc, repo, media):
 
     svc.delete(3, CTX)
 
-    repo.delete_audited.assert_called_once_with(3, CTX, rotate_cache=False)
+    repo.delete_audited.assert_called_once_with(3, CTX, rotate_cache=True)
     assert media.remove_after_commit.call_args.args[0] == ["banners-web/1111-Old title.png"]
 
 

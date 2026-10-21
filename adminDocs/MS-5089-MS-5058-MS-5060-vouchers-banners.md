@@ -53,7 +53,7 @@ The old path comes from `path_from_url` on the stored URL, which also resolves l
 
 ### APP_CACHE_KEY
 
-Banner and voucher writes do **not** rotate `APP_CACHE_KEY` (`ROTATE_CACHE = False` in `banner_service.py`). Today the portal does not rotate it on any banner or voucher action, and the backend rule is to rotate only where the portal does. The plan's catalog and MS-5058/MS-5060 ask for rotation on banner writes. If the team wants that, it is a one-line change of `ROTATE_CACHE` (see review notes).
+Every banner write (create, edit, delete) rotates `APP_CACHE_KEY` (`ROTATE_CACHE = True` in `banner_service.py`), as MS-5058 and MS-5060 ask. User decision on 2026-10-21; the portal did not rotate it before. Voucher writes still do not rotate it, as before.
 
 ## Files
 
@@ -92,10 +92,12 @@ None written. These stories use the foundation's SQL only:
 ### Review notes
 
 - `banner.is_active` has no effect on the app: `get_banners` (supabase_ddl.sql) does not filter on it. The API stores and filters it, but the portal does not show a banner status control yet, so that admins are not misled. Making the app respect it would change `get_banners`, which is outside this story.
-- APP_CACHE_KEY rotation on banner writes: kept off to mirror the portal (see above). The team leader should decide.
+- APP_CACHE_KEY rotation on banner writes: on since 2026-10-21 (user decision, see above).
+- No active/inactive switch for banners (user decision 2026-10-21): the app's `get_banners` database function ignores `banner.is_active`, so a switch would have no effect in the app. The function change is listed for the lead in `lead-review-old-flow.md`.
 - `voucher.amount` is `real`. It is returned as a JSON number, not as the decimal string MS-5089 test case 3 mentions, because the portal formats it as a number.
 - The story's banner fields `link` and `sort_order` do not exist in the `banner` table. The real columns are used: `title`, `description`, `action`, `platform`, `image`, `is_active`. The plan already records that `image` keeps the full URL.
-- The largest image comes from `ADMIN_MAX_UPLOAD_BYTES` (2 MB by default). MS-5060 says 1 MB. Set the variable to `1048576` if 1 MB is wanted.
+- The largest image comes from `ADMIN_MAX_UPLOAD_BYTES`, 1 MB by default since 2026-10-21 (user decision, as MS-5060 asks).
+- MS-5058 case 23 (a job that retries queued image deletions) is dropped from the story by user decision on 2026-10-21. Failed deletions stay recorded in `storage_cleanup_queue`; the follow-up is listed for the lead in `lead-review-old-flow.md`.
 - `image` must be PNG, JPEG or WebP. The portal's cropper always sends a JPEG, so the SVG listed in the portal tooltip still works: SVGs are rasterised in the browser before upload.
 
 ## Tests

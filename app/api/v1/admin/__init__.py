@@ -13,6 +13,8 @@ from app.api.v1.admin.devices import router as devices_router
 from app.api.v1.admin.groups import router as groups_router
 from app.api.v1.admin.orders import router as orders_router
 from app.api.v1.admin.promotion_rules import router as promotion_rules_router
+from app.api.v1.admin.promotions import router as promotions_router
+from app.api.v1.admin.referrals import router as referrals_router
 from app.api.v1.admin.settings import router as settings_router
 from app.api.v1.admin.tags import router as tags_router
 from app.api.v1.admin.users import router as users_router
@@ -26,6 +28,7 @@ router.include_router(bundles_router, prefix="/bundles")
 router.include_router(groups_router, prefix="/groups")
 router.include_router(tags_router, prefix="/tags")
 router.include_router(promotion_rules_router, prefix="/promotion-rules")
+router.include_router(promotions_router, prefix="/promotions")
 router.include_router(orders_router, prefix="/orders")
 router.include_router(devices_router, prefix="/devices")
 router.include_router(contact_us_router, prefix="/contact-us")
@@ -33,3 +36,4 @@ router.include_router(vouchers_router, prefix="/vouchers")
 router.include_router(banners_router, prefix="/banners")
 router.include_router(settings_router, prefix="/settings")
 router.include_router(audit_log_router, prefix="/audit-log")
+router.include_router(referrals_router, prefix="/referrals")

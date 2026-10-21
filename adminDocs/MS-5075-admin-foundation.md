@@ -156,7 +156,7 @@ There is no separate Python service for it, by decision of the team. The audited
 | `ADMIN_LOGIN_RATE_LIMIT` | `5/300` | Failed logins allowed per IP and email, as attempts/seconds |
 | `ADMIN_MAX_JSON_BYTES` | `262144` | Largest JSON body on admin routes |
 | `ADMIN_MEDIA_BUCKET` | `media` | Storage bucket for admin uploads (later stories) |
-| `ADMIN_MAX_UPLOAD_BYTES` | `2097152` | Largest admin image upload (later stories) |
+| `ADMIN_MAX_UPLOAD_BYTES` | `1048576` | Largest admin image upload (1 MB since 2026-10-21, as MS-5060 and MS-5086 ask) |
 | `ADMIN_EXPORT_ROW_CAP` | `50000` | Largest synchronous export (later stories) |
 
 ## Tests

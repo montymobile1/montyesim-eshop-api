@@ -25,7 +25,7 @@ from app.exceptions.admin import AdminPayloadTooLarge, AdminUpstreamError, Admin
 from app.repo.admin.storage_cleanup_queue_repo import StorageCleanupQueueRepo
 
 DEFAULT_BUCKET = "media"
-DEFAULT_MAX_UPLOAD_BYTES = 2 * 1024 * 1024
+DEFAULT_MAX_UPLOAD_BYTES = 1024 * 1024  # 1 MB, as MS-5060 and MS-5086 ask (user decision 2026-10-21)
 MAX_DIMENSION = 4000
 
 _TYPES = {  # content type -> file extension

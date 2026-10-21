@@ -10,8 +10,8 @@ The new image URL comes from the upload result, never from the browser (fixes MS
 
 ``banner.image`` keeps storing the full public URL: the app route GET /app/banners returns it as is.
 
-APP_CACHE_KEY: the portal does not rotate it on banner writes today, so banner writes do not
-rotate it either (``ROTATE_CACHE``; one line to change if the team decides otherwise).
+APP_CACHE_KEY: every banner write (create, edit, delete) rotates it, as MS-5058 and MS-5060 ask
+(user decision 2026-10-21; the portal did not rotate it before), so the apps reload their banners.
 """
 from typing import Any, BinaryIO, Dict, Optional
 
@@ -22,7 +22,7 @@ from app.schemas.admin.common import AdminPage, PageParams
 from app.services.admin.media_storage_service import MediaStorageService
 
 IMAGE_FOLDER = "banners-web"
-ROTATE_CACHE = False
+ROTATE_CACHE = True
 
 
 class BannerAdminService:

@@ -154,7 +154,7 @@ def test_create_duplicate_title_is_409(api_client, service, as_admin):
 
 
 def test_create_too_large_is_413(api_client, service, as_admin):
-    service.create.side_effect = AdminPayloadTooLarge("file larger than 2097152 bytes")
+    service.create.side_effect = AdminPayloadTooLarge("file larger than 1048576 bytes")
     _failed(api_client.post(BASE, data=FORM, files={"image": PNG}), 413)
 
 
