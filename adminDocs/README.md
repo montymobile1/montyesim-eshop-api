@@ -18,6 +18,7 @@ Each story gets one record in this folder, named after its Jira key, listing eve
 | MS-5087, MS-5050, MS-5052, MS-5054, promotion rules, promotions, promo analysis | [MS-5087-MS-5050-MS-5052-MS-5054-promotions.md](MS-5087-MS-5050-MS-5052-MS-5054-promotions.md) | Done (wave 2) |
 | MS-5056, referrals and export | [MS-5056-referrals.md](MS-5056-referrals.md) | Done (wave 2) |
 | Wave 2 shared changes (no story) | [wave-2-coordination.md](wave-2-coordination.md) | Done (wave 2) |
+| MS-5093, legacy functions handed to the lead, admin API documented | [MS-5093-legacy-review-and-docs.md](MS-5093-legacy-review-and-docs.md) | Done (wave 3) |
 | Changes to the current flow left to the lead (not applied) | [lead-review-old-flow.md](lead-review-old-flow.md) | For review |
 
 The migration plan is in the admin portal repo, `docs/adminDocs/admin-api-migration-plan.md`.
@@ -38,7 +39,7 @@ The stories are delivered in waves. A wave is a group of stories developed in pa
 | Wave 2 | MS-5085 / MS-5086 | Groups add, edit, reorder | Done |
 | Wave 2 | MS-5087, MS-5050, MS-5052, MS-5054 / MS-5088, MS-5051, MS-5053, MS-5055 | Promotion rules, promotions, promo analysis | Done |
 | Wave 2 | MS-5056 / MS-5057 | Referrals and export | Done |
-| Wave 3 | MS-5093 / MS-5094 | Clean-up: remove supabase-js and the legacy modules from the portal; list the legacy SQL functions for the lead's review (nothing dropped by the developer) | To do |
+| Wave 3 | MS-5093 / MS-5094 | Clean-up: remove supabase-js and the legacy modules from the portal; list the legacy SQL functions for the lead's review (nothing dropped by the developer) | Done |
 
 Wave 2 waits for wave 1 because its pages share router files with the lookups (users, bundles, groups, tags, promotion rules). Wave 3 waits for every page.
 
