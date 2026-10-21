@@ -59,8 +59,49 @@ def test_orders_never_return_the_otp(monkeypatch):
 
     result = repo.search(PAGE)
 
-    assert result.rows == [{"id": "o1", "amount": 500}]
+    assert result.rows == [{"id": "o1", "amount": 500, "bundle_name": None, "bundle_code": None}]
     assert result.total == 1
+
+
+def test_orders_never_return_payment_intent_or_raw_bundle_data(monkeypatch):
+    """TEOS-117: payment_intent_code and the raw bundle_data never leave the server."""
+    repo = UserOrderAdminRepo()
+    bundle = '{"display_title": "Europe 5GB", "bundle_code": "EU-5GB", "price": 10}'
+    _capture(monkeypatch, repo, rows=[
+        {"id": "o1", "amount": 500, "payment_intent_code": "pi_secret", "bundle_data": bundle, "otp": "1"},
+        {"id": "o2", "amount": 100, "payment_intent_code": None, "bundle_data": None},
+    ], total=2)
+
+    result = repo.search(PAGE)
+
+    for row in result.rows:
+        assert "payment_intent_code" not in row
+        assert "bundle_data" not in row
+        assert "otp" not in row
+    assert result.rows[0] == {"id": "o1", "amount": 500, "bundle_name": "Europe 5GB", "bundle_code": "EU-5GB"}
+    assert result.rows[1] == {"id": "o2", "amount": 100, "bundle_name": None, "bundle_code": None}
+
+
+@pytest.mark.parametrize("bundle_data, name, code", [
+    ('{"display_title": "Europe 5GB", "bundle_code": "EU-5GB"}', "Europe 5GB", "EU-5GB"),
+    ({"display_title": "Global 1GB", "bundle_code": "GL-1GB"}, "Global 1GB", "GL-1GB"),  # jsonb / dict
+    ('{"bundle_code": "EU-5GB"}', None, "EU-5GB"),  # no title
+    ('{"display_title": "", "bundle_code": ""}', None, None),  # empty values
+    ("-", None, None),
+    (None, None, None),
+    ("", None, None),
+    ("{not json", None, None),
+    ("[1, 2]", None, None),  # valid JSON, not an object
+    ("null", None, None),
+    ("42", None, None),
+])
+def test_orders_bundle_name_and_code_extraction(monkeypatch, bundle_data, name, code):
+    repo = UserOrderAdminRepo()
+    _capture(monkeypatch, repo, rows=[{"id": "o1", "bundle_data": bundle_data}], total=1)
+
+    row = repo.search(PAGE).rows[0]
+
+    assert row == {"id": "o1", "bundle_name": name, "bundle_code": code}
 
 
 def test_orders_sort_column_is_checked(monkeypatch):
@@ -98,7 +139,7 @@ def test_contact_us_search_is_literal(monkeypatch):
 
     assert seen["params"]["select"] == "id,email,content,created_at"
     # % and _ are escaped for LIKE, then the backslashes are escaped again inside the quoted value
-    assert seen["params"]["or"] == r'(email.ilike."%50\\%\\_a%")'
+    assert seen["params"]["or"] == r'(email.ilike."%50\\%\\_a%",content.ilike."%50\\%\\_a%")'
 
 
 def test_contact_us_blank_search_lists_everything(monkeypatch):
@@ -108,3 +149,48 @@ def test_contact_us_blank_search_lists_everything(monkeypatch):
     repo.search(PAGE, search="  ")
 
     assert "or" not in seen["params"]
+
+
+def test_contact_us_search_matches_email_or_content(monkeypatch):
+    # TEOS-118: the term is matched against the email OR the message content
+    repo = ContactUsAdminRepo()
+    seen = _capture(monkeypatch, repo)
+
+    repo.search(PAGE, search=" Hello ")
+
+    assert seen["params"]["or"] == '(email.ilike."%Hello%",content.ilike."%Hello%")'
+    assert seen["order"] is None  # the default order: created_at desc, id desc
+
+
+def test_contact_us_percent_is_literal_in_both_columns(monkeypatch):
+    repo = ContactUsAdminRepo()
+    seen = _capture(monkeypatch, repo)
+
+    repo.search(PAGE, search="%")
+
+    assert seen["params"]["or"] == r'(email.ilike."%\\%%",content.ilike."%\\%%")'
+
+
+def test_contact_us_date_range_is_half_open(monkeypatch):
+    from datetime import datetime
+    repo = ContactUsAdminRepo()
+    seen = {}
+
+    def fake_paged(query, page, order=None):
+        seen["created_at"] = query.params.get_list("created_at")
+        return Paged(rows=[], total=0)
+
+    monkeypatch.setattr(repo, "paged", fake_paged)
+
+    repo.search(PAGE, created_from=datetime(2026, 10, 1), created_to=datetime(2026, 10, 22))
+
+    assert seen["created_at"] == ["gte.2026-10-01T00:00:00", "lt.2026-10-22T00:00:00"]
+
+
+def test_contact_us_no_dates_no_created_at_filter(monkeypatch):
+    repo = ContactUsAdminRepo()
+    seen = _capture(monkeypatch, repo)
+
+    repo.search(PAGE)
+
+    assert seen["params"] == {"select": "id,email,content,created_at"}

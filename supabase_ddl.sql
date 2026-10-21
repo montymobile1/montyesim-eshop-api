@@ -5627,7 +5627,8 @@ GRANT EXECUTE ON FUNCTION public.admin_reorder_tags(bigint, uuid[], uuid, text, 
 
     admin_search_users(p_search text DEFAULT NULL, p_ban_status text DEFAULT 'all',
                        p_limit integer DEFAULT 20, p_offset integer DEFAULT 0,
-                       p_id uuid DEFAULT NULL)
+                       p_id uuid DEFAULT NULL, p_sort text DEFAULT 'created_at',
+                       p_dir text DEFAULT 'desc')
       -> jsonb {"data": [user rows], "total": n, "facets": {"all": n, "banned": n, "active": n}}
 
     - Source: users_copy (email, metadata = auth.users.raw_user_meta_data) LEFT JOIN auth.users
@@ -5641,7 +5642,11 @@ GRANT EXECUTE ON FUNCTION public.admin_reorder_tags(bigint, uuid[], uuid, text, 
     - p_ban_status: all | banned | active, else AD422.
     - p_id: only that user (the detail route); the facets are over the searched set anyway.
     - facets: counts over the searched set (p_search and p_id) whatever p_ban_status says.
-    - Order: auth.users.created_at DESC NULLS LAST, id DESC (stable paging, MS-5067).
+    - Order: p_sort (created_at | email) in p_dir (asc | desc), NULLs last, then id in the
+      same direction (stable paging, MS-5067). Default created_at DESC, id DESC. Any other
+      p_sort / p_dir -> AD422 (TEOS-111).
+    - The first (5-argument) signature is dropped first (DROP FUNCTION IF EXISTS on its exact
+      argument list); callers passing only the first five parameters keep working (defaults).
     - p_limit 1..100, p_offset >= 0, else AD422.
 
     admin_wallet_transactions(p_user_id uuid, p_limit integer DEFAULT 20, p_offset integer DEFAULT 0)
@@ -5657,12 +5662,17 @@ GRANT EXECUTE ON FUNCTION public.admin_reorder_tags(bigint, uuid[], uuid, text, 
 ------------------------------------------------------------------------------
 -- admin_search_users
 ------------------------------------------------------------------------------
+-- TEOS-111: p_sort / p_dir added; the first (5-argument) signature is replaced.
+DROP FUNCTION IF EXISTS public.admin_search_users(text, text, integer, integer, uuid);
+
 CREATE OR REPLACE FUNCTION public.admin_search_users(
     p_search     text    DEFAULT NULL,
     p_ban_status text    DEFAULT 'all',
     p_limit      integer DEFAULT 20,
     p_offset     integer DEFAULT 0,
-    p_id         uuid    DEFAULT NULL
+    p_id         uuid    DEFAULT NULL,
+    p_sort       text    DEFAULT 'created_at',
+    p_dir        text    DEFAULT 'desc'
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -5673,6 +5683,8 @@ AS $$
 DECLARE
     v_pattern text;
     v_status  text := coalesce(nullif(btrim(p_ban_status), ''), 'all');
+    v_sort    text := coalesce(nullif(btrim(p_sort), ''), 'created_at');
+    v_dir     text := lower(coalesce(nullif(btrim(p_dir), ''), 'desc'));
     v_result  jsonb;
 BEGIN
     IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_offset IS NULL OR p_offset < 0 THEN
@@ -5687,6 +5699,20 @@ BEGIN
             ERRCODE = 'AD422',
             MESSAGE = 'p_ban_status must be all, banned or active',
             DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_ban_status')::text;
+    END IF;
+
+    IF v_sort NOT IN ('created_at', 'email') THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_sort must be created_at or email',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_sort')::text;
+    END IF;
+
+    IF v_dir NOT IN ('asc', 'desc') THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_dir must be asc or desc',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_dir')::text;
     END IF;
 
     IF p_search IS NOT NULL AND btrim(p_search) <> '' THEN
@@ -5721,14 +5747,25 @@ BEGIN
             OR (v_status = 'banned' AND is_banned)
             OR (v_status = 'active' AND NOT is_banned)
     ),
-    page AS (
-        SELECT f.*
+    ordered AS (
+        SELECT f.*,
+               row_number() OVER (ORDER BY
+                   CASE WHEN v_sort = 'email'      AND v_dir = 'asc'  THEN f.email      END ASC  NULLS LAST,
+                   CASE WHEN v_sort = 'email'      AND v_dir = 'desc' THEN f.email      END DESC NULLS LAST,
+                   CASE WHEN v_sort = 'created_at' AND v_dir = 'asc'  THEN f.created_at END ASC  NULLS LAST,
+                   CASE WHEN v_sort = 'created_at' AND v_dir = 'desc' THEN f.created_at END DESC NULLS LAST,
+                   CASE WHEN v_dir = 'asc'  THEN f.id END ASC,
+                   CASE WHEN v_dir = 'desc' THEN f.id END DESC) AS sort_rank
           FROM filtered f
-         ORDER BY f.created_at DESC NULLS LAST, f.id DESC
+    ),
+    page AS (
+        SELECT o.*
+          FROM ordered o
+         ORDER BY o.sort_rank
          LIMIT p_limit OFFSET p_offset
     )
     SELECT jsonb_build_object(
-               'data', coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.created_at DESC NULLS LAST, p.id DESC)
+               'data', coalesce((SELECT jsonb_agg(to_jsonb(p) - 'sort_rank' ORDER BY p.sort_rank)
                                    FROM page p), '[]'::jsonb),
                'total', (SELECT count(*) FROM filtered),
                'facets', jsonb_build_object(
@@ -5803,9 +5840,9 @@ $$;
 ------------------------------------------------------------------------------
 -- Privileges
 ------------------------------------------------------------------------------
-REVOKE ALL ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid)
+REVOKE ALL ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text)
     FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid)
+GRANT EXECUTE ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text)
     TO service_role;
 
 REVOKE ALL ON FUNCTION public.admin_wallet_transactions(uuid, integer, integer)
@@ -6607,8 +6644,9 @@ GRANT EXECUTE ON FUNCTION public.admin_audit_log_search(text, text, uuid, timest
     AD422 invalid_input        p_items not an array of {key: text, value: text}, empty save,
                                key longer than 100, value longer than 10 000
     AD422 cache_key_forbidden  APP_CACHE_KEY in p_items or p_deleted
-    AD422 secret_key           a secret-shaped key in p_items (secrets live in the environment,
-                               app/config/helper.py is_secret_key); deleting one is allowed
+    (no secret_key error since TEOS-134, user decision 2026-10-21 "for now": secret-shaped keys
+     (admin_setting_is_secret) are created, updated and deleted like any other key; their values
+     are written to the audit row as '***')
     AD422 duplicate_key        a key twice in p_items, or in both lists
     AD409 no_change            nothing would change
 
@@ -6715,16 +6753,8 @@ BEGIN
             DETAIL  = jsonb_build_object('code', 'cache_key_forbidden')::text;
     END IF;
 
-    SELECT e ->> 'key' INTO v_bad
-      FROM jsonb_array_elements(v_items) e
-     WHERE public.admin_setting_is_secret(e ->> 'key')
-     LIMIT 1;
-    IF v_bad IS NOT NULL THEN
-        RAISE EXCEPTION USING
-            ERRCODE = 'AD422',
-            MESSAGE = format('%s is a secret: secrets are set in the environment, not in app_config', v_bad),
-            DETAIL  = jsonb_build_object('code', 'secret_key', 'key', v_bad)::text;
-    END IF;
+    -- TEOS-134 (user decision 2026-10-21, for now): secret-shaped keys are saved like any other key;
+    -- their values are written to the audit row as '***' (see the loops below).
 
     SELECT k INTO v_bad
       FROM (SELECT e ->> 'key' AS k FROM jsonb_array_elements(v_items) e
@@ -6765,7 +6795,8 @@ BEGIN
 
         IF v_exists THEN
             UPDATE public.app_config SET value = v_value WHERE key = v_key;
-            v_old_data := v_old_data || jsonb_build_object(v_key, v_old);
+            v_old_data := v_old_data || jsonb_build_object(
+                              v_key, CASE WHEN public.admin_setting_is_secret(v_key) THEN '***' ELSE v_old END);
         ELSE
             INSERT INTO public.app_config (key, value)
             VALUES (v_key, v_value)
@@ -6773,7 +6804,8 @@ BEGIN
         END IF;
 
         v_updated  := v_updated || v_key;
-        v_new_data := v_new_data || jsonb_build_object(v_key, v_value);
+        v_new_data := v_new_data || jsonb_build_object(
+                          v_key, CASE WHEN public.admin_setting_is_secret(v_key) THEN '***' ELSE v_value END);
 
         IF v_key = 'FORBIDDEN_COUNTRIES' THEN
             v_forbidden := true;
@@ -6909,3 +6941,40 @@ CREATE INDEX IF NOT EXISTS user_order_user_id_created_at_idx
 
 CREATE INDEX IF NOT EXISTS device_user_id_created_at_idx
     ON public.device (user_id, created_at DESC);
+
+
+-- ----------------------------------------------------------------------------
+-- TEOS-134 / TEOS-133 (2026-10-21): settings description, VOUCHER_MAX_AMOUNT
+-- ----------------------------------------------------------------------------
+
+/*
+  TEOS-134 (admin Settings page)
+  - app_config.description: nullable, additive. Returned by GET /api/v1/admin/settings; not written by
+    the admin API yet (set it here or in the database).
+
+  TEOS-133 (admin Vouchers page)
+  - VOUCHER_MAX_AMOUNT: the highest amount of a voucher created from the admin portal
+    (POST /api/v1/admin/vouchers). Seeded with the value that was fixed in code (1000000); an existing
+    row is kept. A missing or invalid row falls back to 1000000 in the API. Non-secret, protected
+    (it cannot be deleted from the Settings page).
+  - The case-insensitive unique index voucher_code_lower_key (020_constraints above) already
+    enforces voucher code uniqueness; nothing to add.
+
+  admin_upsert_settings (above) is changed in place for TEOS-134: secret-shaped keys are no longer
+  refused (user decision 2026-10-21, for now: such rows exist only in the qa database and the backend
+  reads secrets from the environment); their values are written to the audit row as '***'.
+  The protected-key and typed-value rules are checked by the API (app/schemas/admin/settings.py)
+  before the function is called.
+
+  Idempotent.
+*/
+
+ALTER TABLE public.app_config ADD COLUMN IF NOT EXISTS description text;
+
+COMMENT ON COLUMN public.app_config.description IS
+    'What the setting does, shown on the admin Settings page (TEOS-134).';
+
+INSERT INTO public.app_config (key, value, description)
+VALUES ('VOUCHER_MAX_AMOUNT', '1000000',
+        'Highest amount of a voucher created from the admin portal (positive number).')
+ON CONFLICT (key) DO NOTHING;

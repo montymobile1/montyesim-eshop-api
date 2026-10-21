@@ -7,6 +7,8 @@ from app.config.admin_permissions import ROLE_ADMIN
 from app.dependencies.admin_security import AdminUser, admin_user
 from app.exceptions.admin import AdminUpstreamError
 from app.schemas.admin.common import AdminPage, PageParams
+from app.schemas.admin.devices import DeviceLoggedIn, DevicePlatform, DeviceSort
+from app.schemas.admin.orders import AdminSortDirection
 from tests.admin.conftest import make_admin
 
 URL = "/api/v1/admin/devices"
@@ -37,14 +39,19 @@ def test_list(api_client, as_admin, service):
     assert response.status_code == 200
     assert response.json()["data"]["data"] == [ROW]
     assert response.json()["totalCount"] == 1
-    service.list.assert_called_once_with(PageParams(page=1, page_size=20), user_id=None)
+    service.list.assert_called_once_with(
+        PageParams(page=1, page_size=20), user_id=None, platform=DevicePlatform.all,
+        logged_in=DeviceLoggedIn.all, sort=DeviceSort.created_at, direction=AdminSortDirection.desc)
 
 
 def test_user_filter_and_paging(api_client, as_admin, service):
-    response = api_client.get(URL, params={"user_id": USER_ID, "page": 2, "page_size": 10})
+    response = api_client.get(URL, params={"user_id": USER_ID, "page": 2, "page_size": 10, "platform": "ios",
+                                           "logged_in": "yes", "sort": "timestamp_login", "dir": "asc"})
 
     assert response.status_code == 200
-    service.list.assert_called_once_with(PageParams(page=2, page_size=10), user_id=USER_ID)
+    service.list.assert_called_once_with(
+        PageParams(page=2, page_size=10), user_id=USER_ID, platform=DevicePlatform.ios,
+        logged_in=DeviceLoggedIn.yes, sort=DeviceSort.timestamp_login, direction=AdminSortDirection.asc)
 
 
 @pytest.mark.parametrize("params", [{"user_id": "x"}, {"page_size": 101}, {"user": USER_ID}])

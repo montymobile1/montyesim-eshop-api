@@ -211,3 +211,75 @@ def test_app_config_repo_upsert_calls_the_rpc():
     assert name == "admin_upsert_settings"
     assert params == {"p_items": [], "p_deleted": ["A"], "p_actor": CTX.actor_id, "p_ip": "8.8.8.8",
                       "p_reason": None}
+
+
+# ---------------------------------------------------------------- TEOS-134 key rules
+
+def test_update_refuses_a_protected_delete_before_reading_anything():
+    service, settings = _service({"OLD": {"key": "OLD", "value": "1"}})
+    with pytest.raises(AdminConflict) as caught:
+        service.update(AdminSettingsUpdate(deleted_keys=["OLD", "FORBIDDEN_COUNTRIES", "APP_CACHE_KEY"]), CTX)
+    assert caught.value.conflict_code == "protected_key"
+    assert caught.value.extra == {"key": "FORBIDDEN_COUNTRIES", "keys": ["FORBIDDEN_COUNTRIES", "APP_CACHE_KEY"]}
+    settings.by_keys.assert_not_called()
+    settings.upsert_settings.assert_not_called()
+
+
+def test_update_new_key_must_match_the_pattern():
+    service, settings = _service({})
+    with pytest.raises(AdminValidationError) as caught:
+        service.update(AdminSettingsUpdate(items=[AdminSettingItem(key="AB", value="1")]), CTX)
+    assert "items.0.key: invalid_key" in caught.value.details
+    settings.upsert_settings.assert_not_called()
+
+
+def test_list_marks_editable_and_deletable_and_passes_search():
+    from app.repo.admin.base import Paged
+    service, settings = _service({})
+    settings.search.return_value = Paged(rows=[{"id": 1, "key": "MY_FLAG", "value": "1"},
+                                               {"id": 2, "key": "TOP_COUNTRIES_COUNT", "value": "8"}], total=2)
+
+    page = service.list(PageParams(), search="flag")
+
+    settings.search.assert_called_once_with(PageParams(), key=None, search="flag")
+    assert [(r.key, r.editable, r.deletable) for r in page.data] == [("MY_FLAG", True, True),
+                                                                      ("TOP_COUNTRIES_COUNT", True, False)]
+
+
+@pytest.mark.parametrize("key, value, ok", [
+    ("TOP_COUNTRIES_COUNT", "10", True), ("TOP_COUNTRIES_COUNT", " 7 ", True), ("TOP_COUNTRIES_COUNT", "1.5", False),
+    ("FORBIDDEN_COUNTRIES", "US", True), ("FORBIDDEN_COUNTRIES", "us", False), ("FORBIDDEN_COUNTRIES", "IL,IL", False),
+    ("FORBIDDEN_COUNTRIES", "ISR", False), ("WALLET_TOP_UP_ALERT_RECIPIENTS", "", False),
+    ("WALLET_TOP_UP_ALERT_RECIPIENTS", "a@x.com,", False), ("VOUCHER_MAX_AMOUNT", "abc", False),
+    ("VOUCHER_MAX_AMOUNT", "0", False), ("VOUCHER_MAX_AMOUNT", "NaN", False), ("VOUCHER_MAX_AMOUNT", "1e3", True),
+    ("ANY_OTHER", "whatever", True),
+])
+def test_setting_value_rules(key, value, ok):
+    from app.schemas.admin.settings import setting_value_error
+    assert (setting_value_error(key, value) is None) is ok
+
+
+def test_protected_keys_cover_every_config_enum_key():
+    from app.config.db import ConfigKeysEnum
+    from app.schemas.admin.settings import PROTECTED_SETTING_KEYS
+    assert {key.value for key in ConfigKeysEnum} <= PROTECTED_SETTING_KEYS
+    assert {"APP_CACHE_KEY", "FORBIDDEN_COUNTRIES", "WALLET_TOP_UP_ALERT_RECIPIENTS"} <= PROTECTED_SETTING_KEYS
+    # secrets are read from the environment (get_secret): not protected (user decision 2026-10-21)
+    assert not {"RESELLER_ID", "ESIM_HUB_API_KEY"} & PROTECTED_SETTING_KEYS
+
+
+def test_app_config_repo_search_selects_the_description_and_searches_the_key():
+    repo = _repo(AppConfigAdminRepo)
+    repo.table = MagicMock()
+    query = repo.table.select.return_value
+    query.eq.return_value = query
+    query.ilike.return_value = query
+    query.order.return_value = query
+    query.range.return_value.execute.return_value = MagicMock(data=[], count=0)
+
+    repo.search(PageParams(), key=None, search="countr")
+
+    assert repo.table.select.call_args.args[0] == "id,key,value,description,created_at"
+    query.or_.assert_not_called()  # secret-shaped rows are listed (user decision 2026-10-21)
+    query.ilike.assert_called_once_with("key", "%countr%")
+    query.eq.assert_not_called()

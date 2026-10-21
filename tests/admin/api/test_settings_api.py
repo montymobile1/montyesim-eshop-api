@@ -67,20 +67,44 @@ def test_list_settings_paged_with_exact_key_filter(api_client, as_super, repos):
     assert body["data"]["data"][0]["is_secret"] is False
     page = repos["settings"].search.call_args.args[0]
     assert (page.page, page.page_size) == (2, 10)
-    assert repos["settings"].search.call_args.kwargs == {"key": "FORBIDDEN_COUNTRIES"}
+    assert repos["settings"].search.call_args.kwargs == {"key": "FORBIDDEN_COUNTRIES", "search": None}
 
 
-def test_list_redacts_a_legacy_secret_row(api_client, as_super, repos):
+def test_list_returns_secret_shaped_rows_with_their_value(api_client, as_super, repos):
+    # user decision 2026-10-21 (deviation from TEOS-134 case 12): such rows exist only in the qa database
     repos["settings"].search.return_value = Paged(rows=[
         {"id": 1, "key": "SMTP_PASSWORD", "value": "hunter2", "created_at": None},
-        {"id": 2, "key": "APP_CACHE_KEY", "value": "abc", "created_at": None},
+        {"id": 3, "key": "RESELLER_ID", "value": "r-1", "created_at": None},
     ], total=2)
+
+    body = api_client.get(URL).json()["data"]
+
+    assert [(r["key"], r["value"], r["is_secret"], r["editable"]) for r in body["data"]] == [
+        ("SMTP_PASSWORD", "hunter2", False, True), ("RESELLER_ID", "r-1", False, True)]
+    assert body["data"][1]["deletable"] is True  # RESELLER_ID is read from the environment, not protected
+    assert body["total_count"] == 2
+
+
+def test_list_rows_have_description_editable_and_deletable(api_client, as_super, repos):
+    repos["settings"].search.return_value = Paged(rows=[
+        {"id": 1, "key": "APP_CACHE_KEY", "value": "abc", "description": None, "created_at": None},
+        {"id": 2, "key": "FORBIDDEN_COUNTRIES", "value": "IL", "description": "Hidden countries",
+         "created_at": None},
+        {"id": 3, "key": "MY_FLAG", "value": "1", "created_at": None},
+    ], total=3)
 
     rows = api_client.get(URL).json()["data"]["data"]
 
-    assert rows[0]["value"] == "***" and rows[0]["is_secret"] is True
-    assert rows[1]["value"] == "abc" and rows[1]["is_secret"] is False
-    assert "hunter2" not in json.dumps(rows)
+    assert [(r["key"], r["editable"], r["deletable"]) for r in rows] == [
+        ("APP_CACHE_KEY", False, False), ("FORBIDDEN_COUNTRIES", True, False), ("MY_FLAG", True, True)]
+    assert rows[1]["description"] == "Hidden countries" and rows[2]["description"] is None
+
+
+def test_list_search_by_part_of_the_key(api_client, as_super, repos):
+    repos["settings"].search.return_value = Paged(rows=[], total=0)
+
+    assert api_client.get(URL, params={"search": "countr"}).status_code == 200
+    assert repos["settings"].search.call_args.kwargs == {"key": None, "search": "countr"}
 
 
 def test_list_requires_a_session(api_client, repos):
@@ -143,11 +167,11 @@ def test_put_new_key_and_delete(api_client, as_super, repos):
 
 
 def test_put_forbidden_countries_reports_the_rotation(api_client, as_super, repos):
-    repos["settings"].by_keys.return_value = _current(FORBIDDEN_COUNTRIES="XX")
+    repos["settings"].by_keys.return_value = _current(FORBIDDEN_COUNTRIES="IL")
     repos["settings"].upsert_settings.return_value = {"updated": ["FORBIDDEN_COUNTRIES"], "deleted": [],
                                                       "cache_key_rotated": True}
 
-    response = api_client.put(URL, json={"items": [{"key": "FORBIDDEN_COUNTRIES", "value": "XX,YY"}]})
+    response = api_client.put(URL, json={"items": [{"key": "FORBIDDEN_COUNTRIES", "value": "IL,IR"}]})
 
     assert response.json()["data"]["cache_key_rotated"] is True
 
@@ -174,9 +198,18 @@ def test_put_race_no_change_from_sql_is_409(api_client, as_super, repos):
 
 @pytest.mark.parametrize("body, fragment", [
     ({"items": [{"key": "APP_CACHE_KEY", "value": "x"}]}, "cache_key_forbidden"),
-    ({"deleted_keys": ["APP_CACHE_KEY"]}, "cache_key_forbidden"),
-    ({"items": [{"key": "STRIPE_SECRET_KEY", "value": "sk"}]}, "secret_key"),
-    ({"items": [{"key": "SMTP_USERNAME", "value": "u"}]}, "secret_key"),
+    ({"items": [{"key": "TOP_COUNTRIES_COUNT", "value": "abc"}]}, "items.0.value: invalid_value"),
+    ({"items": [{"key": "TOP_COUNTRIES_COUNT", "value": "0"}]}, "items.0.value: invalid_value"),
+    ({"items": [{"key": "TOP_COUNTRIES_COUNT", "value": "51"}]}, "items.0.value: invalid_value"),
+    ({"items": [{"key": "FORBIDDEN_COUNTRIES", "value": "IL,XX"}]}, "items.0.value: invalid_value"),
+    ({"items": [{"key": "FORBIDDEN_COUNTRIES", "value": "IL, IR"}]}, "items.0.value: invalid_value"),
+    ({"items": [{"key": "WALLET_TOP_UP_ALERT_RECIPIENTS", "value": "a@x.com,nope"}]},
+     "items.0.value: invalid_value"),
+    ({"items": [{"key": "VOUCHER_MAX_AMOUNT", "value": "-5"}]}, "items.0.value: invalid_value"),
+    ({"items": [{"key": f"K{i:03d}", "value": "1"} for i in range(60)],
+      "deleted_keys": [f"D{i:03d}" for i in range(41)]}, "too_many_items"),
+    ({"items": [{"key": "A", "value": "1"}], "old_data": {}}, "old_data"),
+    ({"items": [{"key": "A", "value": "1"}], "changed_by": "x"}, "changed_by"),
     ({"items": [{"key": "A", "value": "1"}, {"key": "A", "value": "2"}]}, "items.1.key: duplicate_key"),
     ({"items": [{"key": "A", "value": "1"}], "deleted_keys": ["A"]}, "also in items"),
     ({"items": [{"key": "HAS SPACE", "value": "1"}]}, "items.0.key"),
@@ -218,7 +251,74 @@ def test_put_requires_a_session(api_client, repos):
 def test_put_database_error_is_502(api_client, as_super, repos):
     repos["settings"].by_keys.return_value = {}
     repos["settings"].upsert_settings.side_effect = AdminUpstreamError("DATABASE_ERROR")
-    assert api_client.put(URL, json={"items": [{"key": "A", "value": "1"}]}).status_code == 502
+    assert api_client.put(URL, json={"items": [{"key": "NEW_FLAG", "value": "1"}]}).status_code == 502
+
+
+# ---------------------------------------------------------------- TEOS-134 key rules
+
+@pytest.mark.parametrize("deleted", [["APP_CACHE_KEY"], ["OLD_FLAG", "FORBIDDEN_COUNTRIES"],
+                                     ["login_type"], ["VOUCHER_MAX_AMOUNT"]])
+def test_put_deleting_a_protected_key_is_409_and_refuses_the_whole_batch(api_client, as_super, repos, deleted):
+    repos["settings"].by_keys.return_value = _current(OLD_FLAG="1")
+
+    response = api_client.put(URL, json={"items": [{"key": "NEW_FLAG", "value": "1"}], "deleted_keys": deleted})
+
+    assert response.status_code == 409
+    detail = json.loads(response.json()["developerMessage"])
+    assert detail["code"] == "protected_key"
+    assert detail["keys"] == [key for key in deleted if key != "OLD_FLAG"]
+    repos["settings"].upsert_settings.assert_not_called()
+
+
+@pytest.mark.parametrize("existing", [True, False])
+def test_put_secret_shaped_keys_are_saved_like_any_other_key(api_client, as_super, repos, existing):
+    # user decision 2026-10-21, for now: create, update and delete secret-shaped keys normally
+    repos["settings"].by_keys.return_value = (
+        _current(ESIM_HUB_API_KEY="old", RESELLER_ID="r-1") if existing else _current(RESELLER_ID="r-1"))
+    repos["settings"].upsert_settings.return_value = {"updated": ["ESIM_HUB_API_KEY"], "deleted": ["RESELLER_ID"],
+                                                      "cache_key_rotated": False}
+
+    response = api_client.put(URL, json={"items": [{"key": "ESIM_HUB_API_KEY", "value": "new"}],
+                                         "deleted_keys": ["RESELLER_ID"]})
+
+    assert response.status_code == 200
+    items, deleted, _ = repos["settings"].upsert_settings.call_args.args
+    assert items == [{"key": "ESIM_HUB_API_KEY", "value": "new"}]
+    assert deleted == ["RESELLER_ID"]
+
+
+@pytest.mark.parametrize("key, value", [
+    ("TOP_COUNTRIES_COUNT", "1"), ("TOP_COUNTRIES_COUNT", "50"), ("FORBIDDEN_COUNTRIES", "IL,IR,KP"),
+    ("FORBIDDEN_COUNTRIES", ""), ("WALLET_TOP_UP_ALERT_RECIPIENTS", "a@x.com, ops@example.org"),
+    ("VOUCHER_MAX_AMOUNT", "2500.50"),
+])
+def test_put_typed_values_are_accepted(api_client, as_super, repos, key, value):
+    repos["settings"].by_keys.return_value = _current(**{key: "old"})
+    repos["settings"].upsert_settings.return_value = {"updated": [key], "deleted": [], "cache_key_rotated": False}
+
+    response = api_client.put(URL, json={"items": [{"key": key, "value": value}]})
+
+    assert response.status_code == 200
+    assert repos["settings"].upsert_settings.call_args.args[0] == [{"key": key, "value": value}]
+
+
+@pytest.mark.parametrize("key", ["ABC_def", "AB", "A" * 65, "1ABC", "_ABC"])
+def test_put_new_key_format_is_422(api_client, as_super, repos, key):
+    repos["settings"].by_keys.return_value = {}
+
+    response = api_client.put(URL, json={"items": [{"key": key, "value": "1"}]})
+
+    assert response.status_code == 422
+    repos["settings"].upsert_settings.assert_not_called()
+
+
+def test_put_100_keys_is_accepted(api_client, as_super, repos):
+    repos["settings"].by_keys.return_value = {}
+    repos["settings"].upsert_settings.return_value = {"updated": [], "deleted": [], "cache_key_rotated": False}
+
+    response = api_client.put(URL, json={"items": [{"key": f"KEY{i:03d}X", "value": "1"} for i in range(100)]})
+
+    assert response.status_code == 200
 
 
 @pytest.mark.parametrize("method", ["post", "delete", "patch"])
