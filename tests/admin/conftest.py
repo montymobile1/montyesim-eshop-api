@@ -37,10 +37,56 @@ def make_admin(role=ROLE_ADMIN, token="access-token") -> AdminUser:
                      permissions=permissions_for(role), token=token)
 
 
+class FakeClock:
+    """Seconds, moved by hand; one clock is shared like the database clock."""
+
+    def __init__(self, now: float = 1000.0):
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+
+class FakeLoginAttemptStore:
+    """In-memory twin of admin_login_attempt_begin / _finish (db/admin_login_rate_limit): one
+    instance shared by several LoginRateLimiter instances behaves like the table shared by workers."""
+
+    def __init__(self, clock: FakeClock):
+        self.clock = clock
+        self.rows = {}  # id -> (ip, email, attempted_at)
+        self.next_id = 1
+        self.begin_calls = []
+        self.finish_calls = []
+
+    def begin(self, ip, email, limit, window_seconds):
+        self.begin_calls.append((ip, email, limit, window_seconds))
+        since = self.clock() - window_seconds
+        self.rows = {i: row for i, row in self.rows.items() if row[2] >= since}
+        ip_count = sum(1 for row in self.rows.values() if row[0] == ip)
+        email_count = sum(1 for row in self.rows.values() if row[1] == email)
+        if ip_count >= limit or email_count >= limit:
+            return False, None
+        attempt_id = self.next_id
+        self.next_id += 1
+        self.rows[attempt_id] = (ip, email, self.clock())
+        return True, attempt_id
+
+    def finish(self, attempt_id, outcome):
+        self.finish_calls.append((attempt_id, outcome))
+        row = self.rows.get(attempt_id)
+        if row is None:
+            return
+        if outcome == "success":
+            self.rows = {i: r for i, r in self.rows.items() if (r[0], r[1]) != (row[0], row[1])}
+        else:
+            del self.rows[attempt_id]
+
+
 @pytest.fixture(autouse=True)
 def no_local_jwt_secret(monkeypatch):
     """A developer's .env may hold SUPABASE_JWT_SECRET; tests decide per case whether it is set."""
     monkeypatch.delenv("SUPABASE_JWT_SECRET", raising=False)
+    monkeypatch.delenv("ADMIN_TRUSTED_PROXY_HOPS", raising=False)
 
 
 @pytest.fixture
