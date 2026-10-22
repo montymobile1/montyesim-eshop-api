@@ -4,6 +4,9 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 UserBanStatus = Literal["all", "banned", "active"]
+#: Sort columns of the users list (TEOS-111); anything else is a 422.
+UserSort = Literal["created_at", "email"]
+SortDirection = Literal["asc", "desc"]
 
 #: 365 days, what the portal pre-fills (TEOS-63).
 DEFAULT_BAN_HOURS = 24 * 365
@@ -102,7 +105,7 @@ class AdminUserReferral(BaseModel):
 
 
 __all__: List[str] = [
-    "UserBanStatus", "DEFAULT_BAN_HOURS", "MAX_BAN_HOURS", "AdminUserBan", "AdminUserUnban",
+    "UserBanStatus", "UserSort", "SortDirection", "DEFAULT_BAN_HOURS", "MAX_BAN_HOURS", "AdminUserBan", "AdminUserUnban",
     "AdminUserRow", "AdminUserWallet", "AdminUserDetail", "AdminUserBanResult", "AdminUserUnbanResult",
     "AdminWalletTransaction", "AdminUserReferral",
 ]

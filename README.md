@@ -251,7 +251,7 @@ Or use a process manager like **Gunicorn** with **Uvicorn**:
 
 ## Admin API
 
-The admin portal (admin-open-source) calls this backend under `/api/v1/admin`. The code lives only in admin folders (`app/api/v1/admin/`, `app/services/admin/`, `app/repo/admin/`, `app/schemas/admin/`, `migrations/admin/`, `tests/admin/`); the existing endpoints are unchanged. Full rules, story records and the review guide: `adminDocs/README.md`.
+The admin portal (admin-open-source) calls this backend under `/api/v1/admin`. The code lives only in admin folders (`app/api/v1/admin/`, `app/services/admin/`, `app/repo/admin/`, `app/schemas/admin/`, `tests/admin/`) and the admin section of `supabase_ddl.sql`; the existing endpoints are unchanged.
 
 - **Auth:** `POST /api/v1/admin/auth/login` with `{email, password}` returns an access and a refresh token. Send `Authorization: Bearer <access_token>` on every other admin call; no `X-Device-ID`. The role is read from `app_metadata.role` of the Supabase user: `admin` or `super_admin`. `GET /api/v1/admin/auth/me` returns the role and the permission list.
 - **Permissions:** each route needs one `admin.<area>.<action>` permission. The role-to-permission table is `app/config/admin_permissions.py`. 401 means no or invalid session, 403 means a missing permission.
@@ -261,13 +261,15 @@ The admin portal (admin-open-source) calls this backend under `/api/v1/admin`. T
 
 ### Set up the database for the admin API
 
-Only the team leader applies these files, after review. Steps and rules: `migrations/admin/README.md`.
+Every SQL object the admin API needs is in `supabase_ddl.sql`, in the section that starts with `ADMIN API (MS-5017)` at the end of the file. That section is idempotent: on an existing database, run it alone, in one transaction, after review. Then give one account a role (the user must sign in again):
 
-```sh
-cat migrations/admin/[0-9]*.sql | psql "$DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction
+```sql
+UPDATE auth.users
+   SET raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"super_admin"}'::jsonb
+ WHERE email = 'user@example.com';   -- or "admin"
 ```
 
-Give one account the `super_admin` role with `migrations/admin/900_seed_super_admin.sql.example` (copy it, set the email, run it once). Changes to the existing flow that the admin work leaves to the team leader are listed in `adminDocs/lead-review-old-flow.md`.
+After applying, if the API still answers 502 with "Could not find the function", reload the PostgREST schema cache: `NOTIFY pgrst, 'reload schema';`.
 
 ### Admin settings (.env)
 

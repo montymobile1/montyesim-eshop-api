@@ -45,15 +45,19 @@ class UserAdminRepo(AdminBaseRepository):
     def __init__(self):
         super().__init__(DatabaseTables.TABLE_USER_COPY)
 
-    def search(self, search: Optional[str], ban_status: str, page: PageParams) -> UserSearch:
-        """One page of users with their ban state, newest first, plus ``facets:{all,banned,active}``
-        over the searched set (the ban filter itself is not applied to the facets)."""
+    def search(self, search: Optional[str], ban_status: str, page: PageParams, *,
+               sort: str = "created_at", direction: str = "desc") -> UserSearch:
+        """One page of users with their ban state, ordered by ``sort`` (created_at or email) in
+        ``direction`` with ``id`` as tie-breaker, plus ``facets:{all,banned,active}`` over the
+        searched set (the ban filter itself is not applied to the facets)."""
         body = _unwrap(self.rpc("admin_search_users", {
             "p_search": search.strip() if search and search.strip() else None,
             "p_ban_status": ban_status,
             "p_limit": page.limit,
             "p_offset": page.offset,
             "p_id": None,
+            "p_sort": sort,
+            "p_dir": direction,
         }))
         return UserSearch(rows=list(body.get("data") or []), total=int(body.get("total") or 0),
                           facets={k: int(v or 0) for k, v in (body.get("facets") or {}).items()})

@@ -11,6 +11,8 @@ from app.repo.admin.base import AdminBaseRepository, AuditContext, Paged
 from app.schemas.admin.common import PageParams
 
 COLUMNS = "id,key,value,created_at"
+#: GET /settings also returns the description (app_config.description, TEOS-134, supabase_ddl.sql).
+LIST_COLUMNS = "id,key,value,description,created_at"
 
 
 class AppConfigAdminRepo(AdminBaseRepository):
@@ -19,10 +21,15 @@ class AppConfigAdminRepo(AdminBaseRepository):
     def __init__(self):
         super().__init__(DatabaseTables.TABLE_APP_CONFIG)
 
-    def search(self, page: PageParams, *, key: Optional[str] = None) -> Paged:
-        """One page of settings, newest first; ``key`` is an exact match."""
-        query = self.filters(self.q(COLUMNS), eq={"key": key})
+    def search(self, page: PageParams, *, key: Optional[str] = None, search: Optional[str] = None) -> Paged:
+        """One page of settings, newest first; ``key`` is an exact match, ``search`` a part of the key
+        (case-insensitive, matched literally)."""
+        query = self.filters(self.q(LIST_COLUMNS), eq={"key": key}, ilike={"key": search})
         return self.paged(query, page)
+
+    def value_of(self, key: str) -> Optional[str]:
+        """The value of one setting, None when the row is missing."""
+        return (self.by_keys([key]).get(key) or {}).get("value")
 
     def by_keys(self, keys: Iterable[str]) -> Dict[str, Dict[str, Any]]:
         """``{key: row}`` for the given keys; missing keys are absent."""

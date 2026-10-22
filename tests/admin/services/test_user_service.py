@@ -3,6 +3,7 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import jwt as pyjwt
 import pytest
 from gotrue.errors import AuthApiError
 
@@ -11,8 +12,9 @@ from app.repo.admin.base import AuditContext, Paged
 from app.repo.admin.user_repo import UserAdminRepo, UserSearch, UserWalletAdminRepo
 from app.schemas.admin.common import AdminPage, PageParams
 from app.schemas.admin.users import AdminUserBan, AdminUserUnban
-from app.services.admin.user_service import (AUTH_USERS_TABLE, UNBAN_DURATION, UserAdminService,
-                                             remaining_ban_duration)
+from app.services.admin.user_service import (AUTH_USERS_TABLE, CANNOT_BAN_SELF, SESSION_REVOKE_FAILED,
+                                             UNBAN_DURATION, SessionRevokeError, UserAdminService,
+                                             remaining_ban_duration, revoke_user_sessions)
 
 USER_ID = "33333333-3333-3333-3333-333333333333"
 CTX = AuditContext(actor_id="11111111-1111-1111-1111-111111111111", ip="1.2.3.4", reason="fraud")
@@ -54,8 +56,14 @@ def client():
 
 
 @pytest.fixture
-def svc(repo, wallets, devices, audit, client):
-    return UserAdminService(repo=repo, wallets=wallets, devices=devices, audit=audit, client_factory=lambda: client)
+def revoker():
+    return MagicMock(name="session-revoker")
+
+
+@pytest.fixture
+def svc(repo, wallets, devices, audit, client, revoker):
+    return UserAdminService(repo=repo, wallets=wallets, devices=devices, audit=audit, client_factory=lambda: client,
+                            session_revoker=revoker)
 
 
 # ---------- reads ----------
@@ -65,9 +73,17 @@ def test_list_returns_rows_total_and_facets(svc, repo):
 
     page = svc.list("ja", "banned", PAGE)
 
-    repo.search.assert_called_once_with("ja", "banned", PAGE)
+    repo.search.assert_called_once_with("ja", "banned", PAGE, sort="created_at", direction="desc")
     assert page.data == [_row()] and page.total_count == 7
     assert page.facets == {"all": 7, "banned": 2, "active": 5}
+
+
+def test_list_passes_sort_and_direction(svc, repo):
+    repo.search.return_value = UserSearch(rows=[], total=0, facets={})
+
+    svc.list(None, "all", PAGE, sort="email", direction="asc")
+
+    repo.search.assert_called_once_with(None, "all", PAGE, sort="email", direction="asc")
 
 
 def test_get_adds_wallet(svc, repo, wallets):
@@ -200,6 +216,144 @@ def test_ban_compensation_failure_still_returns_502(svc, repo, client, audit):
         svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
 
 
+# ---------- TEOS-111: sessions revoked on ban, no self-ban ----------
+
+def test_ban_revokes_the_sessions_after_the_ban_and_audits_it(svc, repo, audit, client, revoker):
+    repo.get.return_value = _row()
+    order = []
+
+    def ban(*args):
+        order.append("ban")
+        return SimpleNamespace(user=SimpleNamespace(email="jane@example.com", banned_until=None))
+
+    client.auth.admin.update_user_by_id.side_effect = ban
+    revoker.side_effect = lambda uid: order.append("revoke")
+    audit.log.side_effect = lambda *a, **k: order.append("audit")
+
+    svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+
+    assert order == ["ban", "revoke", "audit"]
+    revoker.assert_called_once_with(USER_ID)
+    kwargs = audit.log.call_args.kwargs
+    assert kwargs["sessions_revoked"] is True and kwargs["session_revoke_error"] is None
+
+
+@pytest.mark.parametrize("error, reason", [
+    (SessionRevokeError("jwt_secret_not_configured"), "jwt_secret_not_configured"),
+    (RuntimeError("boom"), "unexpected:RuntimeError"),
+])
+def test_ban_revoke_failure_keeps_the_ban_audits_it_and_returns_502(svc, repo, audit, client, revoker,
+                                                                    error, reason):
+    repo.get.return_value = _row()
+    revoker.side_effect = error
+
+    with pytest.raises(AdminUpstreamError) as err:
+        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+
+    assert err.value.details == SESSION_REVOKE_FAILED
+    # the ban is applied once and never lifted again
+    client.auth.admin.update_user_by_id.assert_called_once_with(USER_ID, {"ban_duration": "8760h"})
+    audit.log.assert_called_once()
+    kwargs = audit.log.call_args.kwargs
+    assert kwargs["sessions_revoked"] is False and kwargs["session_revoke_error"] == reason
+
+
+def test_ban_revoke_and_audit_failure_lifts_the_ban_and_reports_the_audit(svc, repo, audit, client, revoker):
+    repo.get.return_value = _row()
+    revoker.side_effect = SessionRevokeError("gotrue_error:AuthApiError")
+    audit.log.side_effect = RuntimeError("db down")
+
+    with pytest.raises(AdminUpstreamError) as err:
+        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+
+    assert err.value.details == "AUDIT_FAILED"
+    calls = [c.args for c in client.auth.admin.update_user_by_id.call_args_list]
+    assert calls == [(USER_ID, {"ban_duration": "8760h"}), (USER_ID, {"ban_duration": UNBAN_DURATION})]
+
+
+def test_ban_gotrue_failure_never_revokes(svc, repo, client, revoker):
+    repo.get.return_value = _row()
+    client.auth.admin.update_user_by_id.side_effect = RuntimeError("network")
+    with pytest.raises(AdminUpstreamError):
+        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+    revoker.assert_not_called()
+
+
+@pytest.mark.parametrize("target", [CTX.actor_id, CTX.actor_id.upper()])
+def test_ban_self_is_409_and_touches_nothing(svc, repo, audit, client, revoker, target):
+    with pytest.raises(AdminConflict) as err:
+        svc.ban(target, AdminUserBan(reason="r"), CTX)
+
+    assert err.value.conflict_code == CANNOT_BAN_SELF
+    repo.get.assert_not_called()
+    client.auth.admin.update_user_by_id.assert_not_called()
+    revoker.assert_not_called()
+    audit.log.assert_not_called()
+
+
+def test_unban_self_is_409_and_touches_nothing(svc, repo, audit, client):
+    with pytest.raises(AdminConflict) as err:
+        svc.unban(CTX.actor_id, AdminUserUnban(reason="r"), CTX)
+
+    assert err.value.conflict_code == CANNOT_BAN_SELF
+    repo.get.assert_not_called()
+    client.auth.admin.update_user_by_id.assert_not_called()
+    audit.log.assert_not_called()
+
+
+def test_unban_never_revokes_sessions(svc, repo, revoker):
+    repo.get.return_value = _row(is_banned=True, banned_until=FUTURE)
+    svc.unban(USER_ID, AdminUserUnban(reason="r"), CTX)
+    revoker.assert_not_called()
+
+
+def test_default_revoker_signs_out_globally_with_a_short_lived_user_token(monkeypatch):
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-secret-" + "x" * 32)
+    client = MagicMock()
+
+    revoke_user_sessions(client, USER_ID)
+
+    token, scope = client.auth.admin.sign_out.call_args.args
+    assert scope == "global"
+    claims = pyjwt.decode(token, "test-secret-" + "x" * 32, algorithms=["HS256"], audience="authenticated")
+    assert claims["sub"] == USER_ID and claims["role"] == "authenticated"
+    assert "session_id" not in claims
+    assert 0 < claims["exp"] - claims["iat"] <= 60
+
+
+def test_default_revoker_without_secret_fails_without_calling_gotrue(monkeypatch):
+    monkeypatch.delenv("SUPABASE_JWT_SECRET", raising=False)
+    client = MagicMock()
+
+    with pytest.raises(SessionRevokeError) as err:
+        revoke_user_sessions(client, USER_ID)
+
+    assert err.value.reason == "jwt_secret_not_configured"
+    client.auth.admin.sign_out.assert_not_called()
+
+
+def test_default_revoker_wraps_a_gotrue_error(monkeypatch):
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-secret-" + "x" * 32)
+    client = MagicMock()
+    client.auth.admin.sign_out.side_effect = AuthApiError("Invalid JWT", 401, "bad_jwt")
+
+    with pytest.raises(SessionRevokeError) as err:
+        revoke_user_sessions(client, USER_ID)
+
+    assert err.value.reason == "gotrue_error:AuthApiError"
+
+
+def test_service_default_revoker_uses_the_client_factory(monkeypatch, repo, audit, client):
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-secret-" + "x" * 32)
+    repo.get.return_value = _row()
+    service = UserAdminService(repo=repo, audit=audit, client_factory=lambda: client)
+
+    service.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+
+    assert client.auth.admin.sign_out.call_args.args[1] == "global"
+    assert audit.log.call_args.kwargs["sessions_revoked"] is True
+
+
 # ---------- unban ----------
 
 def test_unban_lifts_the_ban_and_audits_previous_banned_until(svc, repo, audit, client):
@@ -294,9 +448,17 @@ def test_repo_search_calls_admin_search_users():
     result = repo.search("  ja ", "banned", PAGE)
 
     repo.rpc.assert_called_once_with("admin_search_users", {
-        "p_search": "ja", "p_ban_status": "banned", "p_limit": 10, "p_offset": 10, "p_id": None})
+        "p_search": "ja", "p_ban_status": "banned", "p_limit": 10, "p_offset": 10, "p_id": None,
+        "p_sort": "created_at", "p_dir": "desc"})
     assert result.rows == [_row()] and result.total == 1
     assert result.facets == {"all": 1, "banned": 0, "active": 1}
+
+
+def test_repo_search_passes_sort_and_direction():
+    repo = _repo_with_rpc(UserAdminRepo, {"data": [], "total": 0, "facets": {}})
+    repo.search(None, "all", PAGE, sort="email", direction="asc")
+    params = repo.rpc.call_args.args[1]
+    assert (params["p_sort"], params["p_dir"]) == ("email", "asc")
 
 
 def test_repo_search_blank_search_is_null_and_tolerates_a_wrapped_result():

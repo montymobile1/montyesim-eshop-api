@@ -83,7 +83,7 @@ def test_list_defaults_to_all_page_one(api_client, service, as_admin):
     assert (search, status, page.page, page.page_size) == (None, "all", 1, 20)
 
 
-@pytest.mark.parametrize("params", [{"page_size": 101}, {"status": "used"}, {"foo": "bar"}, {"page": 0}])
+@pytest.mark.parametrize("params", [{"page_size": 101}, {"status": "bogus"}, {"foo": "bar"}, {"page": 0}])
 def test_list_rejects_bad_query(api_client, service, as_admin, params):
     _failed(api_client.get(BASE, params=params), 422)
     service.list.assert_not_called()
@@ -125,9 +125,15 @@ def test_create_duplicate_code_is_409(api_client, service, as_admin):
     {"code": "SUMMER", "amount": -1},
     {"code": "has space", "amount": 1},
     {"code": "X", "amount": 1},
+    {"code": "ABC", "amount": 1},
+    {"code": "A" * 33, "amount": 1},
+    {"code": "SUM_MER", "amount": 1},
+    {"code": "SUMMER", "amount": "abc"},
     {"code": "SUMMER", "amount": 1, "expired_at": "2000-01-01"},
+    {"code": "SUMMER", "amount": 1, "expired_at": "not-a-date"},
     {"code": "SUMMER", "amount": 1, "is_used": True},
-    {"amount": 1},
+    {"code": "SUMMER", "amount": 1, "used_by": "x"},
+    {},
 ])
 def test_create_invalid_body_is_422(api_client, service, as_admin, payload):
     _failed(api_client.post(BASE, json=payload), 422)
@@ -204,3 +210,75 @@ def test_delete_twice_second_is_404(api_client, service, as_admin):
 def test_delete_without_session_is_401(api_client, service):
     _failed(api_client.delete(f"{BASE}/7"), 401)
     service.delete.assert_not_called()
+
+
+# ---------- TEOS-133 ----------
+
+@pytest.mark.parametrize("status", ["all", "active", "inactive", "used", "expired"])
+def test_list_accepts_every_status_tab(api_client, service, as_admin, status):
+    service.list.return_value = AdminPage(data=[], total_count=0,
+                                          facets={"all": 0, "active": 0, "inactive": 0, "used": 0, "expired": 0})
+
+    response = api_client.get(BASE, params={"status": status})
+
+    assert response.status_code == 200
+    assert service.list.call_args.args[1] == status
+    assert set(response.json()["data"]["facets"]) == {"all", "active", "inactive", "used", "expired"}
+
+
+def test_create_without_code_is_accepted(api_client, service, as_admin):
+    service.create.return_value = {**ROW, "code": "ABCDEFGHJKMN"}
+
+    response = api_client.post(BASE, json={"amount": 3})
+
+    assert response.status_code == 201
+    assert response.json()["data"]["code"] == "ABCDEFGHJKMN"
+    assert service.create.call_args.args[0].code is None
+
+
+def test_create_explicit_code_is_upper_cased(api_client, service, as_admin):
+    service.create.return_value = ROW
+
+    api_client.post(BASE, json={"code": "summer-25", "amount": 3})
+
+    assert service.create.call_args.args[0].code == "SUMMER-25"
+
+
+def test_activate_used_voucher_is_409_already_used(api_client, service, as_admin):
+    service.set_status.side_effect = AdminConflict("already_used")
+
+    response = api_client.patch(f"{BASE}/7/status", json={"is_active": True})
+
+    _failed(response, 409)
+    assert _code(response) == "already_used"
+
+
+def test_writes_without_write_permission_are_403(api_client, service, as_reader):
+    _failed(api_client.patch(f"{BASE}/7/status", json={"is_active": True}), 403)
+    _failed(api_client.delete(f"{BASE}/7"), 403)
+    service.set_status.assert_not_called()
+    service.delete.assert_not_called()
+
+
+def test_list_and_create_with_the_real_service(api_client, as_admin, monkeypatch):
+    """The real service with its repositories mocked: amount cap from the setting, used_by and facets."""
+    from app.api.v1.admin import vouchers as routes
+    from app.repo.admin.base import Paged
+    from app.services.admin.voucher_service import VoucherAdminService
+    repo, users, settings = MagicMock(), MagicMock(), MagicMock()
+    settings.value_of.side_effect = lambda key: {"VOUCHER_MAX_AMOUNT": "100", "DEFAULT_CURRENCY": "EUR"}.get(key)
+    monkeypatch.setattr(routes, "service", VoucherAdminService(repo=repo, users=users, settings=settings))
+    repo.search.return_value = Paged(rows=[{"id": 1, "code": "USED1", "amount": 5, "is_used": True,
+                                            "used_by": "u1", "is_active": False}], total=1)
+    repo.facets.return_value = {"all": 1, "active": 0, "inactive": 1, "used": 1, "expired": 0}
+    users.by_ids.return_value = {"u1": {"id": "u1", "email": "u1@example.com"}}
+
+    listed = api_client.get(BASE, params={"status": "used"}).json()["data"]
+    too_much = api_client.post(BASE, json={"code": "BIGONE", "amount": 101})
+
+    assert listed["data"][0]["used_by"] == {"id": "u1", "email": "u1@example.com"}
+    assert listed["data"][0]["currency"] == "EUR"
+    assert listed["facets"]["used"] == 1
+    _failed(too_much, 422)
+    assert "VOUCHER_MAX_AMOUNT" in too_much.json()["developerMessage"]
+    repo.insert_audited.assert_not_called()

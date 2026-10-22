@@ -1,4 +1,4 @@
-"""Admin API: vouchers. Owned by MS-5089."""
+"""Admin API: vouchers. Owned by MS-5089, extended by TEOS-133."""
 from typing import Optional
 
 from fastapi import Depends, Path, Query, Request
@@ -24,14 +24,18 @@ def list_vouchers(search: Optional[str] = Query(None, max_length=100, descriptio
                   status: VoucherStatus = Query("all"),
                   page: PageParams = Depends(page_params),
                   user: AdminUser = Depends(require_permission("admin.vouchers.read"))) -> Response:
-    """Vouchers, newest first, with the user who used each one and `facets:{all,active,inactive}`."""
+    """Vouchers, newest first, with the user who used each one (`used_by` = `used_by_user` = `{id, email}`),
+    `currency`, `is_expired`, and `facets:{all,active,inactive,used,expired}` over the searched set.
+    `status`: `used` = redeemed; `expired` = not redeemed and `expired_at` in the past."""
     return ok_page(service.list(search, status, page))
 
 
 @router.post("", status_code=201, response_model=Response[AdminVoucher])
 def create_voucher(body: AdminVoucherCreate, request: Request,
                    user: AdminUser = Depends(require_permission("admin.vouchers.write"))) -> Response:
-    """201. 409 `duplicate_code` when the code exists in any letter case."""
+    """201. `code` optional: omitted, the server generates a 12-character code (no 0/O/1/I/L); given, it must be
+    `[A-Za-z0-9-]{4,32}` and is stored upper case. 409 `duplicate_code` when the code exists in any letter case;
+    422 when `amount` is above the VOUCHER_MAX_AMOUNT setting (default 1 000 000)."""
     response = ok(service.create(body, audit_context(user, request)))
     response.responseCode = 201
     return response
@@ -40,7 +44,8 @@ def create_voucher(body: AdminVoucherCreate, request: Request,
 @router.patch("/{voucher_id}/status", response_model=Response[AdminVoucher])
 def set_voucher_status(body: AdminStatusPatch, request: Request, voucher_id: int = VoucherId,
                        user: AdminUser = Depends(require_permission("admin.vouchers.write"))) -> Response:
-    """Activate or deactivate. 404; 409 `no_change` when already in that state."""
+    """Activate or deactivate. 404; 409 `no_change` when already in that state; 409 `already_used` when
+    activating a voucher that was redeemed (deactivating it stays allowed)."""
     return ok(service.set_status(voucher_id, body, audit_context(user, request, body.reason)))
 
 

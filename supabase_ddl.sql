@@ -3383,3 +3383,3598 @@ BEGIN
     LIMIT 1;
 END;
 $$;
+
+
+-- =============================================================================
+-- ADMIN API (MS-5017): objects used by /api/v1/admin (admin portal)
+-- -----------------------------------------------------------------------------
+-- Appended 2026-10-21 so every SQL object lives in this single file (team decision).
+-- Every statement below is idempotent (IF NOT EXISTS, CREATE OR REPLACE, guarded DO
+-- blocks), so this section can be run on its own on an existing database, in order:
+-- copy from the line above to the end of the file and run it in one transaction.
+-- New functions are admin_*, SECURITY DEFINER, EXECUTE for service_role only.
+-- Nothing here changes or drops an object the app or the website uses.
+-- To give a user a role afterwards (sign in again after):
+--   UPDATE auth.users SET raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb)
+--     || '{"role":"super_admin"}'::jsonb WHERE email = 'user@example.com';  -- or "admin"
+-- =============================================================================
+
+
+-- ----------------------------------------------------------------------------
+-- 000_schema_drift.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  000_schema_drift.sql  (MS-5075, admin API foundation)
+
+  Columns the admin portal reads/writes that must exist before the admin API
+  and the later migrations can rely on them. REVIEW AGAINST THE DEPLOYED DB
+  FIRST: supabase_ddl.sql (qa) is known to drift from production.
+
+  Plan column                     | in supabase_ddl.sql? | action here
+  --------------------------------+----------------------+-------------------------------
+  bundle.bundle_name text         | yes                  | none (template below)
+  tag.sorting_number int          | yes (default 10000)  | none (template below)
+  voucher.expired_at timestamp    | yes                  | none (template below)
+  promotion_rule.name text        | yes (default '')     | none (template below)
+  promotion_usage.order_id uuid   | yes                  | none (template below)
+  promotion_usage.referred_to     | yes (varchar)        | none (template below)
+  promotion_usage.device_id       | yes (varchar(250))   | none (template below)
+  banner table                    | yes                  | none
+  banner.is_active boolean        | NO                   | ADDED below
+  tag_group.group_category        | yes (varchar)        | none (template below)
+
+  Why each column matters:
+  - bundle.bundle_name: PATCH /bundles/{id} (bundlesAPI.jsx updateBundleTitle).
+  - tag.sorting_number: group detail ordering + PUT /groups/{id}/tags/order
+    (groupsAPI.jsx orders the tag embed by it).
+  - voucher.expired_at: POST /vouchers (vouchersAPI.jsx addVoucher).
+  - promotion_rule.name: lookup label, filled by trigger
+    trg_update_promotion_rule_name (040).
+  - promotion_usage.order_id / referred_to / device_id: referral listing and
+    export joins (user_order.id = promotion_usage.order_id, referred_to email).
+  - banner.is_active: banner status toggle + status facets (contract section 4).
+    Default true so existing banners keep being served by GET /app/banners.
+  - tag_group.group_category: group create/edit payload and lookups.
+
+  If the deployed DB lacks one of the "template" columns, uncomment its line in
+  the template block at the bottom (types match what the portal sends).
+
+  Idempotent: ADD COLUMN IF NOT EXISTS only.
+*/
+
+ALTER TABLE public.banner
+    ADD COLUMN IF NOT EXISTS is_active boolean NOT NULL DEFAULT true;
+
+/*
+  Template - present in supabase_ddl.sql, therefore NOT executed.
+  Uncomment only the lines the deployed DB is missing.
+
+ALTER TABLE public.bundle          ADD COLUMN IF NOT EXISTS bundle_name    text;
+ALTER TABLE public.tag             ADD COLUMN IF NOT EXISTS sorting_number integer DEFAULT 10000;
+ALTER TABLE public.voucher         ADD COLUMN IF NOT EXISTS expired_at     timestamp;
+ALTER TABLE public.promotion_rule  ADD COLUMN IF NOT EXISTS name           text DEFAULT ''::text;
+ALTER TABLE public.promotion_usage ADD COLUMN IF NOT EXISTS order_id       uuid;
+ALTER TABLE public.promotion_usage ADD COLUMN IF NOT EXISTS referred_to    varchar;
+ALTER TABLE public.promotion_usage ADD COLUMN IF NOT EXISTS device_id      varchar(250);
+ALTER TABLE public.tag_group       ADD COLUMN IF NOT EXISTS group_category varchar;
+*/
+
+
+-- ----------------------------------------------------------------------------
+-- 010_audit_log.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  010_audit_log.sql  (MS-5075)
+
+  - audit_log table if missing (same shape as supabase_ddl.sql)
+  - operation_details jsonb (was admin repo procedures/audit_log_operation_details.sql)
+  - indexes for the audit / settings-history listings
+  - no direct access for anon / authenticated: rows are written by the
+    SECURITY DEFINER helpers in 050 and read by the API with service_role.
+
+  Note: legacy rows written by the browser store old_data / new_data as JSON
+  *strings* inside jsonb (JSON.stringify); rows written by 050 store objects.
+  Readers must accept both.
+
+  Idempotent.
+*/
+
+CREATE TABLE IF NOT EXISTS public.audit_log
+(
+    id                bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    table_name        varchar(255) NOT NULL,
+    record_id         uuid,
+    operation         varchar(50)  NOT NULL,
+    changed_by        uuid         NOT NULL,
+    changed_at        timestamp DEFAULT CURRENT_TIMESTAMP,
+    old_data          jsonb,
+    new_data          jsonb,
+    operation_details jsonb
+);
+
+ALTER TABLE public.audit_log
+    ADD COLUMN IF NOT EXISTS operation_details jsonb;
+
+CREATE INDEX IF NOT EXISTS audit_log_table_name_changed_at_idx
+    ON public.audit_log (table_name, changed_at DESC);
+
+CREATE INDEX IF NOT EXISTS audit_log_changed_by_idx
+    ON public.audit_log (changed_by);
+
+CREATE INDEX IF NOT EXISTS audit_log_changed_at_id_idx
+    ON public.audit_log (changed_at DESC, id DESC);
+
+ALTER TABLE public.audit_log ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.audit_log FROM anon, authenticated;
+GRANT SELECT, INSERT ON TABLE public.audit_log TO service_role;
+
+-- Identity sequence: same revoke (looked up from the catalog, quoted with %I).
+DO $$
+DECLARE
+    v_nsp text;
+    v_rel text;
+BEGIN
+    SELECT n.nspname, c.relname
+      INTO v_nsp, v_rel
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.oid = pg_get_serial_sequence('public.audit_log', 'id')::regclass;
+
+    IF v_rel IS NOT NULL THEN
+        EXECUTE format('REVOKE ALL ON SEQUENCE %I.%I FROM anon, authenticated', v_nsp, v_rel);
+    END IF;
+END
+$$;
+
+
+-- ----------------------------------------------------------------------------
+-- 020_constraints.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  020_constraints.sql  (MS-5075)
+
+  Uniqueness the admin API relies on for its 409 codes (23505 -> duplicate_*):
+
+  table          | key                                     | name if created here                       | 409 code
+  ---------------+-----------------------------------------+--------------------------------------------+-------------------
+  bundle_tag     | (bundle_id, tag_id)                     | unique_bundle_tag                          | (upsert target)
+  tag            | (name, tag_group_id)                    | unique_tag_name_per_group                  | duplicate_tag_name
+  app_config     | (key)                                   | app_config_key_key                         | -
+  banner         | lower(title)                            | banner_title_lower_key (unique index)      | duplicate_title
+  voucher        | lower(code)                             | voucher_code_lower_key (unique index)      | duplicate_code
+  promotion      | (name)                                  | promotion_name_key                         | duplicate_name
+  promotion_rule | (action_id, event_id, max_usage)        | promotion_rule_action_event_max_usage_key  | duplicate_rule
+
+  Each block:
+    1. reports existing duplicates and RAISES, so the whole run aborts and
+       nothing is half-applied - clean the data, then re-run;
+    2. creates the constraint / index only when no equivalent unique index
+       exists already, checked on the column set or expression whatever its
+       name (supabase_ddl.sql already has app_config_key_key,
+       promotion_name_key, unique_bundle_tag, unique_tag_name_per_group,
+       so on that schema the API must map 23505 by table, not only by the
+       names above).
+
+  Replaces admin repo procedures/unique_bundle_tag.sql and
+  unique_tag_name_per_group.sql. Idempotent.
+*/
+
+-- Session-local helpers, dropped at the end of this file.
+CREATE OR REPLACE FUNCTION pg_temp.admin_mig_has_unique_cols(p_table regclass, p_cols text[])
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $fn$
+    SELECT EXISTS (
+        SELECT 1
+          FROM pg_index i
+         WHERE i.indrelid = p_table
+           AND i.indisunique
+           AND i.indpred IS NULL
+           AND i.indexprs IS NULL
+           AND i.indnatts = i.indnkeyatts
+           AND (SELECT array_agg(a.attname::text ORDER BY a.attname::text)
+                  FROM unnest(i.indkey::int2[]) AS k(attnum)
+                  JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum)
+             = (SELECT array_agg(c ORDER BY c) FROM unnest(p_cols) AS c)
+    );
+$fn$;
+
+CREATE OR REPLACE FUNCTION pg_temp.admin_mig_has_unique_expr(p_table regclass, p_index_name text, p_exprs text[])
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $fn$
+    SELECT EXISTS (
+        SELECT 1
+          FROM pg_index i
+          JOIN pg_class ic ON ic.oid = i.indexrelid
+         WHERE i.indrelid = p_table
+           AND i.indisunique
+           AND i.indpred IS NULL
+           AND (ic.relname = p_index_name
+                OR pg_get_expr(i.indexprs, i.indrelid) = ANY (p_exprs))
+    );
+$fn$;
+
+------------------------------------------------------------------------------
+-- bundle_tag (bundle_id, tag_id)
+------------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_dups text;
+BEGIN
+    SELECT string_agg(format('(bundle_id=%s, tag_id=%s) x%s', d.bundle_id, d.tag_id, d.n), '; ')
+      INTO v_dups
+      FROM (SELECT bundle_id, tag_id, count(*) AS n
+              FROM public.bundle_tag
+             GROUP BY bundle_id, tag_id
+            HAVING count(*) > 1
+             ORDER BY count(*) DESC
+             LIMIT 50) d;
+
+    IF v_dups IS NOT NULL THEN
+        RAISE EXCEPTION 'bundle_tag has duplicate (bundle_id, tag_id) rows, clean them before re-running: %', v_dups;
+    END IF;
+
+    IF NOT pg_temp.admin_mig_has_unique_cols('public.bundle_tag'::regclass, ARRAY['bundle_id', 'tag_id']) THEN
+        ALTER TABLE public.bundle_tag
+            ADD CONSTRAINT unique_bundle_tag UNIQUE (bundle_id, tag_id);
+    END IF;
+END
+$$;
+
+------------------------------------------------------------------------------
+-- tag (name, tag_group_id)
+------------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_dups text;
+BEGIN
+    SELECT string_agg(format('(name=%L, tag_group_id=%s) x%s', d.name, d.tag_group_id, d.n), '; ')
+      INTO v_dups
+      FROM (SELECT name, tag_group_id, count(*) AS n
+              FROM public.tag
+             GROUP BY name, tag_group_id
+            HAVING count(*) > 1
+             ORDER BY count(*) DESC
+             LIMIT 50) d;
+
+    IF v_dups IS NOT NULL THEN
+        RAISE EXCEPTION 'tag has duplicate (name, tag_group_id) rows, clean them before re-running: %', v_dups;
+    END IF;
+
+    IF NOT pg_temp.admin_mig_has_unique_cols('public.tag'::regclass, ARRAY['name', 'tag_group_id']) THEN
+        ALTER TABLE public.tag
+            ADD CONSTRAINT unique_tag_name_per_group UNIQUE (name, tag_group_id);
+    END IF;
+END
+$$;
+
+------------------------------------------------------------------------------
+-- app_config (key)
+------------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_dups text;
+BEGIN
+    SELECT string_agg(format('(key=%L) x%s', d.key, d.n), '; ')
+      INTO v_dups
+      FROM (SELECT key, count(*) AS n
+              FROM public.app_config
+             GROUP BY key
+            HAVING count(*) > 1
+             ORDER BY count(*) DESC
+             LIMIT 50) d;
+
+    IF v_dups IS NOT NULL THEN
+        RAISE EXCEPTION 'app_config has duplicate key rows, clean them before re-running: %', v_dups;
+    END IF;
+
+    IF NOT pg_temp.admin_mig_has_unique_cols('public.app_config'::regclass, ARRAY['key']) THEN
+        ALTER TABLE public.app_config
+            ADD CONSTRAINT app_config_key_key UNIQUE (key);
+    END IF;
+END
+$$;
+
+------------------------------------------------------------------------------
+-- banner lower(title)   (NULL titles are allowed and never conflict)
+------------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_dups text;
+BEGIN
+    SELECT string_agg(format('(lower(title)=%L, ids=%s)', d.t, d.ids), '; ')
+      INTO v_dups
+      FROM (SELECT lower(title) AS t, array_agg(id ORDER BY id)::text AS ids
+              FROM public.banner
+             WHERE title IS NOT NULL
+             GROUP BY lower(title)
+            HAVING count(*) > 1
+             ORDER BY count(*) DESC
+             LIMIT 50) d;
+
+    IF v_dups IS NOT NULL THEN
+        RAISE EXCEPTION 'banner has duplicate titles (case-insensitive), rename them before re-running: %', v_dups;
+    END IF;
+
+    IF NOT pg_temp.admin_mig_has_unique_expr('public.banner'::regclass, 'banner_title_lower_key',
+                                             ARRAY['lower((title)::text)', 'lower(title)']) THEN
+        CREATE UNIQUE INDEX banner_title_lower_key ON public.banner (lower(title));
+    END IF;
+END
+$$;
+
+------------------------------------------------------------------------------
+-- voucher lower(code)   (the existing case-sensitive voucher_code_key stays)
+------------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_dups text;
+BEGIN
+    SELECT string_agg(format('(lower(code)=%L, ids=%s)', d.c, d.ids), '; ')
+      INTO v_dups
+      FROM (SELECT lower(code) AS c, array_agg(id ORDER BY id)::text AS ids
+              FROM public.voucher
+             WHERE code IS NOT NULL
+             GROUP BY lower(code)
+            HAVING count(*) > 1
+             ORDER BY count(*) DESC
+             LIMIT 50) d;
+
+    IF v_dups IS NOT NULL THEN
+        RAISE EXCEPTION 'voucher has duplicate codes (case-insensitive), clean them before re-running: %', v_dups;
+    END IF;
+
+    IF NOT pg_temp.admin_mig_has_unique_expr('public.voucher'::regclass, 'voucher_code_lower_key',
+                                             ARRAY['lower((code)::text)', 'lower(code)']) THEN
+        CREATE UNIQUE INDEX voucher_code_lower_key ON public.voucher (lower(code));
+    END IF;
+END
+$$;
+
+------------------------------------------------------------------------------
+-- promotion (name)
+------------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_dups text;
+BEGIN
+    SELECT string_agg(format('(name=%L, ids=%s)', d.name, d.ids), '; ')
+      INTO v_dups
+      FROM (SELECT name, array_agg(id ORDER BY id)::text AS ids
+              FROM public.promotion
+             WHERE name IS NOT NULL
+             GROUP BY name
+            HAVING count(*) > 1
+             ORDER BY count(*) DESC
+             LIMIT 50) d;
+
+    IF v_dups IS NOT NULL THEN
+        RAISE EXCEPTION 'promotion has duplicate names, rename them before re-running: %', v_dups;
+    END IF;
+
+    IF NOT pg_temp.admin_mig_has_unique_cols('public.promotion'::regclass, ARRAY['name']) THEN
+        ALTER TABLE public.promotion
+            ADD CONSTRAINT promotion_name_key UNIQUE (name);
+    END IF;
+END
+$$;
+
+------------------------------------------------------------------------------
+-- promotion_rule (promotion_rule_action_id, promotion_rule_event_id, max_usage)
+------------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_dups text;
+BEGIN
+    SELECT string_agg(format('(action=%s, event=%s, max_usage=%s, ids=%s)',
+                             d.promotion_rule_action_id, d.promotion_rule_event_id, d.max_usage, d.ids), '; ')
+      INTO v_dups
+      FROM (SELECT promotion_rule_action_id, promotion_rule_event_id, max_usage,
+                   array_agg(id ORDER BY id)::text AS ids
+              FROM public.promotion_rule
+             GROUP BY promotion_rule_action_id, promotion_rule_event_id, max_usage
+            HAVING count(*) > 1
+             ORDER BY count(*) DESC
+             LIMIT 50) d;
+
+    IF v_dups IS NOT NULL THEN
+        RAISE EXCEPTION 'promotion_rule has duplicate (action, event, max_usage) rows, merge them before re-running: %', v_dups;
+    END IF;
+
+    IF NOT pg_temp.admin_mig_has_unique_cols('public.promotion_rule'::regclass,
+                                             ARRAY['promotion_rule_action_id', 'promotion_rule_event_id', 'max_usage']) THEN
+        ALTER TABLE public.promotion_rule
+            ADD CONSTRAINT promotion_rule_action_event_max_usage_key
+            UNIQUE (promotion_rule_action_id, promotion_rule_event_id, max_usage);
+    END IF;
+END
+$$;
+
+DROP FUNCTION IF EXISTS pg_temp.admin_mig_has_unique_cols(regclass, text[]);
+DROP FUNCTION IF EXISTS pg_temp.admin_mig_has_unique_expr(regclass, text, text[]);
+
+
+-- ----------------------------------------------------------------------------
+-- 030_promotion_rule_id_text.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  030_promotion_rule_id_text.sql  (MS-5075)
+
+  promotion_rule.id_text: text copy of the uuid so the rules list can be
+  searched with ilike (GET /promotion-rules?search=). Moved from admin repo
+  procedures/alter_promotion_rule.sql and guarded so it can run twice
+  (the column already exists in supabase_ddl.sql).
+
+  Idempotent.
+*/
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+          FROM pg_attribute
+         WHERE attrelid = 'public.promotion_rule'::regclass
+           AND attname = 'id_text'
+           AND attnum > 0
+           AND NOT attisdropped
+    ) THEN
+        ALTER TABLE public.promotion_rule
+            ADD COLUMN id_text text GENERATED ALWAYS AS (id::text) STORED;
+    END IF;
+END
+$$;
+
+
+-- ----------------------------------------------------------------------------
+-- 040_triggers.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  040_triggers.sql  (MS-5075)
+
+  Moved unchanged from the admin repo (src/core/procedures/):
+  - validate_bundle_codes.sql      -> promotion.bundle_code must list existing bundle codes
+  - update_promotion_rule_name.sql -> promotion_rule.name = action-event-max_usage
+
+  Only change: CREATE OR REPLACE + DROP TRIGGER IF EXISTS so the file can run
+  twice (the original validate_bundle_codes.sql had a bare CREATE TRIGGER).
+
+  The API relies on these: POST/PUT /promotions with an unknown bundle code
+  raises P0001 'Invalid bundle code: <code>' (mapped to 422), and the rules
+  lookup label is promotion_rule.name.
+
+  Idempotent.
+*/
+
+------------------------------------------------------------------------------
+-- validate_bundle_codes (promotion)
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION validate_bundle_codes()
+RETURNS TRIGGER AS $$
+DECLARE
+    code TEXT;
+    exists_count INT;
+BEGIN
+    -- Only validate if bundle_code is NOT NULL and NOT empty
+    IF NEW.bundle_code IS NULL OR trim(NEW.bundle_code) = '' THEN
+        RETURN NEW;
+    END IF;
+
+    -- Split bundle_code string into array
+    FOREACH code IN ARRAY string_to_array(NEW.bundle_code, ',')
+    LOOP
+        SELECT COUNT(*) INTO exists_count
+        FROM bundle
+        WHERE data->>'bundle_code' = trim(code);
+
+        IF exists_count = 0 THEN
+            RAISE EXCEPTION 'Invalid bundle code: %', code;
+        END IF;
+    END LOOP;
+
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS validate_bundle_codes_promo_trigger ON promotion;
+
+CREATE TRIGGER validate_bundle_codes_promo_trigger
+BEFORE INSERT OR UPDATE ON promotion
+FOR EACH ROW
+EXECUTE FUNCTION validate_bundle_codes();
+
+------------------------------------------------------------------------------
+-- update_promotion_rule_name (promotion_rule)
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION update_promotion_rule_name()
+RETURNS TRIGGER AS $$
+DECLARE
+  action_name TEXT;
+  event_name TEXT;
+BEGIN
+  SELECT name INTO action_name FROM promotion_rule_action WHERE id = NEW.promotion_rule_action_id;
+  SELECT name INTO event_name FROM promotion_rule_event WHERE id = NEW.promotion_rule_event_id;
+
+  NEW.name := action_name || '-' || event_name || '-' || NEW.max_usage::text;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_update_promotion_rule_name ON promotion_rule;
+
+CREATE TRIGGER trg_update_promotion_rule_name
+BEFORE INSERT OR UPDATE ON promotion_rule
+FOR EACH ROW
+EXECUTE FUNCTION update_promotion_rule_name();
+
+
+-- ----------------------------------------------------------------------------
+-- 050_admin_audit_helpers.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  050_admin_audit_helpers.sql  (MS-5075)
+
+  Generic audited writes for the admin API. Each call runs in ONE transaction
+  (a PostgREST RPC is one transaction): the change, the optional
+  APP_CACHE_KEY rotation and the audit_log row commit or roll back together,
+  so a failed audit insert aborts the write by construction.
+
+  Public functions (EXECUTE: service_role only):
+
+    admin_write_audit(p_table text, p_operation text, p_record_id text,
+                      p_old_data jsonb, p_new_data jsonb, p_actor uuid,
+                      p_ip text, p_reason text, p_details jsonb DEFAULT '{}')
+      -> jsonb  (the inserted audit_log row)
+
+    admin_rotate_cache_key()
+      -> text   (the new APP_CACHE_KEY value, NULL when the key row is missing)
+
+    admin_insert_audited(p_table text, p_row jsonb, p_actor uuid,
+                         p_ip text DEFAULT NULL, p_reason text DEFAULT NULL,
+                         p_rotate_cache boolean DEFAULT false)
+      -> jsonb  (the inserted row)
+
+    admin_update_audited(p_table text, p_id text, p_patch jsonb, p_actor uuid,
+                         p_ip text DEFAULT NULL, p_reason text DEFAULT NULL,
+                         p_operation text DEFAULT 'UPDATE',
+                         p_rotate_cache boolean DEFAULT false,
+                         p_guard jsonb DEFAULT NULL)
+      -> jsonb  (the updated row)
+
+    admin_delete_audited(p_table text, p_id text, p_actor uuid,
+                         p_ip text DEFAULT NULL, p_reason text DEFAULT NULL,
+                         p_rotate_cache boolean DEFAULT false,
+                         p_guard jsonb DEFAULT NULL)
+      -> jsonb  (the deleted row)
+
+  Rules
+  - Table allowlist: app_config, banner, bundle, bundle_tag, promotion,
+    promotion_rule, tag, tag_group, voucher. Primary key is "id" on all of
+    them; p_id is passed as text and cast to the real key type
+    (uuid / bigint / integer) through jsonb_populate_record.
+  - Column names in p_row / p_patch / p_guard must be real columns
+    (generated and GENERATED ALWAYS identity columns are not writable; "id"
+    cannot be patched).
+  - Dynamic SQL uses format() with %I for identifiers and bind parameters
+    ($1) for values. The only %s placeholders receive column lists that are
+    themselves built exclusively from format('%I ...') fragments.
+  - app_config rows with key APP_CACHE_KEY cannot be touched here
+    (use admin_rotate_cache_key).
+  - When the table has an updated_at column and the patch does not set it,
+    admin_update_audited sets it to now().
+
+  Audit row written by the helpers
+    table_name = p_table, record_id = id when it is a uuid (else NULL),
+    operation = INSERT | p_operation | DELETE, changed_by = p_actor,
+    old_data / new_data = full row snapshots (jsonb objects),
+    operation_details = p_details || {ip_address, reason, client_reported:false,
+                        record_id (text, always), rows_affected,
+                        cache_key_rotated, changed_columns (update only)}
+
+  Errors (SQLSTATE / MESSAGE / DETAIL is a JSON string with "code")
+    AD404  not_found                 row with p_id does not exist
+    AD409  no_change                 update would not change any column
+    AD409  guard_failed              row does not match p_guard
+                                     (DETAIL has "expected" and "actual")
+    AD422  <human readable text>     DETAIL code: table_not_allowed,
+                                     unknown_column, invalid_input,
+                                     invalid_value, cache_key_forbidden
+    Native errors are left as they are: 23505 unique (duplicate_*),
+    23503 foreign key (rule_in_use, promotion_used, ...), 23502 not null,
+    23514 check, P0001 from triggers (e.g. 'Invalid bundle code: X').
+
+  p_guard: {"column": value, ...}; every column of the current row must be
+  equal (jsonb equality on to_jsonb(row)) to the given value, otherwise
+  AD409 guard_failed. Example: admin_delete_audited('voucher', '12', ...,
+  p_guard => '{"is_used": false}').
+
+  Idempotent (CREATE OR REPLACE, REVOKE/GRANT).
+*/
+
+------------------------------------------------------------------------------
+-- Internal: allowlist check, returns the table's regclass
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_assert_table(p_table text)
+RETURNS regclass
+LANGUAGE plpgsql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_rel regclass;
+BEGIN
+    IF p_table IS NULL
+       OR NOT (p_table = ANY (ARRAY['app_config', 'banner', 'bundle', 'bundle_tag', 'promotion',
+                                    'promotion_rule', 'tag', 'tag_group', 'voucher'])) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('table not allowed: %s', coalesce(p_table, '<null>')),
+            DETAIL  = jsonb_build_object('code', 'table_not_allowed', 'table', p_table)::text;
+    END IF;
+
+    v_rel := to_regclass(format('public.%I', p_table));
+
+    IF v_rel IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('table does not exist: %s', p_table),
+            DETAIL  = jsonb_build_object('code', 'table_not_allowed', 'table', p_table)::text;
+    END IF;
+
+    RETURN v_rel;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Internal: validates the keys of a JSON object against the table columns.
+--   p_writable: reject generated / GENERATED ALWAYS identity columns
+--   p_allow_id: accept the "id" key
+-- Returns the keys (sorted).
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_assert_columns(
+    p_rel      regclass,
+    p_data     jsonb,
+    p_param    text,
+    p_writable boolean,
+    p_allow_id boolean
+)
+RETURNS text[]
+LANGUAGE plpgsql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_keys text[];
+    v_bad  text[];
+BEGIN
+    IF p_data IS NULL OR jsonb_typeof(p_data) <> 'object' OR p_data = '{}'::jsonb THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('%s must be a non-empty JSON object', p_param),
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', p_param)::text;
+    END IF;
+
+    SELECT array_agg(t.k ORDER BY t.k)
+      INTO v_keys
+      FROM jsonb_object_keys(p_data) AS t(k);
+
+    SELECT array_agg(u.k ORDER BY u.k)
+      INTO v_bad
+      FROM unnest(v_keys) AS u(k)
+     WHERE (NOT p_allow_id AND u.k = 'id')
+        OR NOT EXISTS (
+               SELECT 1
+                 FROM pg_attribute a
+                WHERE a.attrelid = p_rel
+                  AND a.attname = u.k
+                  AND a.attnum > 0
+                  AND NOT a.attisdropped
+                  AND (NOT p_writable OR (a.attgenerated = '' AND a.attidentity <> 'a'))
+           );
+
+    IF v_bad IS NOT NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('unknown or read-only column(s) in %s: %s', p_param, array_to_string(v_bad, ', ')),
+            DETAIL  = jsonb_build_object('code', 'unknown_column', 'param', p_param, 'columns', to_jsonb(v_bad))::text;
+    END IF;
+
+    RETURN v_keys;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Internal: APP_CACHE_KEY is only changed by admin_rotate_cache_key
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_assert_not_cache_key(p_table text, p_a jsonb, p_b jsonb DEFAULT NULL)
+RETURNS void
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    IF p_table = 'app_config'
+       AND ('APP_CACHE_KEY' = (p_a ->> 'key') OR 'APP_CACHE_KEY' = (p_b ->> 'key')) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'APP_CACHE_KEY cannot be written directly',
+            DETAIL  = jsonb_build_object('code', 'cache_key_forbidden')::text;
+    END IF;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Internal: AD409 guard_failed when the row does not match p_guard
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_check_guard(
+    p_rel   regclass,
+    p_table text,
+    p_id    text,
+    p_row   jsonb,
+    p_guard jsonb
+)
+RETURNS void
+LANGUAGE plpgsql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_actual   jsonb;
+    v_expected jsonb;
+BEGIN
+    IF p_guard IS NULL OR p_guard = '{}'::jsonb THEN
+        RETURN;
+    END IF;
+
+    PERFORM public.admin_assert_columns(p_rel, p_guard, 'p_guard', false, true);
+
+    SELECT jsonb_object_agg(g.key, p_row -> g.key),
+           jsonb_object_agg(g.key, g.value)
+      INTO v_actual, v_expected
+      FROM jsonb_each(p_guard) AS g
+     WHERE (p_row -> g.key) IS DISTINCT FROM g.value;
+
+    IF v_actual IS NOT NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD409',
+            MESSAGE = 'guard_failed',
+            DETAIL  = jsonb_build_object('code', 'guard_failed', 'table', p_table, 'id', p_id,
+                                         'expected', v_expected, 'actual', v_actual)::text;
+    END IF;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Internal: SELECT ... FOR UPDATE of one row by id, as jsonb (NULL = missing)
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_lock_row(p_table text, p_id text)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_row jsonb;
+BEGIN
+    IF p_id IS NULL OR btrim(p_id) = '' THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_id is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_id')::text;
+    END IF;
+
+    BEGIN
+        EXECUTE format(
+            'SELECT to_jsonb(t.*) FROM public.%I AS t '
+            'WHERE t.id = (jsonb_populate_record(NULL::public.%I, $1)).id '
+            'FOR UPDATE',
+            p_table, p_table)
+          INTO v_row
+         USING jsonb_build_object('id', p_id);
+    EXCEPTION WHEN data_exception THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('invalid id for %s: %s', p_table, p_id),
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_id', 'error', SQLERRM)::text;
+    END;
+
+    RETURN v_row;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_write_audit: one audit_log row (also used directly by AuditService
+-- for non-DB effects such as GoTrue ban/unban and exports; p_table is free
+-- text there, e.g. 'auth.users').
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_write_audit(
+    p_table     text,
+    p_operation text,
+    p_record_id text,
+    p_old_data  jsonb,
+    p_new_data  jsonb,
+    p_actor     uuid,
+    p_ip        text,
+    p_reason    text,
+    p_details   jsonb DEFAULT '{}'::jsonb
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_details jsonb;
+    v_row     public.audit_log;
+BEGIN
+    IF p_actor IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_actor is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_actor')::text;
+    END IF;
+
+    IF p_table IS NULL OR btrim(p_table) = '' OR length(p_table) > 255 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_table is required (max 255 characters)',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_table')::text;
+    END IF;
+
+    IF p_operation IS NULL OR p_operation !~ '^[A-Z][A-Z_]{0,49}$' THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('invalid operation: %s (expected upper-case letters and _, max 50)',
+                             coalesce(p_operation, '<null>')),
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_operation')::text;
+    END IF;
+
+    IF p_details IS NOT NULL AND jsonb_typeof(p_details) <> 'object' THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_details must be a JSON object',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_details')::text;
+    END IF;
+
+    -- Fixed keys last so callers cannot override them.
+    v_details := coalesce(p_details, '{}'::jsonb)
+                 || jsonb_build_object(
+                        'ip_address',      nullif(btrim(p_ip), ''),
+                        'reason',          nullif(btrim(p_reason), ''),
+                        'client_reported', false);
+
+    IF p_record_id IS NOT NULL THEN
+        v_details := v_details || jsonb_build_object('record_id', p_record_id);
+    END IF;
+
+    INSERT INTO public.audit_log
+        (table_name, record_id, operation, changed_by, old_data, new_data, operation_details)
+    VALUES
+        (p_table,
+         CASE WHEN p_record_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+              THEN p_record_id::uuid END,
+         p_operation,
+         p_actor,
+         p_old_data,
+         p_new_data,
+         v_details)
+    RETURNING * INTO v_row;
+
+    RETURN to_jsonb(v_row);
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_rotate_cache_key: same effect as the portal's refreshAppCacheKey()
+-- (bundlesAPI.jsx / groupsAPI.jsx / settingsAPI.jsx): when the APP_CACHE_KEY
+-- row exists, its value becomes a new random v4 UUID in canonical lower-case
+-- text form (crypto.randomUUID() == gen_random_uuid()::text). When the row is
+-- missing nothing is inserted (the portal skips silently too) and NULL is
+-- returned. Not audited, as today.
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_rotate_cache_key()
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_value text;
+BEGIN
+    UPDATE public.app_config
+       SET value = gen_random_uuid()::text
+     WHERE key = 'APP_CACHE_KEY'
+    RETURNING value INTO v_value;
+
+    RETURN v_value;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_insert_audited
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_insert_audited(
+    p_table        text,
+    p_row          jsonb,
+    p_actor        uuid,
+    p_ip           text    DEFAULT NULL,
+    p_reason       text    DEFAULT NULL,
+    p_rotate_cache boolean DEFAULT false
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_rel      regclass;
+    v_cols     text[];
+    v_col_list text;
+    v_sel_list text;
+    v_new      jsonb;
+    v_rotated  boolean := false;
+BEGIN
+    v_rel := public.admin_assert_table(p_table);
+
+    IF p_actor IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_actor is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_actor')::text;
+    END IF;
+
+    v_cols := public.admin_assert_columns(v_rel, p_row, 'p_row', true, true);
+    PERFORM public.admin_assert_not_cache_key(p_table, p_row);
+
+    SELECT string_agg(format('%I', u.c), ', ' ORDER BY u.n),
+           string_agg(format('r.%I', u.c), ', ' ORDER BY u.n)
+      INTO v_col_list, v_sel_list
+      FROM unnest(v_cols) WITH ORDINALITY AS u(c, n);
+
+    BEGIN
+        EXECUTE format(
+            'INSERT INTO public.%I AS t (%s) '
+            'SELECT %s FROM jsonb_populate_record(NULL::public.%I, $1) AS r '
+            'RETURNING to_jsonb(t.*)',
+            p_table, v_col_list, v_sel_list, p_table)
+          INTO v_new
+         USING p_row;
+    EXCEPTION WHEN data_exception THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('invalid value for %s: %s', p_table, SQLERRM),
+            DETAIL  = jsonb_build_object('code', 'invalid_value', 'error', SQLERRM)::text;
+    END;
+
+    IF p_rotate_cache THEN
+        v_rotated := public.admin_rotate_cache_key() IS NOT NULL;
+    END IF;
+
+    PERFORM public.admin_write_audit(
+        p_table, 'INSERT', v_new ->> 'id', NULL, v_new, p_actor, p_ip, p_reason,
+        jsonb_build_object('rows_affected', 1, 'cache_key_rotated', v_rotated));
+
+    RETURN v_new;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_update_audited
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_update_audited(
+    p_table        text,
+    p_id           text,
+    p_patch        jsonb,
+    p_actor        uuid,
+    p_ip           text    DEFAULT NULL,
+    p_reason       text    DEFAULT NULL,
+    p_operation    text    DEFAULT 'UPDATE',
+    p_rotate_cache boolean DEFAULT false,
+    p_guard        jsonb   DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_rel     regclass;
+    v_cols    text[];
+    v_old     jsonb;
+    v_target  jsonb;
+    v_new     jsonb;
+    v_set     text;
+    v_rotated boolean := false;
+BEGIN
+    v_rel := public.admin_assert_table(p_table);
+
+    IF p_actor IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_actor is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_actor')::text;
+    END IF;
+
+    v_cols := public.admin_assert_columns(v_rel, p_patch, 'p_patch', true, false);
+
+    v_old := public.admin_lock_row(p_table, p_id);
+
+    IF v_old IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD404',
+            MESSAGE = 'not_found',
+            DETAIL  = jsonb_build_object('code', 'not_found', 'table', p_table, 'id', p_id)::text;
+    END IF;
+
+    PERFORM public.admin_assert_not_cache_key(p_table, v_old, p_patch);
+    PERFORM public.admin_check_guard(v_rel, p_table, p_id, v_old, p_guard);
+
+    -- Normalise the patch through the column types, then compare with the
+    -- current row: nothing differs -> AD409 no_change.
+    BEGIN
+        EXECUTE format('SELECT to_jsonb(r) FROM jsonb_populate_record(NULL::public.%I, $1) AS r', p_table)
+          INTO v_target
+         USING v_old || p_patch;
+    EXCEPTION WHEN data_exception THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('invalid value for %s: %s', p_table, SQLERRM),
+            DETAIL  = jsonb_build_object('code', 'invalid_value', 'error', SQLERRM)::text;
+    END;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM unnest(v_cols) AS u(c)
+         WHERE (v_target -> u.c) IS DISTINCT FROM (v_old -> u.c)
+    ) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD409',
+            MESSAGE = 'no_change',
+            DETAIL  = jsonb_build_object('code', 'no_change', 'table', p_table, 'id', p_id)::text;
+    END IF;
+
+    SELECT string_agg(format('%I = r.%I', u.c, u.c), ', ')
+      INTO v_set
+      FROM unnest(v_cols) AS u(c);
+
+    IF NOT ('updated_at' = ANY (v_cols)) AND EXISTS (
+        SELECT 1 FROM pg_attribute a
+         WHERE a.attrelid = v_rel AND a.attname = 'updated_at' AND a.attnum > 0 AND NOT a.attisdropped
+    ) THEN
+        v_set := v_set || ', ' || format('%I = now()', 'updated_at');
+    END IF;
+
+    BEGIN
+        EXECUTE format(
+            'UPDATE public.%I AS t SET %s '
+            'FROM jsonb_populate_record(NULL::public.%I, $1) AS r '
+            'WHERE t.id = r.id '
+            'RETURNING to_jsonb(t.*)',
+            p_table, v_set, p_table)
+          INTO v_new
+         USING p_patch || jsonb_build_object('id', p_id);
+    EXCEPTION WHEN data_exception THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('invalid value for %s: %s', p_table, SQLERRM),
+            DETAIL  = jsonb_build_object('code', 'invalid_value', 'error', SQLERRM)::text;
+    END;
+
+    IF p_rotate_cache THEN
+        v_rotated := public.admin_rotate_cache_key() IS NOT NULL;
+    END IF;
+
+    PERFORM public.admin_write_audit(
+        p_table, coalesce(p_operation, 'UPDATE'), v_new ->> 'id', v_old, v_new, p_actor, p_ip, p_reason,
+        jsonb_build_object('rows_affected', 1,
+                           'cache_key_rotated', v_rotated,
+                           'changed_columns', to_jsonb(v_cols)));
+
+    RETURN v_new;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_delete_audited
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_delete_audited(
+    p_table        text,
+    p_id           text,
+    p_actor        uuid,
+    p_ip           text    DEFAULT NULL,
+    p_reason       text    DEFAULT NULL,
+    p_rotate_cache boolean DEFAULT false,
+    p_guard        jsonb   DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_rel     regclass;
+    v_old     jsonb;
+    v_rotated boolean := false;
+BEGIN
+    v_rel := public.admin_assert_table(p_table);
+
+    IF p_actor IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_actor is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_actor')::text;
+    END IF;
+
+    v_old := public.admin_lock_row(p_table, p_id);
+
+    IF v_old IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD404',
+            MESSAGE = 'not_found',
+            DETAIL  = jsonb_build_object('code', 'not_found', 'table', p_table, 'id', p_id)::text;
+    END IF;
+
+    PERFORM public.admin_assert_not_cache_key(p_table, v_old);
+    PERFORM public.admin_check_guard(v_rel, p_table, p_id, v_old, p_guard);
+
+    -- FK violations (23503) propagate: the API maps them to 409 *_in_use / *_used.
+    EXECUTE format(
+        'DELETE FROM public.%I AS t '
+        'WHERE t.id = (jsonb_populate_record(NULL::public.%I, $1)).id',
+        p_table, p_table)
+      USING jsonb_build_object('id', p_id);
+
+    IF p_rotate_cache THEN
+        v_rotated := public.admin_rotate_cache_key() IS NOT NULL;
+    END IF;
+
+    PERFORM public.admin_write_audit(
+        p_table, 'DELETE', v_old ->> 'id', v_old, NULL, p_actor, p_ip, p_reason,
+        jsonb_build_object('rows_affected', 1, 'cache_key_rotated', v_rotated));
+
+    RETURN v_old;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Privileges: nobody but service_role (and the owner) may execute these.
+-- Supabase grants EXECUTE on new public functions to anon/authenticated by
+-- default privileges, hence the explicit REVOKE.
+------------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.admin_assert_table(text)                                   FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_assert_columns(regclass, jsonb, text, boolean, boolean) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_assert_not_cache_key(text, jsonb, jsonb)              FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_check_guard(regclass, text, text, jsonb, jsonb)       FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_lock_row(text, text)                                  FROM PUBLIC, anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_write_audit(text, text, text, jsonb, jsonb, uuid, text, text, jsonb)
+    FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_rotate_cache_key()
+    FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_insert_audited(text, jsonb, uuid, text, text, boolean)
+    FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_update_audited(text, text, jsonb, uuid, text, text, text, boolean, jsonb)
+    FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_delete_audited(text, text, uuid, text, text, boolean, jsonb)
+    FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.admin_write_audit(text, text, text, jsonb, jsonb, uuid, text, text, jsonb)
+    TO service_role;
+GRANT EXECUTE ON FUNCTION public.admin_rotate_cache_key()
+    TO service_role;
+GRANT EXECUTE ON FUNCTION public.admin_insert_audited(text, jsonb, uuid, text, text, boolean)
+    TO service_role;
+GRANT EXECUTE ON FUNCTION public.admin_update_audited(text, text, jsonb, uuid, text, text, text, boolean, jsonb)
+    TO service_role;
+GRANT EXECUTE ON FUNCTION public.admin_delete_audited(text, text, uuid, text, text, boolean, jsonb)
+    TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- 060_admin_search_bundles.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  060_admin_search_bundles.sql  (MS-5083)
+
+  Bundle search for GET /api/v1/admin/bundles when a text search or a tag filter is given
+  (without them the API uses a plain PostgREST count + range). Rewrite of the admin portal's
+  search_bundles(p_search_term, p_page, p_page_size, p_tag_ids, p_is_active) under a new name;
+  the legacy function is untouched until the clean-up story.
+
+  Public function (EXECUTE: service_role only):
+
+    admin_search_bundles(p_search text DEFAULT NULL, p_tag_ids uuid[] DEFAULT NULL,
+                         p_is_active boolean DEFAULT NULL,
+                         p_page integer DEFAULT 1, p_page_size integer DEFAULT 20)
+      -> jsonb {"items": [bundle rows], "total_count": n,
+                "facets": {"all": n, "active": n, "inactive": n}}
+
+  Differences from the legacy search_bundles
+  - p_page is 1-based (the API contract), p_page_size is clamped to 1..100;
+  - the search text is matched literally: "\", "%" and "_" are escaped (admin_like_escape),
+    so "50%" finds "50%" and nothing else (MS-5068);
+  - the tag filter is an EXISTS on bundle_tag instead of a LEFT JOIN + DISTINCT, so a bundle
+    with several matching tags is returned once and the count is exact;
+  - stable order: created_at DESC, id DESC (the order of the plain list), so pages never
+    repeat or skip a row (MS-5067);
+  - facets: the status breakdown of the rows matching the search and the tags, whatever
+    p_is_active, for the status tabs. is_active IS NOT TRUE counts as inactive (NULL included),
+    so all = active + inactive;
+  - items carry the list columns only: id, bundle_name, is_active, created_at, updated_at, data.
+
+  Searched fields (as today): id::text, bundle_name, data->>'bundle_name', data->>'bundle_info_code'.
+
+  Idempotent (CREATE OR REPLACE, REVOKE/GRANT).
+*/
+
+------------------------------------------------------------------------------
+-- Internal: escape a LIKE pattern so user text is matched literally
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_like_escape(p_text text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+    SELECT replace(replace(replace(coalesce(p_text, ''), '\', '\\'), '%', '\%'), '_', '\_');
+$$;
+
+------------------------------------------------------------------------------
+-- admin_search_bundles
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_search_bundles(
+    p_search    text    DEFAULT NULL,
+    p_tag_ids   uuid[]  DEFAULT NULL,
+    p_is_active boolean DEFAULT NULL,
+    p_page      integer DEFAULT 1,
+    p_page_size integer DEFAULT 20
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_search    text    := nullif(btrim(coalesce(p_search, '')), '');
+    v_pattern   text;
+    v_tag_ids   uuid[]  := CASE WHEN p_tag_ids IS NULL OR cardinality(p_tag_ids) = 0 THEN NULL ELSE p_tag_ids END;
+    v_page      integer := greatest(coalesce(p_page, 1), 1);
+    v_page_size integer := least(greatest(coalesce(p_page_size, 20), 1), 100);
+    v_offset    integer;
+    v_items     jsonb;
+    v_all       integer;
+    v_active    integer;
+    v_total     integer;
+BEGIN
+    v_offset  := (v_page - 1) * v_page_size;
+    v_pattern := CASE WHEN v_search IS NULL THEN NULL ELSE '%' || public.admin_like_escape(v_search) || '%' END;
+
+    -- Status breakdown of the searched set (the status filter itself is not applied).
+    SELECT count(*)::int,
+           count(*) FILTER (WHERE b.is_active IS TRUE)::int
+      INTO v_all, v_active
+      FROM public.bundle b
+     WHERE (v_pattern IS NULL
+            OR b.id::text ILIKE v_pattern ESCAPE '\'
+            OR b.bundle_name ILIKE v_pattern ESCAPE '\'
+            OR (b.data ->> 'bundle_name') ILIKE v_pattern ESCAPE '\'
+            OR (b.data ->> 'bundle_info_code') ILIKE v_pattern ESCAPE '\')
+       AND (v_tag_ids IS NULL
+            OR EXISTS (SELECT 1 FROM public.bundle_tag bt
+                        WHERE bt.bundle_id = b.id AND bt.tag_id = ANY (v_tag_ids)));
+
+    v_total := CASE
+                   WHEN p_is_active IS TRUE  THEN v_active
+                   WHEN p_is_active IS FALSE THEN v_all - v_active
+                   ELSE v_all
+               END;
+
+    SELECT coalesce(jsonb_agg(to_jsonb(t)), '[]'::jsonb)
+      INTO v_items
+      FROM (
+          SELECT b.id, b.bundle_name, b.is_active, b.created_at, b.updated_at, b.data
+            FROM public.bundle b
+           WHERE (v_pattern IS NULL
+                  OR b.id::text ILIKE v_pattern ESCAPE '\'
+                  OR b.bundle_name ILIKE v_pattern ESCAPE '\'
+                  OR (b.data ->> 'bundle_name') ILIKE v_pattern ESCAPE '\'
+                  OR (b.data ->> 'bundle_info_code') ILIKE v_pattern ESCAPE '\')
+             AND (v_tag_ids IS NULL
+                  OR EXISTS (SELECT 1 FROM public.bundle_tag bt
+                              WHERE bt.bundle_id = b.id AND bt.tag_id = ANY (v_tag_ids)))
+             AND (p_is_active IS NULL
+                  OR (p_is_active IS TRUE  AND b.is_active IS TRUE)
+                  OR (p_is_active IS FALSE AND b.is_active IS NOT TRUE))
+           ORDER BY b.created_at DESC NULLS LAST, b.id DESC
+           LIMIT v_page_size
+          OFFSET v_offset
+      ) t;
+
+    RETURN jsonb_build_object(
+        'items',       v_items,
+        'total_count', v_total,
+        'facets',      jsonb_build_object('all', v_all, 'active', v_active, 'inactive', v_all - v_active));
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Privileges
+------------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.admin_like_escape(text) FROM PUBLIC, anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_search_bundles(text, uuid[], boolean, integer, integer)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_search_bundles(text, uuid[], boolean, integer, integer)
+    TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- 061_bundles_admin.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  061_bundles_admin.sql  (MS-5083)
+
+  Audited bundle writes for the admin API. Each function runs in ONE transaction (a PostgREST
+  RPC is one transaction): the change, the APP_CACHE_KEY rotation (admin_rotate_cache_key, 050)
+  and the audit_log row (admin_write_audit, 050) commit or roll back together. The portal used to
+  do the same in three browser calls (update, audit insert, cache update), none of them atomic.
+
+  Public functions (EXECUTE: service_role only):
+
+    admin_set_bundle_status(p_id uuid, p_is_active boolean, p_actor uuid,
+                            p_ip text DEFAULT NULL, p_reason text DEFAULT NULL)
+      -> jsonb {"id", "is_active"}
+         PATCH /bundles/{id}/status. Locks the row (FOR UPDATE): two admins toggling the same
+         bundle get one success and one AD409 no_change.
+         Audit: table 'bundle', operation 'UPDATE', record_id = the bundle id,
+         old_data / new_data = {"affected_bundle_ids": [id], "status": "active"|"inactive"}
+         (the shape the portal wrote for every bundle status change, so the audit log reads the
+         same for a single toggle and a bulk action), operation_details = {rows_affected: 1,
+         cache_key_rotated, changed_columns: ["is_active"]}.
+
+    admin_set_all_bundles_status(p_is_active boolean, p_actor uuid,
+                                 p_ip text DEFAULT NULL, p_reason text DEFAULT NULL)
+      -> jsonb {"rows_affected", "affected_bundle_ids": [uuid...]}
+         POST /bundles/status/bulk. Replaces activate_all_bundles() and
+         deactivate_all_bundles(p_reason) (untouched until the clean-up story). Only the rows
+         that change are updated (is_active IS NOT TRUE to activate, IS TRUE to deactivate), so
+         already-matching bundles keep their updated_at. One audit row, operation 'BULK',
+         record_id NULL, old_data / new_data in the legacy shape above (all affected ids).
+
+    admin_set_bundle_tags(p_bundle_id uuid, p_tag_ids uuid[], p_actor uuid,
+                          p_ip text DEFAULT NULL, p_reason text DEFAULT NULL)
+      -> jsonb {"id", "tag_ids": [uuid...], "added": n, "removed": n, "cache_key_rotated": bool}
+         PUT /bundles/{id}/tags. Replaces the bundle's tag set exactly:
+           DELETE ... WHERE tag_id <> ALL (p_tag_ids)   -- an empty array removes every tag (MS-5065)
+           INSERT ... ON CONFLICT (bundle_id, tag_id) DO NOTHING
+         Duplicate ids in p_tag_ids are ignored. When the set is already the requested one,
+         nothing is written, nothing is audited and the cache key is not rotated.
+         Audit: table 'bundle', operation 'UPDATE', record_id = the bundle id,
+         old_data / new_data = {"tag_ids": [...]}, operation_details = {rows_affected, added,
+         removed, cache_key_rotated, changed_columns: ["tags"]}.
+
+  Errors (SQLSTATE / MESSAGE / DETAIL is a JSON string with "code")
+    AD404  not_found      unknown bundle id
+    AD409  no_change      the bundle already has that state / no bundle would change
+    AD422  invalid_input  p_actor missing; a reason is required to deactivate (backstop of the
+                          API rule); p_tag_ids NULL
+    AD422  unknown_tag    a tag id does not exist (DETAIL has "tag_ids")
+
+  Idempotent (CREATE OR REPLACE, REVOKE/GRANT). Depends on 050_admin_audit_helpers.sql and on
+  the unique key bundle_tag(bundle_id, tag_id) (unique_bundle_tag in supabase_ddl.sql, also
+  ensured by 020_constraints.sql).
+*/
+
+------------------------------------------------------------------------------
+-- Internal: shared checks
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_bundles_assert_actor_reason(
+    p_actor     uuid,
+    p_is_active boolean,
+    p_reason    text
+)
+RETURNS void
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    IF p_actor IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_actor is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_actor')::text;
+    END IF;
+
+    IF p_is_active IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_is_active is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_is_active')::text;
+    END IF;
+
+    IF p_is_active IS FALSE AND nullif(btrim(coalesce(p_reason, '')), '') IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'a reason is required to deactivate',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_reason')::text;
+    END IF;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_set_bundle_status
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_set_bundle_status(
+    p_id        uuid,
+    p_is_active boolean,
+    p_actor     uuid,
+    p_ip        text DEFAULT NULL,
+    p_reason    text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_current boolean;
+    v_found   boolean;
+    v_rotated boolean := false;
+    v_old     text;
+    v_new     text;
+BEGIN
+    PERFORM public.admin_bundles_assert_actor_reason(p_actor, p_is_active, p_reason);
+
+    IF p_id IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD404',
+            MESSAGE = 'not_found',
+            DETAIL  = jsonb_build_object('code', 'not_found', 'table', 'bundle')::text;
+    END IF;
+
+    SELECT b.is_active INTO v_current
+      FROM public.bundle b
+     WHERE b.id = p_id
+       FOR UPDATE;
+    v_found := FOUND;
+
+    IF NOT v_found THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD404',
+            MESSAGE = 'not_found',
+            DETAIL  = jsonb_build_object('code', 'not_found', 'table', 'bundle', 'id', p_id::text)::text;
+    END IF;
+
+    -- NULL counts as inactive, as everywhere else in the bundles admin.
+    IF coalesce(v_current, false) = p_is_active THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD409',
+            MESSAGE = 'no_change',
+            DETAIL  = jsonb_build_object('code', 'no_change', 'table', 'bundle', 'id', p_id::text)::text;
+    END IF;
+
+    UPDATE public.bundle
+       SET is_active = p_is_active,
+           updated_at = now()
+     WHERE id = p_id;
+
+    v_rotated := public.admin_rotate_cache_key() IS NOT NULL;
+
+    v_old := CASE WHEN p_is_active THEN 'inactive' ELSE 'active' END;
+    v_new := CASE WHEN p_is_active THEN 'active' ELSE 'inactive' END;
+
+    PERFORM public.admin_write_audit(
+        'bundle', 'UPDATE', p_id::text,
+        jsonb_build_object('affected_bundle_ids', jsonb_build_array(p_id::text), 'status', v_old),
+        jsonb_build_object('affected_bundle_ids', jsonb_build_array(p_id::text), 'status', v_new),
+        p_actor, p_ip, p_reason,
+        jsonb_build_object('rows_affected', 1,
+                           'cache_key_rotated', v_rotated,
+                           'changed_columns', jsonb_build_array('is_active')));
+
+    RETURN jsonb_build_object('id', p_id::text, 'is_active', p_is_active);
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_set_all_bundles_status
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_set_all_bundles_status(
+    p_is_active boolean,
+    p_actor     uuid,
+    p_ip        text DEFAULT NULL,
+    p_reason    text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_ids     jsonb;
+    v_count   integer;
+    v_rotated boolean := false;
+    v_old     text;
+    v_new     text;
+BEGIN
+    PERFORM public.admin_bundles_assert_actor_reason(p_actor, p_is_active, p_reason);
+
+    -- Only the rows that change: IS NOT TRUE also picks up bundles whose is_active was never set.
+    WITH updated AS (
+        UPDATE public.bundle
+           SET is_active = p_is_active,
+               updated_at = now()
+         WHERE (p_is_active IS TRUE  AND is_active IS NOT TRUE)
+            OR (p_is_active IS FALSE AND is_active IS TRUE)
+        RETURNING id
+    )
+    SELECT coalesce(jsonb_agg(id::text ORDER BY id), '[]'::jsonb), count(*)::int
+      INTO v_ids, v_count
+      FROM updated;
+
+    IF v_count = 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD409',
+            MESSAGE = 'no_change',
+            DETAIL  = jsonb_build_object('code', 'no_change', 'table', 'bundle')::text;
+    END IF;
+
+    v_rotated := public.admin_rotate_cache_key() IS NOT NULL;
+
+    v_old := CASE WHEN p_is_active THEN 'inactive' ELSE 'active' END;
+    v_new := CASE WHEN p_is_active THEN 'active' ELSE 'inactive' END;
+
+    PERFORM public.admin_write_audit(
+        'bundle', 'BULK', NULL,
+        jsonb_build_object('affected_bundle_ids', v_ids, 'status', v_old),
+        jsonb_build_object('affected_bundle_ids', v_ids, 'status', v_new),
+        p_actor, p_ip, p_reason,
+        jsonb_build_object('rows_affected', v_count,
+                           'cache_key_rotated', v_rotated,
+                           'changed_columns', jsonb_build_array('is_active')));
+
+    RETURN jsonb_build_object('rows_affected', v_count, 'affected_bundle_ids', v_ids);
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_set_bundle_tags
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_set_bundle_tags(
+    p_bundle_id uuid,
+    p_tag_ids   uuid[],
+    p_actor     uuid,
+    p_ip        text DEFAULT NULL,
+    p_reason    text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_tag_ids  uuid[];
+    v_missing  uuid[];
+    v_old_ids  jsonb;
+    v_new_ids  jsonb;
+    v_removed  integer := 0;
+    v_added    integer := 0;
+    v_rotated  boolean := false;
+BEGIN
+    IF p_actor IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_actor is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_actor')::text;
+    END IF;
+
+    IF p_tag_ids IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_tag_ids is required (an empty array removes every tag)',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_tag_ids')::text;
+    END IF;
+
+    -- unique ids, NULLs dropped
+    SELECT coalesce(array_agg(DISTINCT t), ARRAY[]::uuid[])
+      INTO v_tag_ids
+      FROM unnest(p_tag_ids) AS t
+     WHERE t IS NOT NULL;
+
+    -- lock the bundle: concurrent saves on the same bundle serialise (AD404 when missing)
+    PERFORM 1 FROM public.bundle b WHERE b.id = p_bundle_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD404',
+            MESSAGE = 'not_found',
+            DETAIL  = jsonb_build_object('code', 'not_found', 'table', 'bundle',
+                                         'id', coalesce(p_bundle_id::text, '<null>'))::text;
+    END IF;
+
+    SELECT array_agg(t ORDER BY t)
+      INTO v_missing
+      FROM unnest(v_tag_ids) AS t
+     WHERE NOT EXISTS (SELECT 1 FROM public.tag g WHERE g.id = t);
+
+    IF v_missing IS NOT NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('unknown tag id(s): %s', array_to_string(v_missing, ', ')),
+            DETAIL  = jsonb_build_object('code', 'unknown_tag', 'tag_ids', to_jsonb(v_missing))::text;
+    END IF;
+
+    SELECT coalesce(jsonb_agg(bt.tag_id::text ORDER BY bt.tag_id), '[]'::jsonb)
+      INTO v_old_ids
+      FROM public.bundle_tag bt
+     WHERE bt.bundle_id = p_bundle_id;
+
+    -- tag_id <> ALL('{}') is true for every row: an empty set clears the bundle (MS-5065)
+    WITH removed AS (
+        DELETE FROM public.bundle_tag bt
+         WHERE bt.bundle_id = p_bundle_id
+           AND bt.tag_id <> ALL (v_tag_ids)
+        RETURNING bt.id
+    )
+    SELECT count(*)::int INTO v_removed FROM removed;
+
+    WITH added AS (
+        INSERT INTO public.bundle_tag (bundle_id, tag_id, is_active)
+        SELECT p_bundle_id, t, true
+          FROM unnest(v_tag_ids) AS t
+        ON CONFLICT (bundle_id, tag_id) DO NOTHING
+        RETURNING id
+    )
+    SELECT count(*)::int INTO v_added FROM added;
+
+    SELECT coalesce(jsonb_agg(bt.tag_id::text ORDER BY bt.tag_id), '[]'::jsonb)
+      INTO v_new_ids
+      FROM public.bundle_tag bt
+     WHERE bt.bundle_id = p_bundle_id;
+
+    IF v_removed = 0 AND v_added = 0 THEN
+        -- same set as before: nothing to audit, nothing to invalidate
+        RETURN jsonb_build_object('id', p_bundle_id::text, 'tag_ids', v_new_ids,
+                                  'added', 0, 'removed', 0, 'cache_key_rotated', false);
+    END IF;
+
+    v_rotated := public.admin_rotate_cache_key() IS NOT NULL;
+
+    PERFORM public.admin_write_audit(
+        'bundle', 'UPDATE', p_bundle_id::text,
+        jsonb_build_object('tag_ids', v_old_ids),
+        jsonb_build_object('tag_ids', v_new_ids),
+        p_actor, p_ip, p_reason,
+        jsonb_build_object('rows_affected', v_removed + v_added,
+                           'added', v_added,
+                           'removed', v_removed,
+                           'cache_key_rotated', v_rotated,
+                           'changed_columns', jsonb_build_array('tags')));
+
+    RETURN jsonb_build_object('id', p_bundle_id::text, 'tag_ids', v_new_ids,
+                              'added', v_added, 'removed', v_removed, 'cache_key_rotated', v_rotated);
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Privileges
+------------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.admin_bundles_assert_actor_reason(uuid, boolean, text)
+    FROM PUBLIC, anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_set_bundle_status(uuid, boolean, uuid, text, text)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_bundle_status(uuid, boolean, uuid, text, text)
+    TO service_role;
+
+REVOKE ALL ON FUNCTION public.admin_set_all_bundles_status(boolean, uuid, text, text)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_all_bundles_status(boolean, uuid, text, text)
+    TO service_role;
+
+REVOKE ALL ON FUNCTION public.admin_set_bundle_tags(uuid, uuid[], uuid, text, text)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_bundle_tags(uuid, uuid[], uuid, text, text)
+    TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- 070_groups.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  070_groups.sql  (MS-5085)
+
+  Group (tag_group) writes of the admin API, each in ONE transaction with its
+  audit_log row and the APP_CACHE_KEY rotation. Rewrites of the admin portal's
+  insert_group_with_tags / edit_tag_group / delete_group_if_no_bundle
+  (src/core/procedures/*.sql in the portal repo) under admin_* names; the
+  legacy functions are left untouched until the clean-up story.
+
+  Public functions (EXECUTE: service_role only):
+
+    admin_insert_group_with_tags(p_name text, p_type integer, p_group_category text,
+                                 p_tags jsonb, p_actor uuid, p_ip text DEFAULT NULL,
+                                 p_reason text DEFAULT NULL, p_rotate_cache boolean DEFAULT true)
+      -> jsonb {group, tags}
+         p_tags = [{id? uuid, name, icon?, data?}, ...]; a missing id is generated.
+
+    admin_edit_tag_group(p_id bigint, p_name text, p_type integer, p_group_category text,
+                         p_new_tags jsonb, p_updated_tags jsonb, p_deleted_tag_ids uuid[],
+                         p_actor uuid, p_ip text DEFAULT NULL, p_reason text DEFAULT NULL,
+                         p_rotate_cache boolean DEFAULT true)
+      -> jsonb {group, tags}
+         p_updated_tags = [{id, name, icon, data}, ...] (icon null clears it);
+         tag_translation.data is kept in sync for the updated tags, and the
+         translations of the deleted tags are removed (as edit_tag_group did).
+
+    admin_delete_group(p_id bigint, p_actor uuid, p_ip text DEFAULT NULL,
+                       p_reason text DEFAULT NULL, p_rotate_cache boolean DEFAULT true)
+      -> jsonb {group, tags}   (the deleted rows, so the API can remove the icons)
+
+    admin_reorder_tags(p_group_id bigint, p_tag_ids uuid[], p_actor uuid,
+                       p_ip text DEFAULT NULL, p_reason text DEFAULT NULL,
+                       p_rotate_cache boolean DEFAULT true)
+      -> jsonb {tag_ids}       sorting_number = position in p_tag_ids (1-based)
+
+  Errors (SQLSTATE / MESSAGE / DETAIL is a JSON string with "code")
+    AD404  not_found          group does not exist
+    AD409  linked_bundles     a tag of the group (delete) or a deleted tag (edit)
+                              is assigned to a bundle; DETAIL has "bundle_count".
+                              Nothing is changed (fixes MS-5064).
+    AD422  tag_not_in_group   an updated / deleted / reordered tag belongs to
+                              another group or does not exist (DETAIL "tag_ids")
+    AD422  incomplete_order   p_tag_ids does not list every tag of the group
+    AD422  invalid_input      bad argument
+    Native errors propagate: 23505 tag_group_name_key (duplicate_group_name),
+    23505 unique_tag_name_per_group (duplicate_tag_name), 22P02 bad uuid (422).
+
+  Audit rows (admin_write_audit of 050_admin_audit_helpers.sql): table_name
+  'tag_group', operation INSERT / UPDATE / DELETE, old_data and new_data =
+  {group, tags} snapshots, operation_details.record_id = the group id (bigint,
+  so audit_log.record_id stays NULL), plus tags_inserted / tags_updated /
+  deleted_tag_ids / reordered and cache_key_rotated.
+
+  Requires 000_schema_drift.sql (tag.sorting_number, tag_group.group_category),
+  010_audit_log.sql, 020_constraints.sql and 050_admin_audit_helpers.sql.
+  Idempotent (CREATE OR REPLACE, REVOKE/GRANT).
+*/
+
+------------------------------------------------------------------------------
+-- Internal: {group, tags} snapshot of a group (tags ordered as the app shows them)
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_group_snapshot(p_group_id bigint)
+RETURNS jsonb
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+    SELECT jsonb_build_object(
+        'group', to_jsonb(g.*),
+        'tags',  coalesce((SELECT jsonb_agg(to_jsonb(t.*) ORDER BY t.sorting_number, t.name, t.id)
+                             FROM public.tag AS t
+                            WHERE t.tag_group_id = g.id), '[]'::jsonb))
+      FROM public.tag_group AS g
+     WHERE g.id = p_group_id;
+$$;
+
+------------------------------------------------------------------------------
+-- Internal: SELECT ... FOR UPDATE of the group, AD404 when missing
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_lock_group(p_group_id bigint)
+RETURNS public.tag_group
+LANGUAGE plpgsql
+VOLATILE
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_group public.tag_group;
+BEGIN
+    IF p_group_id IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_id is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_id')::text;
+    END IF;
+
+    SELECT * INTO v_group FROM public.tag_group WHERE id = p_group_id FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD404',
+            MESSAGE = 'not_found',
+            DETAIL  = jsonb_build_object('code', 'not_found', 'table', 'tag_group', 'id', p_group_id)::text;
+    END IF;
+
+    RETURN v_group;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Internal: common argument checks
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_assert_group_args(p_actor uuid, p_name text, p_type integer,
+                                                          p_group_category text)
+RETURNS void
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    IF p_actor IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_actor is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_actor')::text;
+    END IF;
+    IF p_name IS NULL OR btrim(p_name) = '' THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_name is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_name')::text;
+    END IF;
+    IF p_type IS NULL OR p_type NOT IN (1, 2) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_type must be 1 (group) or 2 (flat)',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_type')::text;
+    END IF;
+    IF p_group_category IS NULL OR btrim(p_group_category) = '' THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_group_category is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_group_category')::text;
+    END IF;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_insert_group_with_tags
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_insert_group_with_tags(
+    p_name           text,
+    p_type           integer,
+    p_group_category text,
+    p_tags           jsonb,
+    p_actor          uuid,
+    p_ip             text    DEFAULT NULL,
+    p_reason         text    DEFAULT NULL,
+    p_rotate_cache   boolean DEFAULT true
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_group    public.tag_group;
+    v_tags     integer := 0;
+    v_new      jsonb;
+    v_rotated  boolean := false;
+BEGIN
+    PERFORM public.admin_assert_group_args(p_actor, p_name, p_type, p_group_category);
+
+    IF p_tags IS NULL OR jsonb_typeof(p_tags) <> 'array' OR jsonb_array_length(p_tags) = 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_tags must be a non-empty JSON array',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_tags')::text;
+    END IF;
+
+    INSERT INTO public.tag_group (name, type, group_category)
+    VALUES (btrim(p_name), p_type, btrim(p_group_category))
+    RETURNING * INTO v_group;
+
+    INSERT INTO public.tag (id, name, icon, tag_group_id, data)
+    SELECT coalesce((t.value ->> 'id')::uuid, gen_random_uuid()),
+           t.value ->> 'name',
+           t.value ->> 'icon',
+           v_group.id,
+           CASE WHEN jsonb_typeof(t.value -> 'data') = 'object' THEN t.value -> 'data' END
+      FROM jsonb_array_elements(p_tags) AS t(value);
+    GET DIAGNOSTICS v_tags = ROW_COUNT;
+
+    v_new := public.admin_group_snapshot(v_group.id);
+
+    IF p_rotate_cache THEN
+        v_rotated := public.admin_rotate_cache_key() IS NOT NULL;
+    END IF;
+
+    PERFORM public.admin_write_audit(
+        'tag_group', 'INSERT', v_group.id::text, NULL, v_new, p_actor, p_ip, p_reason,
+        jsonb_build_object('rows_affected', 1 + v_tags, 'tags_inserted', v_tags, 'cache_key_rotated', v_rotated));
+
+    RETURN v_new;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_edit_tag_group
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_edit_tag_group(
+    p_id              bigint,
+    p_name            text,
+    p_type            integer,
+    p_group_category  text,
+    p_new_tags        jsonb,
+    p_updated_tags    jsonb,
+    p_deleted_tag_ids uuid[],
+    p_actor           uuid,
+    p_ip              text    DEFAULT NULL,
+    p_reason          text    DEFAULT NULL,
+    p_rotate_cache    boolean DEFAULT true
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_group        public.tag_group;
+    v_old          jsonb;
+    v_new          jsonb;
+    v_bad          uuid[];
+    v_deleted      uuid[] := coalesce(p_deleted_tag_ids, ARRAY[]::uuid[]);
+    v_new_tags     jsonb  := coalesce(p_new_tags, '[]'::jsonb);
+    v_updated_tags jsonb  := coalesce(p_updated_tags, '[]'::jsonb);
+    v_bundle_count integer;
+    v_inserted     integer := 0;
+    v_updated      integer := 0;
+    v_removed      integer := 0;
+    v_rotated      boolean := false;
+BEGIN
+    PERFORM public.admin_assert_group_args(p_actor, p_name, p_type, p_group_category);
+
+    IF jsonb_typeof(v_new_tags) <> 'array' OR jsonb_typeof(v_updated_tags) <> 'array' THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_new_tags and p_updated_tags must be JSON arrays',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_new_tags')::text;
+    END IF;
+
+    v_group := public.admin_lock_group(p_id);
+    v_old   := public.admin_group_snapshot(p_id);
+
+    -- every updated or deleted tag must belong to this group
+    SELECT array_agg(s.tag_id)
+      INTO v_bad
+      FROM (SELECT (t.value ->> 'id')::uuid AS tag_id FROM jsonb_array_elements(v_updated_tags) AS t(value)
+            UNION ALL
+            SELECT d.tag_id FROM unnest(v_deleted) AS d(tag_id)) AS s
+     WHERE s.tag_id IS NULL
+        OR NOT EXISTS (SELECT 1 FROM public.tag AS t WHERE t.id = s.tag_id AND t.tag_group_id = p_id);
+
+    IF v_bad IS NOT NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'tag_not_in_group',
+            DETAIL  = jsonb_build_object('code', 'tag_not_in_group', 'group_id', p_id, 'tag_ids', to_jsonb(v_bad))::text;
+    END IF;
+
+    -- a tag assigned to a bundle cannot be deleted (bundle_tag.tag_id has no cascade)
+    SELECT count(*) INTO v_bundle_count
+      FROM public.bundle_tag AS bt
+     WHERE bt.tag_id = ANY (v_deleted);
+
+    IF v_bundle_count > 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD409',
+            MESSAGE = 'linked_bundles',
+            DETAIL  = jsonb_build_object('code', 'linked_bundles', 'bundle_count', v_bundle_count)::text;
+    END IF;
+
+    UPDATE public.tag_group
+       SET name = btrim(p_name), type = p_type, group_category = btrim(p_group_category), updated_at = now()
+     WHERE id = p_id;
+
+    IF cardinality(v_deleted) > 0 THEN
+        DELETE FROM public.tag_translation WHERE tag_id = ANY (v_deleted);
+        DELETE FROM public.tag WHERE id = ANY (v_deleted) AND tag_group_id = p_id;
+        GET DIAGNOSTICS v_removed = ROW_COUNT;
+    END IF;
+
+    INSERT INTO public.tag (id, name, icon, tag_group_id, data)
+    SELECT coalesce((t.value ->> 'id')::uuid, gen_random_uuid()),
+           t.value ->> 'name',
+           t.value ->> 'icon',
+           p_id,
+           CASE WHEN jsonb_typeof(t.value -> 'data') = 'object' THEN t.value -> 'data' END
+      FROM jsonb_array_elements(v_new_tags) AS t(value);
+    GET DIAGNOSTICS v_inserted = ROW_COUNT;
+
+    UPDATE public.tag AS tg
+       SET name       = t.value ->> 'name',
+           icon       = t.value ->> 'icon',
+           data       = CASE WHEN jsonb_typeof(t.value -> 'data') = 'object' THEN t.value -> 'data' ELSE tg.data END,
+           updated_at = now()
+      FROM jsonb_array_elements(v_updated_tags) AS t(value)
+     WHERE tg.id = (t.value ->> 'id')::uuid
+       AND tg.tag_group_id = p_id;
+    GET DIAGNOSTICS v_updated = ROW_COUNT;
+
+    -- keep every locale of tag_translation in sync (as edit_tag_group did)
+    UPDATE public.tag_translation AS tt
+       SET data = t.value -> 'data', updated_at = now()
+      FROM jsonb_array_elements(v_updated_tags) AS t(value)
+     WHERE tt.tag_id = (t.value ->> 'id')::uuid
+       AND jsonb_typeof(t.value -> 'data') = 'object';
+
+    v_new := public.admin_group_snapshot(p_id);
+
+    IF p_rotate_cache THEN
+        v_rotated := public.admin_rotate_cache_key() IS NOT NULL;
+    END IF;
+
+    PERFORM public.admin_write_audit(
+        'tag_group', 'UPDATE', p_id::text, v_old, v_new, p_actor, p_ip, p_reason,
+        jsonb_build_object('rows_affected', 1 + v_inserted + v_updated + v_removed,
+                           'tags_inserted', v_inserted, 'tags_updated', v_updated,
+                           'deleted_tag_ids', to_jsonb(v_deleted), 'cache_key_rotated', v_rotated));
+
+    RETURN v_new;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_delete_group
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_delete_group(
+    p_id           bigint,
+    p_actor        uuid,
+    p_ip           text    DEFAULT NULL,
+    p_reason       text    DEFAULT NULL,
+    p_rotate_cache boolean DEFAULT true
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_group        public.tag_group;
+    v_old          jsonb;
+    v_bundle_count integer;
+    v_tags         integer := 0;
+    v_rotated      boolean := false;
+BEGIN
+    IF p_actor IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_actor is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_actor')::text;
+    END IF;
+
+    v_group := public.admin_lock_group(p_id);
+
+    -- bundles reached through bundle_tag -> tag -> this group: refuse, change nothing
+    SELECT count(*) INTO v_bundle_count
+      FROM public.bundle_tag AS bt
+      JOIN public.tag AS t ON t.id = bt.tag_id
+     WHERE t.tag_group_id = p_id;
+
+    IF v_bundle_count > 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD409',
+            MESSAGE = 'linked_bundles',
+            DETAIL  = jsonb_build_object('code', 'linked_bundles', 'bundle_count', v_bundle_count)::text;
+    END IF;
+
+    v_old := public.admin_group_snapshot(p_id);
+
+    DELETE FROM public.tag_translation
+     WHERE tag_id IN (SELECT id FROM public.tag WHERE tag_group_id = p_id);
+    DELETE FROM public.tag WHERE tag_group_id = p_id;
+    GET DIAGNOSTICS v_tags = ROW_COUNT;
+    DELETE FROM public.tag_group WHERE id = p_id;
+
+    IF p_rotate_cache THEN
+        v_rotated := public.admin_rotate_cache_key() IS NOT NULL;
+    END IF;
+
+    PERFORM public.admin_write_audit(
+        'tag_group', 'DELETE', p_id::text, v_old, NULL, p_actor, p_ip, p_reason,
+        jsonb_build_object('rows_affected', 1 + v_tags, 'tags_deleted', v_tags, 'cache_key_rotated', v_rotated));
+
+    RETURN v_old;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_reorder_tags
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_reorder_tags(
+    p_group_id     bigint,
+    p_tag_ids      uuid[],
+    p_actor        uuid,
+    p_ip           text    DEFAULT NULL,
+    p_reason       text    DEFAULT NULL,
+    p_rotate_cache boolean DEFAULT true
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_group   public.tag_group;
+    v_bad     uuid[];
+    v_missing uuid[];
+    v_old     jsonb;
+    v_rows    integer := 0;
+    v_rotated boolean := false;
+BEGIN
+    IF p_actor IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_actor is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_actor')::text;
+    END IF;
+
+    IF p_tag_ids IS NULL OR cardinality(p_tag_ids) = 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_tag_ids must list every tag of the group',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_tag_ids')::text;
+    END IF;
+
+    IF (SELECT count(DISTINCT x) FROM unnest(p_tag_ids) AS x) <> cardinality(p_tag_ids) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_tag_ids contains a repeated id',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_tag_ids')::text;
+    END IF;
+
+    v_group := public.admin_lock_group(p_group_id);
+
+    SELECT array_agg(x) INTO v_bad
+      FROM unnest(p_tag_ids) AS x
+     WHERE NOT EXISTS (SELECT 1 FROM public.tag AS t WHERE t.id = x AND t.tag_group_id = p_group_id);
+
+    IF v_bad IS NOT NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'tag_not_in_group',
+            DETAIL  = jsonb_build_object('code', 'tag_not_in_group', 'group_id', p_group_id,
+                                         'tag_ids', to_jsonb(v_bad))::text;
+    END IF;
+
+    SELECT array_agg(t.id) INTO v_missing
+      FROM public.tag AS t
+     WHERE t.tag_group_id = p_group_id
+       AND t.id <> ALL (p_tag_ids);
+
+    IF v_missing IS NOT NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'incomplete_order',
+            DETAIL  = jsonb_build_object('code', 'incomplete_order', 'group_id', p_group_id,
+                                         'missing_tag_ids', to_jsonb(v_missing))::text;
+    END IF;
+
+    SELECT coalesce(jsonb_agg(t.id ORDER BY t.sorting_number, t.name, t.id), '[]'::jsonb)
+      INTO v_old
+      FROM public.tag AS t
+     WHERE t.tag_group_id = p_group_id;
+
+    UPDATE public.tag AS t
+       SET sorting_number = o.n, updated_at = now()
+      FROM unnest(p_tag_ids) WITH ORDINALITY AS o(id, n)
+     WHERE t.id = o.id
+       AND t.tag_group_id = p_group_id;
+    GET DIAGNOSTICS v_rows = ROW_COUNT;
+
+    IF p_rotate_cache THEN
+        v_rotated := public.admin_rotate_cache_key() IS NOT NULL;
+    END IF;
+
+    PERFORM public.admin_write_audit(
+        'tag_group', 'UPDATE', p_group_id::text,
+        jsonb_build_object('tag_ids', v_old), jsonb_build_object('tag_ids', to_jsonb(p_tag_ids)),
+        p_actor, p_ip, p_reason,
+        jsonb_build_object('action', 'reorder_tags', 'rows_affected', v_rows, 'reordered', v_rows,
+                           'cache_key_rotated', v_rotated));
+
+    RETURN jsonb_build_object('tag_ids', to_jsonb(p_tag_ids));
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Privileges: service_role only
+------------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.admin_group_snapshot(bigint)                           FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_lock_group(bigint)                               FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_assert_group_args(uuid, text, integer, text)     FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_insert_group_with_tags(text, integer, text, jsonb, uuid, text, text, boolean)
+    FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_edit_tag_group(bigint, text, integer, text, jsonb, jsonb, uuid[], uuid, text, text, boolean)
+    FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_delete_group(bigint, uuid, text, text, boolean)
+    FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_reorder_tags(bigint, uuid[], uuid, text, text, boolean)
+    FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.admin_insert_group_with_tags(text, integer, text, jsonb, uuid, text, text, boolean)
+    TO service_role;
+GRANT EXECUTE ON FUNCTION public.admin_edit_tag_group(bigint, text, integer, text, jsonb, jsonb, uuid[], uuid, text, text, boolean)
+    TO service_role;
+GRANT EXECUTE ON FUNCTION public.admin_delete_group(bigint, uuid, text, text, boolean)
+    TO service_role;
+GRANT EXECUTE ON FUNCTION public.admin_reorder_tags(bigint, uuid[], uuid, text, text, boolean)
+    TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- 080_users.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  080_users.sql  (MS-5079 users page and user detail; fixes MS-5067)
+
+  Read side of the Users page for the admin API. Never writes.
+
+  Public functions (EXECUTE: service_role only):
+
+    admin_search_users(p_search text DEFAULT NULL, p_ban_status text DEFAULT 'all',
+                       p_limit integer DEFAULT 20, p_offset integer DEFAULT 0,
+                       p_id uuid DEFAULT NULL, p_sort text DEFAULT 'created_at',
+                       p_dir text DEFAULT 'desc')
+      -> jsonb {"data": [user rows], "total": n, "facets": {"all": n, "banned": n, "active": n}}
+
+    - Source: users_copy (email, metadata = auth.users.raw_user_meta_data) LEFT JOIN auth.users
+      for banned_until, raw_app_meta_data->>'role', created_at and last_sign_in_at. The legacy
+      portal read the ban state with one GoTrue call per row, or listed 20 000 auth users in the
+      browser when the ban filter was on (MS-5067); this join replaces both.
+    - Row: {id, email, first_name, last_name, msisdn, referral_code, email_verified,
+            phone_verified, should_notify, role, banned_until, is_banned, created_at,
+            last_sign_in_at}. is_banned = banned_until in the future; a lapsed ban is "active".
+    - p_search: literal match on email (ILIKE with %, _ and \ escaped).
+    - p_ban_status: all | banned | active, else AD422.
+    - p_id: only that user (the detail route); the facets are over the searched set anyway.
+    - facets: counts over the searched set (p_search and p_id) whatever p_ban_status says.
+    - Order: p_sort (created_at | email) in p_dir (asc | desc), NULLs last, then id in the
+      same direction (stable paging, MS-5067). Default created_at DESC, id DESC. Any other
+      p_sort / p_dir -> AD422 (TEOS-111).
+    - The first (5-argument) signature is dropped first (DROP FUNCTION IF EXISTS on its exact
+      argument list); callers passing only the first five parameters keep working (defaults).
+    - p_limit 1..100, p_offset >= 0, else AD422.
+
+    admin_wallet_transactions(p_user_id uuid, p_limit integer DEFAULT 20, p_offset integer DEFAULT 0)
+      -> jsonb {"data": [{id, wallet_id, amount, status, source, currency, created_at}], "total": n}
+
+    - Rewrite of get_wallet_transactions_with_count for one user, with the true total (the legacy
+      "count" was the page length) and a stable order (created_at DESC, id DESC).
+    - p_user_id is required (AD422 when NULL): the admin API only lists one user's wallet.
+
+  Idempotent (CREATE OR REPLACE, REVOKE/GRANT).
+*/
+
+------------------------------------------------------------------------------
+-- admin_search_users
+------------------------------------------------------------------------------
+-- TEOS-111: p_sort / p_dir added; the first (5-argument) signature is replaced.
+DROP FUNCTION IF EXISTS public.admin_search_users(text, text, integer, integer, uuid);
+
+CREATE OR REPLACE FUNCTION public.admin_search_users(
+    p_search     text    DEFAULT NULL,
+    p_ban_status text    DEFAULT 'all',
+    p_limit      integer DEFAULT 20,
+    p_offset     integer DEFAULT 0,
+    p_id         uuid    DEFAULT NULL,
+    p_sort       text    DEFAULT 'created_at',
+    p_dir        text    DEFAULT 'desc'
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_pattern text;
+    v_status  text := coalesce(nullif(btrim(p_ban_status), ''), 'all');
+    v_sort    text := coalesce(nullif(btrim(p_sort), ''), 'created_at');
+    v_dir     text := lower(coalesce(nullif(btrim(p_dir), ''), 'desc'));
+    v_result  jsonb;
+BEGIN
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_offset IS NULL OR p_offset < 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_limit must be 1..100 and p_offset >= 0',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_limit')::text;
+    END IF;
+
+    IF v_status NOT IN ('all', 'banned', 'active') THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_ban_status must be all, banned or active',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_ban_status')::text;
+    END IF;
+
+    IF v_sort NOT IN ('created_at', 'email') THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_sort must be created_at or email',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_sort')::text;
+    END IF;
+
+    IF v_dir NOT IN ('asc', 'desc') THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_dir must be asc or desc',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_dir')::text;
+    END IF;
+
+    IF p_search IS NOT NULL AND btrim(p_search) <> '' THEN
+        -- literal match: escape the LIKE wildcards (default escape character is the backslash)
+        v_pattern := '%' || replace(replace(replace(btrim(p_search), '\', '\\'), '%', '\%'), '_', '\_') || '%';
+    END IF;
+
+    WITH base AS (
+        SELECT u.id,
+               u.email,
+               u.metadata ->> 'first_name'                       AS first_name,
+               u.metadata ->> 'last_name'                        AS last_name,
+               u.metadata ->> 'msisdn'                           AS msisdn,
+               u.metadata ->> 'referral_code'                    AS referral_code,
+               (u.metadata -> 'email_verified')::boolean          AS email_verified,
+               (u.metadata -> 'phone_verified')::boolean          AS phone_verified,
+               (u.metadata -> 'should_notify')::boolean           AS should_notify,
+               au.raw_app_meta_data ->> 'role'                   AS role,
+               au.banned_until,
+               (au.banned_until IS NOT NULL AND au.banned_until > now()) AS is_banned,
+               au.created_at,
+               au.last_sign_in_at
+          FROM public.users_copy u
+          LEFT JOIN auth.users au ON au.id = u.id
+         WHERE (p_id IS NULL OR u.id = p_id)
+           AND (v_pattern IS NULL OR u.email ILIKE v_pattern)
+    ),
+    filtered AS (
+        SELECT *
+          FROM base
+         WHERE v_status = 'all'
+            OR (v_status = 'banned' AND is_banned)
+            OR (v_status = 'active' AND NOT is_banned)
+    ),
+    ordered AS (
+        SELECT f.*,
+               row_number() OVER (ORDER BY
+                   CASE WHEN v_sort = 'email'      AND v_dir = 'asc'  THEN f.email      END ASC  NULLS LAST,
+                   CASE WHEN v_sort = 'email'      AND v_dir = 'desc' THEN f.email      END DESC NULLS LAST,
+                   CASE WHEN v_sort = 'created_at' AND v_dir = 'asc'  THEN f.created_at END ASC  NULLS LAST,
+                   CASE WHEN v_sort = 'created_at' AND v_dir = 'desc' THEN f.created_at END DESC NULLS LAST,
+                   CASE WHEN v_dir = 'asc'  THEN f.id END ASC,
+                   CASE WHEN v_dir = 'desc' THEN f.id END DESC) AS sort_rank
+          FROM filtered f
+    ),
+    page AS (
+        SELECT o.*
+          FROM ordered o
+         ORDER BY o.sort_rank
+         LIMIT p_limit OFFSET p_offset
+    )
+    SELECT jsonb_build_object(
+               'data', coalesce((SELECT jsonb_agg(to_jsonb(p) - 'sort_rank' ORDER BY p.sort_rank)
+                                   FROM page p), '[]'::jsonb),
+               'total', (SELECT count(*) FROM filtered),
+               'facets', jsonb_build_object(
+                   'all',    (SELECT count(*) FROM base),
+                   'banned', (SELECT count(*) FROM base WHERE is_banned),
+                   'active', (SELECT count(*) FROM base WHERE NOT is_banned)))
+      INTO v_result;
+
+    RETURN v_result;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_wallet_transactions
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_wallet_transactions(
+    p_user_id uuid,
+    p_limit   integer DEFAULT 20,
+    p_offset  integer DEFAULT 0
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_result jsonb;
+BEGIN
+    IF p_user_id IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_user_id is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_user_id')::text;
+    END IF;
+
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_offset IS NULL OR p_offset < 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_limit must be 1..100 and p_offset >= 0',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_limit')::text;
+    END IF;
+
+    WITH filtered AS (
+        SELECT uwt.id,
+               uwt.wallet_id,
+               uwt.amount,
+               uwt.status,
+               uwt.source,
+               uw.currency,
+               uwt.created_at
+          FROM public.user_wallet_transaction uwt
+          JOIN public.user_wallet uw ON uw.id = uwt.wallet_id
+         WHERE uw.user_id = p_user_id
+    ),
+    page AS (
+        SELECT f.*
+          FROM filtered f
+         ORDER BY f.created_at DESC NULLS LAST, f.id DESC
+         LIMIT p_limit OFFSET p_offset
+    )
+    SELECT jsonb_build_object(
+               'data', coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.created_at DESC NULLS LAST, p.id DESC)
+                                   FROM page p), '[]'::jsonb),
+               'total', (SELECT count(*) FROM filtered))
+      INTO v_result;
+
+    RETURN v_result;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Privileges
+------------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text)
+    TO service_role;
+
+REVOKE ALL ON FUNCTION public.admin_wallet_transactions(uuid, integer, integer)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_wallet_transactions(uuid, integer, integer)
+    TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- 090_wallet_referrals.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  090_wallet_referrals.sql  (MS-5056 referrals list and export)
+
+  Read side of the referral transactions for the admin API. Never writes.
+
+  NOTE: the migration plan lists admin_wallet_transactions in this file too. It is written by
+  the Users story (MS-5079) in 080_users.sql, next to admin_search_users, because the wallet
+  tab belongs to the user detail page. This file holds the referral function only.
+
+  Public function (EXECUTE: service_role only):
+
+    admin_referral_transactions(p_user_id uuid DEFAULT NULL, p_search text DEFAULT NULL,
+                                p_from_email text DEFAULT NULL, p_date date DEFAULT NULL,
+                                p_limit integer DEFAULT 20, p_offset integer DEFAULT 0)
+      -> jsonb {"data": [row], "total": n}
+
+    Rewrite of get_referral_transactions_with_count / export_referrals_data (supabase_ddl.sql,
+    the versions with p_from_email and p_referral_date), under a new name. Same row set:
+    successful orders paid with a referral code, joined to their promotion_usage row
+    (promotion_usage.order_id = user_order.id, column added by 000_schema_drift.sql).
+
+    Row:
+      id              user_order.id (the order number shown in the portal)
+      created_at      user_order.created_at (the referral date)
+      payment_time    user_order.payment_time (the purchase date)
+      referral_code   user_order.referral_code
+      currency        user_order.currency
+      modified_amount user_order.modified_amount
+      order_status    user_order.order_status (always 'success' here)
+      amount          promotion_usage.amount (the reward)
+      status          promotion_usage.status (pending | completed | failed)
+      referrer        {id, email}: promotion_usage.user_id, the owner of the code who receives
+                      the reward (legacy column "To User Email"); email from users_copy
+      referred        {id, email}: user_order.user_id, the user who bought with the code (legacy
+                      column "From User Email"); email = promotion_usage.referred_to, else
+                      users_copy
+
+    Filters (all optional, combined with AND), same meaning as the legacy functions:
+      p_user_id     user_order.user_id (the referred user; what the user detail tab shows today)
+      p_search      user_order.referral_code contains the text (case-insensitive, literal:
+                    %, _ and \ are escaped)
+      p_from_email  promotion_usage.referred_to contains the text (case-insensitive, literal)
+      p_date        user_order.created_at on that calendar day
+    Order: created_at DESC, id DESC (stable paging).
+    p_limit 1..1000 (the API lists at most 100 and exports in chunks of 1000), p_offset >= 0,
+    else AD422.
+
+    Difference from the legacy functions: users_copy is LEFT JOINed (a referrer deleted from
+    users_copy no longer hides the order; its email is null). Blank search texts are ignored.
+
+  Indexes: the join and the default order (newest referral orders first).
+
+  Idempotent (CREATE OR REPLACE, CREATE INDEX IF NOT EXISTS, REVOKE/GRANT).
+*/
+
+------------------------------------------------------------------------------
+-- Indexes
+------------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS admin_promotion_usage_order_id_idx
+    ON public.promotion_usage (order_id);
+
+CREATE INDEX IF NOT EXISTS admin_user_order_referral_idx
+    ON public.user_order (created_at DESC, id DESC)
+    WHERE referral_code IS NOT NULL AND order_status = 'success';
+
+------------------------------------------------------------------------------
+-- admin_referral_transactions
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_referral_transactions(
+    p_user_id    uuid    DEFAULT NULL,
+    p_search     text    DEFAULT NULL,
+    p_from_email text    DEFAULT NULL,
+    p_date       date    DEFAULT NULL,
+    p_limit      integer DEFAULT 20,
+    p_offset     integer DEFAULT 0
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_search text;
+    v_from   text;
+    v_result jsonb;
+BEGIN
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 1000 OR p_offset IS NULL OR p_offset < 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_limit must be 1..1000 and p_offset >= 0',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_limit')::text;
+    END IF;
+
+    -- literal "contains" patterns: \, % and _ in the text are escaped (ESCAPE '\' below)
+    IF nullif(btrim(p_search), '') IS NOT NULL THEN
+        v_search := '%' || replace(replace(replace(btrim(p_search), '\', '\\'), '%', '\%'), '_', '\_') || '%';
+    END IF;
+    IF nullif(btrim(p_from_email), '') IS NOT NULL THEN
+        v_from := '%' || replace(replace(replace(btrim(p_from_email), '\', '\\'), '%', '\%'), '_', '\_') || '%';
+    END IF;
+
+    WITH filtered AS (
+        SELECT o.id,
+               o.created_at,
+               o.payment_time,
+               o.user_id          AS referred_id,
+               o.referral_code,
+               o.currency,
+               o.modified_amount,
+               o.order_status,
+               pu.user_id         AS referrer_id,
+               pu.amount,
+               pu.status,
+               pu.referred_to
+          FROM public.user_order o
+          JOIN public.promotion_usage pu ON pu.order_id = o.id
+         WHERE o.referral_code IS NOT NULL
+           AND o.order_status = 'success'
+           AND (p_user_id IS NULL OR o.user_id = p_user_id)
+           AND (v_search IS NULL OR o.referral_code ILIKE v_search ESCAPE '\')
+           AND (v_from IS NULL OR pu.referred_to ILIKE v_from ESCAPE '\')
+           AND (p_date IS NULL OR o.created_at::date = p_date)
+    ),
+    page AS (
+        SELECT f.*,
+               ur.email AS referrer_email,
+               ud.email AS referred_email
+          FROM filtered f
+          LEFT JOIN public.users_copy ur ON ur.id = f.referrer_id
+          LEFT JOIN public.users_copy ud ON ud.id = f.referred_id
+         ORDER BY f.created_at DESC, f.id DESC
+         LIMIT p_limit OFFSET p_offset
+    )
+    SELECT jsonb_build_object(
+               'data', coalesce((SELECT jsonb_agg(jsonb_build_object(
+                                            'id',              p.id,
+                                            'created_at',      p.created_at,
+                                            'payment_time',    p.payment_time,
+                                            'referral_code',   p.referral_code,
+                                            'currency',        p.currency,
+                                            'modified_amount', p.modified_amount,
+                                            'order_status',    p.order_status,
+                                            'amount',          p.amount,
+                                            'status',          p.status,
+                                            'referrer',        CASE WHEN p.referrer_id IS NULL THEN NULL
+                                                                    ELSE jsonb_build_object('id', p.referrer_id,
+                                                                                            'email', p.referrer_email) END,
+                                            'referred',        CASE WHEN p.referred_id IS NULL THEN NULL
+                                                                    ELSE jsonb_build_object('id', p.referred_id,
+                                                                                            'email', coalesce(p.referred_to, p.referred_email)) END
+                                        ) ORDER BY p.created_at DESC, p.id DESC)
+                                   FROM page p), '[]'::jsonb),
+               'total', (SELECT count(*) FROM filtered))
+      INTO v_result;
+
+    RETURN v_result;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Privileges
+------------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.admin_referral_transactions(uuid, text, text, date, integer, integer)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_referral_transactions(uuid, text, text, date, integer, integer)
+    TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- 100_promotions.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  100_promotions.sql  (MS-5050 promotions list, MS-5054 promo analysis)
+
+  Read side of the promotions pages for the admin API. Never writes (the writes go
+  through 050_admin_audit_helpers.sql).
+
+  Public functions (EXECUTE: service_role only):
+
+    admin_search_promotions(p_search text DEFAULT NULL, p_status text DEFAULT 'all',
+                            p_rule_ids uuid[] DEFAULT NULL, p_bundle_codes text[] DEFAULT NULL,
+                            p_include_global boolean DEFAULT false,
+                            p_limit integer DEFAULT 20, p_offset integer DEFAULT 0)
+      -> jsonb {"data": [row], "total": n,
+                "facets": {"all": n, "active": n, "inactive": n, "expired": n, "scheduled": n}}
+
+      row = {id, name, code, type, amount, valid_from, valid_to, is_active, times_used, created_at,
+             rule_id, bundle_code, bundle_codes: [text], status,
+             promotion_rule: {id, name, max_usage, beneficiary,
+                              promotion_rule_action: {id, name}, promotion_rule_event: {id, name}}}
+      callback_url / callback_headers are never returned.
+
+    - p_search: literal, case-insensitive match on name OR code (%, _ and \ escaped).
+    - p_status: 'all' | 'active' | 'inactive' | 'expired' | 'scheduled'.
+        expired   = valid_to < now (UTC)
+        scheduled = not expired and valid_from > now
+        active    = neither, and is_active
+        inactive  = neither, and not is_active
+      so the four tabs partition "all" and the counts add up.
+    - p_rule_ids: promotions whose rule is one of them (empty or NULL = no filter).
+    - p_bundle_codes: promotions whose stored CSV bundle_code lists any of them, matched as whole
+      codes (never as a pattern); with p_include_global also the promotions with no bundle
+      restriction (NULL / empty bundle_code).
+    - facets count the searched set (search, rules, bundles) whatever p_status.
+    - Order: created_at DESC NULLS LAST, id DESC.
+    - p_limit 1..100, p_offset >= 0, else AD422.
+
+    admin_promotion_usage(p_code text DEFAULT NULL, p_user_id uuid DEFAULT NULL,
+                          p_bundle_ids uuid[] DEFAULT NULL,
+                          p_from timestamp DEFAULT NULL, p_to timestamp DEFAULT NULL,
+                          p_limit integer DEFAULT 20, p_offset integer DEFAULT 0)
+      -> jsonb {"data": [row], "total": n,
+                "totals": {"uses": n, "distinct_users": n,
+                           "discount_amount": [{"currency": text|null, "amount": numeric}]}}
+
+      row = {id, created_at, promotion_code, user_id, bundle_id, order_id, discount_amount, currency,
+             status, promotion: {id, code, name} | null, user: {id, email, msisdn} | null, bundle_code}
+
+    - Only rows with a promotion code (promotion_code IS NOT NULL), as the portal lists today.
+    - p_code: literal partial match on promotion_code; p_user_id exact; p_bundle_ids any.
+    - p_from inclusive, p_to EXCLUSIVE (the API passes the day after the "to" date).
+    - promotion / user / bundle_code are LEFT JOINs: a deleted promotion or account gives null
+      and the row is still listed and counted.
+    - currency comes from the order (promotion_usage.order_id -> user_order.currency); rows
+      without an order have a null currency and are summed under it.
+    - totals are computed over EVERY row the filters select, never over the page.
+    - Order: created_at DESC NULLS LAST, id DESC. p_limit 1..100, p_offset >= 0, else AD422.
+
+  Internal helper (no grant to anyone but the owner):
+    admin_promotions_like(text)  -> '%text%' with \, % and _ escaped (ILIKE, default escape \)
+
+  Indexes (IF NOT EXISTS):
+    promotion_usage (promotion_code, created_at DESC)   code filter + order
+    promotion_usage (created_at DESC, id DESC)          default order of the usage page
+    promotion (valid_from), promotion (valid_to)        expired / scheduled tabs
+
+  Idempotent (CREATE OR REPLACE, IF NOT EXISTS, REVOKE/GRANT).
+*/
+
+------------------------------------------------------------------------------
+-- Internal: literal ILIKE pattern
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_promotions_like(p_text text)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+    SELECT '%' || replace(replace(replace(p_text, '\', '\\'), '%', '\%'), '_', '\_') || '%';
+$$;
+
+------------------------------------------------------------------------------
+-- admin_search_promotions
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_search_promotions(
+    p_search         text    DEFAULT NULL,
+    p_status         text    DEFAULT 'all',
+    p_rule_ids       uuid[]  DEFAULT NULL,
+    p_bundle_codes   text[]  DEFAULT NULL,
+    p_include_global boolean DEFAULT false,
+    p_limit          integer DEFAULT 20,
+    p_offset         integer DEFAULT 0
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_now     timestamp := timezone('utc', now());
+    v_pattern text;
+    v_status  text := coalesce(nullif(btrim(p_status), ''), 'all');
+    v_rules   uuid[] := CASE WHEN p_rule_ids IS NULL OR cardinality(p_rule_ids) = 0 THEN NULL ELSE p_rule_ids END;
+    v_codes   text[];
+    v_result  jsonb;
+BEGIN
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_offset IS NULL OR p_offset < 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_limit must be 1..100 and p_offset >= 0',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_limit')::text;
+    END IF;
+
+    IF v_status NOT IN ('all', 'active', 'inactive', 'expired', 'scheduled') THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('unknown status: %s', v_status),
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_status')::text;
+    END IF;
+
+    IF nullif(btrim(coalesce(p_search, '')), '') IS NOT NULL THEN
+        v_pattern := public.admin_promotions_like(btrim(p_search));
+    END IF;
+
+    SELECT array_agg(btrim(c)) INTO v_codes
+      FROM unnest(coalesce(p_bundle_codes, ARRAY[]::text[])) AS c
+     WHERE nullif(btrim(c), '') IS NOT NULL;
+
+    WITH base AS (
+        SELECT p.id, p.name, p.code, p.type, p.amount, p.valid_from, p.valid_to, p.is_active,
+               p.times_used, p.created_at, p.rule_id, p.bundle_code,
+               CASE
+                   WHEN p.valid_to IS NOT NULL AND p.valid_to < v_now THEN 'expired'
+                   WHEN p.valid_from IS NOT NULL AND p.valid_from > v_now THEN 'scheduled'
+                   WHEN coalesce(p.is_active, true) THEN 'active'
+                   ELSE 'inactive'
+               END AS status
+          FROM public.promotion p
+         WHERE (v_pattern IS NULL OR p.name ILIKE v_pattern OR p.code ILIKE v_pattern)
+           AND (v_rules IS NULL OR p.rule_id = ANY (v_rules))
+           AND (v_codes IS NULL
+                OR EXISTS (SELECT 1
+                             FROM unnest(string_to_array(coalesce(p.bundle_code, ''), ',')) AS bc(code)
+                            WHERE btrim(bc.code) = ANY (v_codes))
+                OR (p_include_global AND nullif(btrim(coalesce(p.bundle_code, '')), '') IS NULL))
+    ),
+    page AS (
+        SELECT b.*
+          FROM base b
+         WHERE v_status = 'all' OR b.status = v_status
+         ORDER BY b.created_at DESC NULLS LAST, b.id DESC
+         LIMIT p_limit OFFSET p_offset
+    )
+    SELECT jsonb_build_object(
+        'data', coalesce((
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'id',           pg.id,
+                    'name',         pg.name,
+                    'code',         pg.code,
+                    'type',         pg.type,
+                    'amount',       pg.amount,
+                    'valid_from',   pg.valid_from,
+                    'valid_to',     pg.valid_to,
+                    'is_active',    pg.is_active,
+                    'times_used',   pg.times_used,
+                    'created_at',   pg.created_at,
+                    'rule_id',      pg.rule_id,
+                    'bundle_code',  pg.bundle_code,
+                    'status',       pg.status,
+                    'bundle_codes', (
+                        SELECT coalesce(jsonb_agg(btrim(bc.code)), '[]'::jsonb)
+                          FROM unnest(string_to_array(coalesce(pg.bundle_code, ''), ',')) AS bc(code)
+                         WHERE nullif(btrim(bc.code), '') IS NOT NULL
+                    ),
+                    'promotion_rule', (
+                        SELECT jsonb_build_object(
+                                   'id',          r.id,
+                                   'name',        r.name,
+                                   'max_usage',   r.max_usage,
+                                   'beneficiary', r.beneficiary,
+                                   'promotion_rule_action', (
+                                       SELECT jsonb_build_object('id', a.id, 'name', a.name)
+                                         FROM public.promotion_rule_action a
+                                        WHERE a.id = r.promotion_rule_action_id),
+                                   'promotion_rule_event', (
+                                       SELECT jsonb_build_object('id', e.id, 'name', e.name)
+                                         FROM public.promotion_rule_event e
+                                        WHERE e.id = r.promotion_rule_event_id))
+                          FROM public.promotion_rule r
+                         WHERE r.id = pg.rule_id
+                    )
+                )
+                ORDER BY pg.created_at DESC NULLS LAST, pg.id DESC)
+              FROM page pg), '[]'::jsonb),
+        'total', (SELECT count(*) FROM base b WHERE v_status = 'all' OR b.status = v_status),
+        'facets', jsonb_build_object(
+            'all',       (SELECT count(*) FROM base),
+            'active',    (SELECT count(*) FROM base WHERE status = 'active'),
+            'inactive',  (SELECT count(*) FROM base WHERE status = 'inactive'),
+            'expired',   (SELECT count(*) FROM base WHERE status = 'expired'),
+            'scheduled', (SELECT count(*) FROM base WHERE status = 'scheduled'))
+    )
+    INTO v_result;
+
+    RETURN v_result;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_promotion_usage
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_promotion_usage(
+    p_code       text      DEFAULT NULL,
+    p_user_id    uuid      DEFAULT NULL,
+    p_bundle_ids uuid[]    DEFAULT NULL,
+    p_from       timestamp DEFAULT NULL,
+    p_to         timestamp DEFAULT NULL,
+    p_limit      integer   DEFAULT 20,
+    p_offset     integer   DEFAULT 0
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_pattern text;
+    v_bundles uuid[] := CASE WHEN p_bundle_ids IS NULL OR cardinality(p_bundle_ids) = 0 THEN NULL ELSE p_bundle_ids END;
+    v_result  jsonb;
+BEGIN
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_offset IS NULL OR p_offset < 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_limit must be 1..100 and p_offset >= 0',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_limit')::text;
+    END IF;
+
+    IF p_from IS NOT NULL AND p_to IS NOT NULL AND p_to < p_from THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_from must be on or before p_to',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_from')::text;
+    END IF;
+
+    IF nullif(btrim(coalesce(p_code, '')), '') IS NOT NULL THEN
+        v_pattern := public.admin_promotions_like(btrim(p_code));
+    END IF;
+
+    WITH base AS (
+        SELECT pu.id, pu.created_at, pu.promotion_code, pu.user_id, pu.bundle_id, pu.order_id,
+               pu.amount, pu.status
+          FROM public.promotion_usage pu
+         WHERE pu.promotion_code IS NOT NULL
+           AND (v_pattern IS NULL OR pu.promotion_code ILIKE v_pattern)
+           AND (p_user_id IS NULL OR pu.user_id = p_user_id)
+           AND (v_bundles IS NULL OR pu.bundle_id = ANY (v_bundles))
+           AND (p_from IS NULL OR pu.created_at >= p_from)
+           AND (p_to IS NULL OR pu.created_at < p_to)
+    ),
+    page AS (
+        SELECT b.*, o.currency
+          FROM base b
+          LEFT JOIN public.user_order o ON o.id = b.order_id
+         ORDER BY b.created_at DESC NULLS LAST, b.id DESC
+         LIMIT p_limit OFFSET p_offset
+    ),
+    by_currency AS (
+        SELECT o.currency, round(sum(b.amount)::numeric, 2) AS amount
+          FROM base b
+          LEFT JOIN public.user_order o ON o.id = b.order_id
+         GROUP BY o.currency
+    )
+    SELECT jsonb_build_object(
+        'data', coalesce((
+            SELECT jsonb_agg(
+                jsonb_build_object(
+                    'id',              pg.id,
+                    'created_at',      pg.created_at,
+                    'promotion_code',  pg.promotion_code,
+                    'user_id',         pg.user_id,
+                    'bundle_id',       pg.bundle_id,
+                    'order_id',        pg.order_id,
+                    'discount_amount', pg.amount,
+                    'currency',        pg.currency,
+                    'status',          pg.status,
+                    'promotion', (
+                        SELECT jsonb_build_object('id', p.id, 'code', p.code, 'name', p.name)
+                          FROM public.promotion p
+                         WHERE p.code = pg.promotion_code),
+                    'user', (
+                        SELECT jsonb_build_object('id', u.id, 'email', u.email,
+                                                  'msisdn', u.metadata ->> 'msisdn')
+                          FROM public.users_copy u
+                         WHERE u.id = pg.user_id),
+                    'bundle_code', (
+                        SELECT bd.data ->> 'bundle_code'
+                          FROM public.bundle bd
+                         WHERE bd.id = pg.bundle_id)
+                )
+                ORDER BY pg.created_at DESC NULLS LAST, pg.id DESC)
+              FROM page pg), '[]'::jsonb),
+        'total', (SELECT count(*) FROM base),
+        'totals', jsonb_build_object(
+            'uses',           (SELECT count(*) FROM base),
+            'distinct_users', (SELECT count(DISTINCT b.user_id) FROM base b WHERE b.user_id IS NOT NULL),
+            'discount_amount', coalesce((
+                SELECT jsonb_agg(jsonb_build_object('currency', t.currency, 'amount', t.amount)
+                                 ORDER BY t.currency NULLS LAST)
+                  FROM by_currency t), '[]'::jsonb))
+    )
+    INTO v_result;
+
+    RETURN v_result;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Indexes
+------------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS promotion_usage_code_created_idx
+    ON public.promotion_usage (promotion_code, created_at DESC);
+CREATE INDEX IF NOT EXISTS promotion_usage_created_at_id_idx
+    ON public.promotion_usage (created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS promotion_valid_from_idx
+    ON public.promotion (valid_from);
+CREATE INDEX IF NOT EXISTS promotion_valid_to_idx
+    ON public.promotion (valid_to);
+
+------------------------------------------------------------------------------
+-- Privileges: nobody but service_role (and the owner) may execute these.
+------------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.admin_promotions_like(text) FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_search_promotions(text, text, uuid[], text[], boolean, integer, integer)
+    FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_promotion_usage(text, uuid, uuid[], timestamp, timestamp, integer, integer)
+    FROM PUBLIC, anon, authenticated;
+
+GRANT EXECUTE ON FUNCTION public.admin_search_promotions(text, text, uuid[], text[], boolean, integer, integer)
+    TO service_role;
+GRANT EXECUTE ON FUNCTION public.admin_promotion_usage(text, uuid, uuid[], timestamp, timestamp, integer, integer)
+    TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- 110_audit_search.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  110_audit_search.sql  (MS-5048 audit log, MS-5046 settings history)
+
+  Read side of audit_log for the admin API. Never writes.
+
+  Public function (EXECUTE: service_role only):
+
+    admin_audit_log_search(p_table text DEFAULT NULL, p_operation text DEFAULT NULL,
+                           p_changed_by uuid DEFAULT NULL,
+                           p_from timestamp DEFAULT NULL, p_to timestamp DEFAULT NULL,
+                           p_setting_key text DEFAULT NULL,
+                           p_limit integer DEFAULT 20, p_offset integer DEFAULT 0)
+      -> jsonb {"data": [raw audit_log rows], "total": n, "facets_by_table": {"<table>": n}}
+
+    - p_table: exact table_name (the API only sends values of its enum).
+    - p_operation: matched against admin_audit_operation(operation, operation_details), i.e. the
+      NORMALISED operation (INSERT | UPDATE | DELETE | BAN | UNBAN | BULK). Legacy browser values
+      are mapped: 'Ban User' -> BAN, 'Unban User' -> UNBAN, 'Activate Bundle' / 'Deactivate Bundle'
+      -> BULK when operation_details.rows_affected > 1, else UPDATE; other values are upper-cased.
+      Same mapping as normalize_operation() in app/services/admin/audit_query_service.py.
+    - p_from inclusive, p_to EXCLUSIVE (the API passes the day after the "to" date).
+      changed_at is "timestamp without time zone" (UTC on Supabase).
+    - p_setting_key: only app_config rows where that key's value changed between old_data and
+      new_data (both shapes: legacy JSON strings of [{key,value}] lists, and {KEY: value} objects
+      written by admin_upsert_settings, and {id,key,value,created_at} row snapshots).
+    - Order: changed_at DESC NULLS LAST, id DESC (index audit_log_changed_at_id_idx, 010).
+    - facets_by_table: counts per table over every filter EXCEPT p_table, so the portal can show
+      a count next to each table option.
+    - p_limit 1..100, p_offset >= 0, else AD422.
+
+  Internal helpers (no grant to anyone but the owner):
+    admin_audit_jsonb(jsonb)          JSON strings parsed to jsonb, NULL when unparsable
+    admin_settings_map(jsonb)         {key: value} from any settings audit shape, NULL when unreadable
+    admin_audit_operation(text, jsonb) normalised operation
+
+  Performance: filters on table_name / changed_at / changed_by use the indexes of 010. The key
+  filter has to read the old/new data of the app_config rows (legacy rows are JSON strings, so no
+  jsonb index can serve them); it runs only on the app_config rows that pass the other filters.
+
+  Idempotent (CREATE OR REPLACE, REVOKE/GRANT).
+*/
+
+------------------------------------------------------------------------------
+-- Internal: legacy rows hold JSON *strings* inside jsonb (JSON.stringify).
+-- Returns the parsed value for a string that contains JSON, the value itself
+-- otherwise, and NULL for a string that is not JSON.
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_audit_jsonb(p_value jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    IF p_value IS NULL OR jsonb_typeof(p_value) <> 'string' THEN
+        RETURN p_value;
+    END IF;
+    BEGIN
+        RETURN (p_value #>> '{}')::jsonb;
+    EXCEPTION WHEN others THEN
+        RETURN NULL;
+    END;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Internal: {key: value} from a settings audit payload. NULL when unreadable.
+--   NULL                                  -> {}
+--   [{"key": k, "value": v, ...}, ...]    -> {k: v, ...}        (legacy browser rows)
+--   {"id":..,"key":k,"value":v,...}       -> {k: v}             (row snapshot)
+--   {"K": v, ...}                         -> itself             (admin_upsert_settings)
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_settings_map(p_value jsonb)
+RETURNS jsonb
+LANGUAGE plpgsql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_data jsonb;
+    v_out  jsonb;
+BEGIN
+    IF p_value IS NULL OR jsonb_typeof(p_value) = 'null' THEN
+        RETURN '{}'::jsonb;
+    END IF;
+
+    v_data := public.admin_audit_jsonb(p_value);
+
+    IF v_data IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    IF jsonb_typeof(v_data) = 'array' THEN
+        IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_data) e
+                    WHERE jsonb_typeof(e) <> 'object' OR jsonb_typeof(e -> 'key') IS DISTINCT FROM 'string') THEN
+            RETURN NULL;
+        END IF;
+        SELECT coalesce(jsonb_object_agg(e ->> 'key', e -> 'value'), '{}'::jsonb)
+          INTO v_out
+          FROM jsonb_array_elements(v_data) e;
+        RETURN v_out;
+    END IF;
+
+    IF jsonb_typeof(v_data) = 'object' THEN
+        IF jsonb_typeof(v_data -> 'key') = 'string' AND v_data ? 'value' AND v_data ? 'id' THEN
+            RETURN jsonb_build_object(v_data ->> 'key', v_data -> 'value');
+        END IF;
+        RETURN v_data;
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Internal: normalised operation (see header)
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_audit_operation(p_operation text, p_details jsonb)
+RETURNS text
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+    SELECT CASE
+        WHEN upper(btrim(p_operation)) IN ('INSERT', 'UPDATE', 'DELETE', 'BAN', 'UNBAN', 'BULK')
+            THEN upper(btrim(p_operation))
+        WHEN upper(btrim(p_operation)) = 'BAN USER'   THEN 'BAN'
+        WHEN upper(btrim(p_operation)) = 'UNBAN USER' THEN 'UNBAN'
+        WHEN upper(btrim(p_operation)) IN ('ACTIVATE BUNDLE', 'DEACTIVATE BUNDLE') THEN
+            CASE WHEN jsonb_typeof(p_details) = 'object'
+                      AND (p_details ->> 'rows_affected') ~ '^[0-9]{1,9}$'
+                      AND (p_details ->> 'rows_affected')::integer > 1
+                 THEN 'BULK' ELSE 'UPDATE' END
+        ELSE btrim(p_operation)
+    END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_audit_log_search
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_audit_log_search(
+    p_table       text      DEFAULT NULL,
+    p_operation   text      DEFAULT NULL,
+    p_changed_by  uuid      DEFAULT NULL,
+    p_from        timestamp DEFAULT NULL,
+    p_to          timestamp DEFAULT NULL,
+    p_setting_key text      DEFAULT NULL,
+    p_limit       integer   DEFAULT 20,
+    p_offset      integer   DEFAULT 0
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_result jsonb;
+BEGIN
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_offset IS NULL OR p_offset < 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_limit must be 1..100 and p_offset >= 0',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_limit')::text;
+    END IF;
+
+    IF p_from IS NOT NULL AND p_to IS NOT NULL AND p_from >= p_to THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_from must be before p_to',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_from')::text;
+    END IF;
+
+    WITH base AS (
+        SELECT a.*
+          FROM public.audit_log a
+         WHERE (p_changed_by IS NULL OR a.changed_by = p_changed_by)
+           AND (p_from IS NULL OR a.changed_at >= p_from)
+           AND (p_to   IS NULL OR a.changed_at <  p_to)
+           AND (p_operation IS NULL
+                OR public.admin_audit_operation(a.operation, a.operation_details) = p_operation)
+           AND (p_setting_key IS NULL
+                OR (a.table_name = 'app_config'
+                    AND public.admin_settings_map(a.old_data) IS NOT NULL
+                    AND public.admin_settings_map(a.new_data) IS NOT NULL
+                    AND (public.admin_settings_map(a.old_data) -> p_setting_key)
+                        IS DISTINCT FROM
+                        (public.admin_settings_map(a.new_data) -> p_setting_key)))
+    ),
+    filtered AS (
+        SELECT * FROM base WHERE p_table IS NULL OR table_name = p_table
+    ),
+    page AS (
+        SELECT f.*
+          FROM filtered f
+         ORDER BY f.changed_at DESC NULLS LAST, f.id DESC
+         LIMIT p_limit OFFSET p_offset
+    )
+    SELECT jsonb_build_object(
+               'data', coalesce((SELECT jsonb_agg(to_jsonb(p) ORDER BY p.changed_at DESC NULLS LAST, p.id DESC)
+                                   FROM page p), '[]'::jsonb),
+               'total', (SELECT count(*) FROM filtered),
+               'facets_by_table', coalesce((SELECT jsonb_object_agg(t.table_name, t.n)
+                                              FROM (SELECT table_name, count(*) AS n
+                                                      FROM base GROUP BY table_name) t), '{}'::jsonb))
+      INTO v_result;
+
+    RETURN v_result;
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Privileges
+------------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.admin_audit_jsonb(jsonb)            FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_settings_map(jsonb)           FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON FUNCTION public.admin_audit_operation(text, jsonb)  FROM PUBLIC, anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_audit_log_search(text, text, uuid, timestamp, timestamp, text, integer, integer)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_audit_log_search(text, text, uuid, timestamp, timestamp, text, integer, integer)
+    TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- 120_settings.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  120_settings.sql  (MS-5091)
+
+  One audited settings save for the admin API (PUT /api/v1/admin/settings). Replaces the four
+  separate browser calls of the portal (upsert, audit insert, delete, APP_CACHE_KEY update).
+
+  Public function (EXECUTE: service_role only):
+
+    admin_upsert_settings(p_items jsonb, p_deleted text[], p_actor uuid,
+                          p_ip text DEFAULT NULL, p_reason text DEFAULT NULL)
+      -> jsonb {"updated": [keys], "deleted": [keys], "cache_key_rotated": bool}
+
+    p_items: [{"key": "<text>", "value": "<text>"}, ...]
+
+  In ONE transaction (a PostgREST RPC is one transaction):
+    1. validates the input (AD422, see below);
+    2. locks the touched app_config rows (FOR UPDATE, in key order);
+    3. upserts every item whose value differs (or whose key is new) -> "updated";
+    4. deletes every listed key that exists -> "deleted";
+    5. nothing updated and nothing deleted -> AD409 no_change (nothing written, nothing audited);
+    6. rotates APP_CACHE_KEY (admin_rotate_cache_key, 050) when FORBIDDEN_COUNTRIES was created,
+       changed or deleted: the same rule as the portal's updateSettings() before the admin API;
+    7. writes ONE audit row through admin_write_audit (050):
+         table_name 'app_config', operation 'UPDATE', record_id NULL,
+         old_data = {KEY: old value} of the updated keys that existed and of the deleted keys,
+         new_data = {KEY: new value} of the updated keys,
+         operation_details = {updated, deleted, rows_affected, cache_key_rotated}
+                             + ip_address, reason, client_reported:false (added by admin_write_audit).
+       Values of secret-shaped keys (admin_setting_is_secret) are stored as '***'.
+  Any failure (including the audit insert) rolls the whole save back.
+
+  Concurrency: two saves touching the same keys serialise on the row locks; last write wins per
+  key and both are audited. A key inserted concurrently by another save is handled by
+  ON CONFLICT (key) (unique app_config_key_key, 020 / supabase_ddl.sql).
+
+  Errors (SQLSTATE / DETAIL code)
+    AD422 invalid_input        p_items not an array of {key: text, value: text}, empty save,
+                               key longer than 100, value longer than 10 000
+    AD422 cache_key_forbidden  APP_CACHE_KEY in p_items or p_deleted
+    (no secret_key error since TEOS-134, user decision 2026-10-21 "for now": secret-shaped keys
+     (admin_setting_is_secret) are created, updated and deleted like any other key; their values
+     are written to the audit row as '***')
+    AD422 duplicate_key        a key twice in p_items, or in both lists
+    AD409 no_change            nothing would change
+
+  admin_setting_is_secret(text) mirrors is_secret_key() of app/config/helper.py: names ending in
+  _KEY, _SECRET, _PASSWORD, _TOKEN or _USERNAME, and RESELLER_ID; APP_CACHE_KEY and CACHE_KEY are
+  not secrets. Keep both in sync.
+
+  Idempotent (CREATE OR REPLACE, REVOKE/GRANT). Depends on 050_admin_audit_helpers.sql.
+*/
+
+------------------------------------------------------------------------------
+-- Internal: same rule as app/config/helper.py is_secret_key()
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_setting_is_secret(p_key text)
+RETURNS boolean
+LANGUAGE sql
+IMMUTABLE
+SET search_path = public, pg_temp
+AS $$
+    SELECT CASE
+        WHEN p_key IS NULL THEN false
+        WHEN upper(p_key) IN ('APP_CACHE_KEY', 'CACHE_KEY') THEN false
+        ELSE upper(p_key) = 'RESELLER_ID'
+             OR upper(p_key) ~ '(_KEY|_SECRET|_PASSWORD|_TOKEN|_USERNAME)$'
+    END;
+$$;
+
+------------------------------------------------------------------------------
+-- admin_upsert_settings
+------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_upsert_settings(
+    p_items   jsonb,
+    p_deleted text[],
+    p_actor   uuid,
+    p_ip      text DEFAULT NULL,
+    p_reason  text DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_items     jsonb  := coalesce(p_items, '[]'::jsonb);
+    v_deleted   text[];
+    v_item      jsonb;
+    v_key       text;
+    v_value     text;
+    v_old       text;
+    v_exists    boolean;
+    v_bad       text;
+    v_updated   text[] := ARRAY[]::text[];
+    v_removed   text[] := ARRAY[]::text[];
+    v_old_data  jsonb  := '{}'::jsonb;
+    v_new_data  jsonb  := '{}'::jsonb;
+    v_forbidden boolean := false;
+    v_rotated   boolean := false;
+BEGIN
+    IF p_actor IS NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_actor is required',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_actor')::text;
+    END IF;
+
+    IF jsonb_typeof(v_items) <> 'array' THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_items must be a JSON array',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_items')::text;
+    END IF;
+
+    SELECT coalesce(array_agg(DISTINCT d ORDER BY d), ARRAY[]::text[])
+      INTO v_deleted
+      FROM unnest(coalesce(p_deleted, ARRAY[]::text[])) AS d
+     WHERE d IS NOT NULL;
+
+    IF jsonb_array_length(v_items) = 0 AND cardinality(v_deleted) = 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'nothing to save',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_items')::text;
+    END IF;
+
+    -- shape: {key: text 1..100, value: text <= 10000}
+    IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_items) e
+                WHERE jsonb_typeof(e) <> 'object'
+                   OR jsonb_typeof(e -> 'key')   IS DISTINCT FROM 'string'
+                   OR jsonb_typeof(e -> 'value') IS DISTINCT FROM 'string'
+                   OR length(e ->> 'key') NOT BETWEEN 1 AND 100
+                   OR length(e ->> 'value') > 10000)
+       OR EXISTS (SELECT 1 FROM unnest(v_deleted) d WHERE length(d) NOT BETWEEN 1 AND 100) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'each item needs a text key (1-100) and a text value (max 10000)',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_items')::text;
+    END IF;
+
+    IF EXISTS (SELECT 1 FROM jsonb_array_elements(v_items) e WHERE e ->> 'key' = 'APP_CACHE_KEY')
+       OR 'APP_CACHE_KEY' = ANY (v_deleted) THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'APP_CACHE_KEY cannot be written directly',
+            DETAIL  = jsonb_build_object('code', 'cache_key_forbidden')::text;
+    END IF;
+
+    -- TEOS-134 (user decision 2026-10-21, for now): secret-shaped keys are saved like any other key;
+    -- their values are written to the audit row as '***' (see the loops below).
+
+    SELECT k INTO v_bad
+      FROM (SELECT e ->> 'key' AS k FROM jsonb_array_elements(v_items) e
+            UNION ALL
+            SELECT d FROM unnest(v_deleted) d) keys
+     GROUP BY k
+    HAVING count(*) > 1
+     LIMIT 1;
+    IF v_bad IS NOT NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('key %s appears more than once', v_bad),
+            DETAIL  = jsonb_build_object('code', 'duplicate_key', 'key', v_bad)::text;
+    END IF;
+
+    -- Lock the existing rows in a stable order (no deadlock between two saves).
+    PERFORM 1
+       FROM public.app_config c
+      WHERE c.key IN (SELECT e ->> 'key' FROM jsonb_array_elements(v_items) e
+                      UNION
+                      SELECT d FROM unnest(v_deleted) d)
+      ORDER BY c.key
+        FOR UPDATE;
+
+    -- Upserts
+    FOR v_item IN
+        SELECT e FROM jsonb_array_elements(v_items) e ORDER BY e ->> 'key'
+    LOOP
+        v_key   := v_item ->> 'key';
+        v_value := v_item ->> 'value';
+
+        SELECT c.value INTO v_old FROM public.app_config c WHERE c.key = v_key;
+        v_exists := FOUND;
+
+        IF v_exists AND v_old IS NOT DISTINCT FROM v_value THEN
+            CONTINUE;
+        END IF;
+
+        IF v_exists THEN
+            UPDATE public.app_config SET value = v_value WHERE key = v_key;
+            v_old_data := v_old_data || jsonb_build_object(
+                              v_key, CASE WHEN public.admin_setting_is_secret(v_key) THEN '***' ELSE v_old END);
+        ELSE
+            INSERT INTO public.app_config (key, value)
+            VALUES (v_key, v_value)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+        END IF;
+
+        v_updated  := v_updated || v_key;
+        v_new_data := v_new_data || jsonb_build_object(
+                          v_key, CASE WHEN public.admin_setting_is_secret(v_key) THEN '***' ELSE v_value END);
+
+        IF v_key = 'FORBIDDEN_COUNTRIES' THEN
+            v_forbidden := true;
+        END IF;
+    END LOOP;
+
+    -- Deletes
+    FOREACH v_key IN ARRAY v_deleted
+    LOOP
+        DELETE FROM public.app_config WHERE key = v_key RETURNING value INTO v_old;
+        IF FOUND THEN
+            v_removed  := v_removed || v_key;
+            v_old_data := v_old_data || jsonb_build_object(
+                              v_key, CASE WHEN public.admin_setting_is_secret(v_key) THEN '***' ELSE v_old END);
+            IF v_key = 'FORBIDDEN_COUNTRIES' THEN
+                v_forbidden := true;
+            END IF;
+        END IF;
+    END LOOP;
+
+    IF cardinality(v_updated) = 0 AND cardinality(v_removed) = 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD409',
+            MESSAGE = 'no_change',
+            DETAIL  = jsonb_build_object('code', 'no_change')::text;
+    END IF;
+
+    IF v_forbidden THEN
+        v_rotated := public.admin_rotate_cache_key() IS NOT NULL;
+    END IF;
+
+    PERFORM public.admin_write_audit(
+        'app_config', 'UPDATE', NULL, v_old_data, v_new_data, p_actor, p_ip, p_reason,
+        jsonb_build_object(
+            'updated',           to_jsonb(v_updated),
+            'deleted',           to_jsonb(v_removed),
+            'rows_affected',     cardinality(v_updated) + cardinality(v_removed),
+            'cache_key_rotated', v_rotated));
+
+    RETURN jsonb_build_object(
+        'updated',           to_jsonb(v_updated),
+        'deleted',           to_jsonb(v_removed),
+        'cache_key_rotated', v_rotated);
+END;
+$$;
+
+------------------------------------------------------------------------------
+-- Privileges
+------------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.admin_setting_is_secret(text) FROM PUBLIC, anon, authenticated;
+
+REVOKE ALL ON FUNCTION public.admin_upsert_settings(jsonb, text[], uuid, text, text)
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_upsert_settings(jsonb, text[], uuid, text, text)
+    TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- 130_storage_cleanup_queue.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  130_storage_cleanup_queue.sql  (MS-5075, MS-5058)
+
+  Storage objects that MediaStorageService.remove_after_commit() could not
+  delete (replaced/deleted banner images, group/tag icons). Failures are
+  queued here instead of being swallowed; a retry job or an operator drains
+  the queue (attempts is incremented on each retry).
+
+  Server-only: RLS enabled with no policies, no grants to anon/authenticated
+  (service_role bypasses RLS).
+
+  Idempotent.
+*/
+
+CREATE TABLE IF NOT EXISTS public.storage_cleanup_queue
+(
+    id         bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    bucket     text        NOT NULL,
+    path       text        NOT NULL,
+    reason     text,
+    attempts   integer     NOT NULL DEFAULT 0,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE public.storage_cleanup_queue ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.storage_cleanup_queue FROM anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.storage_cleanup_queue TO service_role;
+
+DO $$
+DECLARE
+    v_nsp text;
+    v_rel text;
+BEGIN
+    SELECT n.nspname, c.relname
+      INTO v_nsp, v_rel
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.oid = pg_get_serial_sequence('public.storage_cleanup_queue', 'id')::regclass;
+
+    IF v_rel IS NOT NULL THEN
+        EXECUTE format('REVOKE ALL ON SEQUENCE %I.%I FROM anon, authenticated', v_nsp, v_rel);
+        EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %I.%I TO service_role', v_nsp, v_rel);
+    END IF;
+END
+$$;
+
+
+-- ----------------------------------------------------------------------------
+-- 140_orders_devices_indexes.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  140_orders_devices_indexes.sql  (MS-5081)
+
+  Indexes for the admin Orders and Devices lists (GET /api/v1/admin/orders, /devices).
+  - user_order: default order created_at desc, id desc (story MS-5081: "new index
+    user_order(created_at desc, id desc) if absent"), and the per-user filter.
+  - device: the per-user filter, newest first.
+  No function, no data change. Plain CREATE INDEX (not CONCURRENTLY) because the files are
+  applied with --single-transaction; on a large production table the team leader may prefer
+  to create these CONCURRENTLY by hand first, which makes this file a no-op.
+
+  Idempotent.
+*/
+
+CREATE INDEX IF NOT EXISTS user_order_created_at_id_idx
+    ON public.user_order (created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS user_order_user_id_created_at_idx
+    ON public.user_order (user_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS device_user_id_created_at_idx
+    ON public.device (user_id, created_at DESC);
+
+
+-- ----------------------------------------------------------------------------
+-- TEOS-134 / TEOS-133 (2026-10-21): settings description, VOUCHER_MAX_AMOUNT
+-- ----------------------------------------------------------------------------
+
+/*
+  TEOS-134 (admin Settings page)
+  - app_config.description: nullable, additive. Returned by GET /api/v1/admin/settings; not written by
+    the admin API yet (set it here or in the database).
+
+  TEOS-133 (admin Vouchers page)
+  - VOUCHER_MAX_AMOUNT: the highest amount of a voucher created from the admin portal
+    (POST /api/v1/admin/vouchers). Seeded with the value that was fixed in code (1000000); an existing
+    row is kept. A missing or invalid row falls back to 1000000 in the API. Non-secret, protected
+    (it cannot be deleted from the Settings page).
+  - The case-insensitive unique index voucher_code_lower_key (020_constraints above) already
+    enforces voucher code uniqueness; nothing to add.
+
+  admin_upsert_settings (above) is changed in place for TEOS-134: secret-shaped keys are no longer
+  refused (user decision 2026-10-21, for now: such rows exist only in the qa database and the backend
+  reads secrets from the environment); their values are written to the audit row as '***'.
+  The protected-key and typed-value rules are checked by the API (app/schemas/admin/settings.py)
+  before the function is called.
+
+  Idempotent.
+*/
+
+ALTER TABLE public.app_config ADD COLUMN IF NOT EXISTS description text;
+
+COMMENT ON COLUMN public.app_config.description IS
+    'What the setting does, shown on the admin Settings page (TEOS-134).';
+
+INSERT INTO public.app_config (key, value, description)
+VALUES ('VOUCHER_MAX_AMOUNT', '1000000',
+        'Highest amount of a voucher created from the admin portal (positive number).')
+ON CONFLICT (key) DO NOTHING;

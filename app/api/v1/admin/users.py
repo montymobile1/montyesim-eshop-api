@@ -11,7 +11,7 @@ from app.dependencies.admin_security import AdminUser, require_permission
 from app.schemas.admin.common import AdminPage, PageParams, ok, ok_page, page_params
 from app.schemas.admin.users import (AdminUserBan, AdminUserBanResult, AdminUserDetail, AdminUserReferral,
                                      AdminUserRow, AdminUserUnban, AdminUserUnbanResult, AdminWalletTransaction,
-                                     UserBanStatus)
+                                     SortDirection, UserBanStatus, UserSort)
 from app.schemas.response import Response
 from app.services.admin.audit_service import audit_context
 from app.services.admin.user_service import UserAdminService
@@ -32,10 +32,13 @@ SearchParam = Query(None, max_length=100, description="part of the email, matche
 @router.get("", response_model=Response[AdminPage[AdminUserRow]])
 def list_users(search: Optional[str] = SearchParam,
                ban_status: UserBanStatus = Query("all"),
+               sort: UserSort = Query("created_at"),
+               direction: SortDirection = Query("desc", alias="dir"),
                page: PageParams = Depends(page_params),
                user: AdminUser = Depends(require_permission("admin.users.read"))) -> Response:
-    """Users with their ban state, newest first, and `facets:{all,banned,active}` over the searched set."""
-    return ok_page(service.list(search, ban_status, page))
+    """Users with their ban state, newest first by default (`sort=created_at|email`, `dir=asc|desc`,
+    ties broken by id), and `facets:{all,banned,active}` over the searched set."""
+    return ok_page(service.list(search, ban_status, page, sort=sort, direction=direction))
 
 
 @router.get("/{user_id}", response_model=Response[AdminUserDetail])
@@ -48,15 +51,18 @@ def get_user(user_id: UUID = UserId,
 @router.post("/{user_id}/ban", response_model=Response[AdminUserBanResult])
 def ban_user(body: AdminUserBan, request: Request, user_id: UUID = UserId,
              user: AdminUser = Depends(require_permission("admin.users.ban"))) -> Response:
-    """Bans for `hours` (default 8760) with a reason, audited server-side. 404; 409 `already_banned`;
-    502 when Supabase Auth fails or when the audit row cannot be written (the ban is lifted again)."""
+    """Bans for `hours` (default 8760) with a reason, audited server-side, and signs the user out
+    everywhere. 404; 409 `already_banned`; 409 `cannot_ban_self`; 502 when Supabase Auth fails or
+    when the audit row cannot be written (the ban is lifted again); 502 `session_revoke_failed` when
+    the ban is applied and audited but the sessions could not be revoked (the ban stays)."""
     return ok(service.ban(str(user_id), body, audit_context(user, request, body.reason)))
 
 
 @router.post("/{user_id}/unban", response_model=Response[AdminUserUnbanResult])
 def unban_user(body: AdminUserUnban, request: Request, user_id: UUID = UserId,
                user: AdminUser = Depends(require_permission("admin.users.ban"))) -> Response:
-    """Lifts the ban with a reason, audited with `previous_banned_until`. 404; 409 `not_banned`."""
+    """Lifts the ban with a reason, audited with `previous_banned_until`. 404; 409 `not_banned`;
+    409 `cannot_ban_self` on the caller's own id."""
     return ok(service.unban(str(user_id), body, audit_context(user, request, body.reason)))
 
 

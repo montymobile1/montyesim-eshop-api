@@ -4,9 +4,12 @@
 - The save is ONE call to ``admin_upsert_settings``: upsert + delete + one audit row (old/new values of
   the touched keys only) + APP_CACHE_KEY rotation when FORBIDDEN_COUNTRIES changed (created, edited or
   deleted), exactly when the portal rotated it before. All in one transaction.
-- APP_CACHE_KEY can never be written or deleted here; secret-shaped keys (``is_secret_key`` of
-  app/config/helper.py) can never be created or updated: secrets live in the environment only. A legacy
-  secret row can still be deleted.
+- APP_CACHE_KEY can never be written or deleted here. Secret-shaped keys (``is_secret_key`` of
+  app/config/helper.py) are listed with their value and created, updated and deleted like any other key
+  (user decision 2026-10-21, for now, TEOS-134: such rows exist only in the qa database and the backend
+  reads secrets from the environment, get_secret). The history keeps redacting their values.
+- Protected keys (``PROTECTED_SETTING_KEYS``: APP_CACHE_KEY and every non-secret key the backend reads)
+  can never be deleted: 409 ``protected_key`` for the whole batch, nothing written (TEOS-134).
 - History rows carry ``changes[]`` computed here, with secret-shaped values redacted.
 """
 import json
@@ -19,7 +22,8 @@ from app.repo.admin.audit_log_repo import AuditLogRepo
 from app.repo.admin.base import AuditContext
 from app.repo.admin.users_copy_repo import UsersCopyAdminRepo
 from app.schemas.admin.common import AdminPage, PageParams
-from app.schemas.admin.settings import (NEW_KEY_PATTERN, AdminSettingChange, AdminSettingRow, AdminSettingsHistoryRow,
+from app.schemas.admin.settings import (NEW_KEY_PATTERN, PROTECTED_SETTING_KEYS, READ_ONLY_SETTING_KEYS,
+                                        AdminSettingChange, AdminSettingRow, AdminSettingsHistoryRow,
                                         AdminSettingsUpdate, AdminSettingsUpdateResult)
 from app.services.admin.audit_query_service import (REDACTED, actor, client_reported, day_range, details_of,
                                                     is_secret_name, normalize_operation, users_for)
@@ -116,27 +120,33 @@ class SettingsAdminService:
 
     # ---------- list ----------
 
-    def list(self, page: PageParams, *, key: Optional[str] = None) -> AdminPage:
-        result = self.settings.search(page, key=key)
+    def list(self, page: PageParams, *, key: Optional[str] = None, search: Optional[str] = None) -> AdminPage:
+        """Every row with its real value, secret-shaped keys included (user decision 2026-10-21)."""
+        result = self.settings.search(page, key=key, search=search)
         rows = []
         for row in result.rows:
-            secret = is_secret_name(row.get("key"))
-            rows.append(AdminSettingRow(id=row.get("id"), key=row.get("key") or "",
-                                   value=REDACTED if secret and row.get("value") is not None else row.get("value"),
-                                   created_at=row.get("created_at"), is_secret=secret))
+            name = row.get("key") or ""
+            rows.append(AdminSettingRow(id=row.get("id"), key=name, value=row.get("value"),
+                                        description=row.get("description"), created_at=row.get("created_at"),
+                                        is_secret=False, editable=name not in READ_ONLY_SETTING_KEYS,
+                                        deletable=name not in PROTECTED_SETTING_KEYS))
         return AdminPage(data=rows, total_count=result.total)
 
     # ---------- bulk save ----------
 
     def update(self, body: AdminSettingsUpdate, ctx: AuditContext) -> AdminSettingsUpdateResult:
         """One save. 422 for a new key that is not ``^[A-Z0-9_]{1,100}$``; 409 ``no_change`` when no
-        value differs and no listed key to delete exists (nothing is written or audited)."""
+        value differs and no listed key to delete exists (nothing is written or audited); 409
+        ``protected_key`` (``keys``: the protected keys) when a protected key is in ``deleted_keys``."""
+        protected = [key for key in body.deleted_keys if key in PROTECTED_SETTING_KEYS]
+        if protected:
+            raise AdminConflict("protected_key", key=protected[0], keys=protected)
         current = self.settings.by_keys([item.key for item in body.items] + list(body.deleted_keys))
         for index, item in enumerate(body.items):
             if item.key not in current and not NEW_KEY_PATTERN.match(item.key):
                 raise AdminValidationError(
-                    f"items.{index}.key: invalid_key, a new key must be upper case letters, digits and _ "
-                    f"(1 to 100 characters)")
+                    f"items.{index}.key: invalid_key, a new key must start with an upper case letter, then "
+                    f"upper case letters, digits and _ (3 to 64 characters)")
         changed = [item for item in body.items
                    if item.key not in current or current[item.key].get("value") != item.value]
         deleting = [key for key in body.deleted_keys if key in current]
