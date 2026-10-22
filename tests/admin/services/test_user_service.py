@@ -1,9 +1,9 @@
 """UserAdminService, UserAdminRepo and UserWalletAdminRepo (MS-5079) with the database and GoTrue mocked."""
+import json
 from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import jwt as pyjwt
 import pytest
 from gotrue.errors import AuthApiError
 
@@ -154,15 +154,25 @@ def test_ban_custom_hours(svc, repo, client):
     client.auth.admin.update_user_by_id.assert_called_once_with(USER_ID, {"ban_duration": "48h"})
 
 
-def test_ban_already_banned_is_409_and_touches_nothing(svc, repo, audit, client):
+@pytest.mark.parametrize("last_ban", [
+    None,                                                                   # banned outside the admin API
+    {"id": 5, "operation_details": {"sessions_revoked": True}},            # revoke worked
+    {"id": 5, "operation_details": {"hours_banned": 24}},                  # legacy row without the flag
+    {"id": 5, "operation_details": '{"sessions_revoked": true}'},          # stored as a JSON string
+    {"id": 5, "operation_details": "not json"},
+])
+def test_ban_already_banned_is_409_and_touches_nothing(svc, repo, audit, client, revoker, last_ban):
     repo.get.return_value = _row(is_banned=True, banned_until=FUTURE)
+    repo.latest_ban_audit.return_value = last_ban
 
     with pytest.raises(AdminConflict) as err:
         svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
 
     assert err.value.conflict_code == "already_banned"
     assert err.value.extra == {"banned_until": FUTURE}
+    repo.latest_ban_audit.assert_called_once_with(USER_ID)
     client.auth.admin.update_user_by_id.assert_not_called()
+    revoker.assert_not_called()
     audit.log.assert_not_called()
 
 
@@ -239,7 +249,7 @@ def test_ban_revokes_the_sessions_after_the_ban_and_audits_it(svc, repo, audit, 
 
 
 @pytest.mark.parametrize("error, reason", [
-    (SessionRevokeError("jwt_secret_not_configured"), "jwt_secret_not_configured"),
+    (SessionRevokeError("database_error:AdminUpstreamError"), "database_error:AdminUpstreamError"),
     (RuntimeError("boom"), "unexpected:RuntimeError"),
 ])
 def test_ban_revoke_failure_keeps_the_ban_audits_it_and_returns_502(svc, repo, audit, client, revoker,
@@ -260,7 +270,7 @@ def test_ban_revoke_failure_keeps_the_ban_audits_it_and_returns_502(svc, repo, a
 
 def test_ban_revoke_and_audit_failure_lifts_the_ban_and_reports_the_audit(svc, repo, audit, client, revoker):
     repo.get.return_value = _row()
-    revoker.side_effect = SessionRevokeError("gotrue_error:AuthApiError")
+    revoker.side_effect = SessionRevokeError("database_error:AdminUpstreamError")
     audit.log.side_effect = RuntimeError("db down")
 
     with pytest.raises(AdminUpstreamError) as err:
@@ -307,51 +317,156 @@ def test_unban_never_revokes_sessions(svc, repo, revoker):
     revoker.assert_not_called()
 
 
-def test_default_revoker_signs_out_globally_with_a_short_lived_user_token(monkeypatch):
-    monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-secret-" + "x" * 32)
-    client = MagicMock()
+def test_default_revoker_deletes_the_sessions_through_the_repo():
+    repo = MagicMock(spec=UserAdminRepo)
+    repo.revoke_sessions.return_value = {"sessions": 2, "refresh_tokens": 3}
 
-    revoke_user_sessions(client, USER_ID)
-
-    token, scope = client.auth.admin.sign_out.call_args.args
-    assert scope == "global"
-    claims = pyjwt.decode(token, "test-secret-" + "x" * 32, algorithms=["HS256"], audience="authenticated")
-    assert claims["sub"] == USER_ID and claims["role"] == "authenticated"
-    assert "session_id" not in claims
-    assert 0 < claims["exp"] - claims["iat"] <= 60
+    assert revoke_user_sessions(repo, USER_ID) == {"sessions": 2, "refresh_tokens": 3}
+    repo.revoke_sessions.assert_called_once_with(USER_ID)
 
 
-def test_default_revoker_without_secret_fails_without_calling_gotrue(monkeypatch):
-    monkeypatch.delenv("SUPABASE_JWT_SECRET", raising=False)
-    client = MagicMock()
+def test_default_revoker_wraps_a_database_error():
+    repo = MagicMock(spec=UserAdminRepo)
+    repo.revoke_sessions.side_effect = AdminUpstreamError("DATABASE_ERROR")
 
     with pytest.raises(SessionRevokeError) as err:
-        revoke_user_sessions(client, USER_ID)
+        revoke_user_sessions(repo, USER_ID)
 
-    assert err.value.reason == "jwt_secret_not_configured"
-    client.auth.admin.sign_out.assert_not_called()
-
-
-def test_default_revoker_wraps_a_gotrue_error(monkeypatch):
-    monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-secret-" + "x" * 32)
-    client = MagicMock()
-    client.auth.admin.sign_out.side_effect = AuthApiError("Invalid JWT", 401, "bad_jwt")
-
-    with pytest.raises(SessionRevokeError) as err:
-        revoke_user_sessions(client, USER_ID)
-
-    assert err.value.reason == "gotrue_error:AuthApiError"
+    assert err.value.reason == "database_error:AdminUpstreamError"
 
 
-def test_service_default_revoker_uses_the_client_factory(monkeypatch, repo, audit, client):
-    monkeypatch.setenv("SUPABASE_JWT_SECRET", "test-secret-" + "x" * 32)
+@pytest.mark.parametrize("secret", [None, "test-secret-" + "x" * 32])
+def test_service_default_revoker_needs_no_jwt_secret_and_never_calls_gotrue_logout(monkeypatch, repo, audit,
+                                                                                  client, secret):
+    if secret is None:
+        monkeypatch.delenv("SUPABASE_JWT_SECRET", raising=False)
+    else:
+        monkeypatch.setenv("SUPABASE_JWT_SECRET", secret)
     repo.get.return_value = _row()
+    repo.revoke_sessions.return_value = {"sessions": 1, "refresh_tokens": 1}
+    service = UserAdminService(repo=repo, audit=audit, client_factory=lambda: client)
+
+    result = service.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+
+    assert result["user_id"] == USER_ID and result["hours_banned"] == 8760
+    repo.revoke_sessions.assert_called_once_with(USER_ID)
+    client.auth.admin.sign_out.assert_not_called()
+    kwargs = audit.log.call_args.kwargs
+    assert kwargs["sessions_revoked"] is True and kwargs["session_revoke_error"] is None
+
+
+def test_ban_of_a_user_without_sessions_is_200_and_audited_as_revoked(repo, audit, client):
+    repo.get.return_value = _row()
+    repo.revoke_sessions.return_value = {"sessions": 0, "refresh_tokens": 0}
+    service = UserAdminService(repo=repo, audit=audit, client_factory=lambda: client)
+
+    assert service.ban(USER_ID, AdminUserBan(reason="r"), CTX)["user_id"] == USER_ID
+    assert audit.log.call_args.kwargs["sessions_revoked"] is True
+
+
+def test_ban_with_a_revoke_rpc_failure_is_502_and_audits_the_error(repo, audit, client):
+    repo.get.return_value = _row()
+    repo.revoke_sessions.side_effect = AdminUpstreamError("DATABASE_ERROR")
+    service = UserAdminService(repo=repo, audit=audit, client_factory=lambda: client)
+
+    with pytest.raises(AdminUpstreamError) as err:
+        service.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+
+    assert err.value.details == SESSION_REVOKE_FAILED
+    kwargs = audit.log.call_args.kwargs
+    assert kwargs["sessions_revoked"] is False
+    assert kwargs["session_revoke_error"] == "database_error:AdminUpstreamError"
+
+
+# ---------- TEOS-149: banning again re-runs a failed revoke ----------
+
+FAILED_BAN = {"id": 41, "changed_at": "2026-10-22T09:00:00",
+              "operation_details": {"hours_banned": 24, "ban_duration": "24h", "sessions_revoked": False,
+                                    "session_revoke_error": "database_error:AdminUpstreamError"}}
+
+
+def test_ban_again_after_a_failed_revoke_retries_only_the_revoke_and_is_200(svc, repo, audit, client, revoker):
+    repo.get.return_value = _row(is_banned=True, banned_until=FUTURE)
+    repo.latest_ban_audit.return_value = FAILED_BAN
+
+    result = svc.ban(USER_ID, AdminUserBan(hours=500, reason="retry"), CTX)
+
+    # the current ban is returned unchanged: body.hours is ignored, GoTrue is not called
+    assert result == {"user_id": USER_ID, "email": "jane@example.com", "banned_until": FUTURE, "hours_banned": 24}
+    client.auth.admin.update_user_by_id.assert_not_called()
+    revoker.assert_called_once_with(USER_ID)
+    args, kwargs = audit.log.call_args
+    assert args == (CTX, AUTH_USERS_TABLE, "BAN")
+    assert kwargs["record_id"] == USER_ID and kwargs["rows_affected"] == 0
+    assert kwargs["revoke_retry"] is True and kwargs["retry_of_audit_id"] == 41
+    assert kwargs["sessions_revoked"] is True and kwargs["session_revoke_error"] is None
+    assert kwargs["hours_banned"] == 24 and kwargs["ban_duration"] == "24h" and kwargs["banned_until"] == FUTURE
+
+
+def test_ban_again_reads_operation_details_stored_as_json_text(svc, repo, audit, revoker):
+    repo.get.return_value = _row(is_banned=True, banned_until=FUTURE)
+    repo.latest_ban_audit.return_value = {**FAILED_BAN, "operation_details": json.dumps(FAILED_BAN["operation_details"])}
+
+    assert svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)["hours_banned"] == 24
+    revoker.assert_called_once_with(USER_ID)
+
+
+def test_ban_again_without_hours_in_the_audit_uses_the_request_hours(svc, repo, revoker):
+    repo.get.return_value = _row(is_banned=True, banned_until=FUTURE)
+    repo.latest_ban_audit.return_value = {"id": 41, "operation_details": {"sessions_revoked": False}}
+
+    assert svc.ban(USER_ID, AdminUserBan(hours=12, reason="r"), CTX)["hours_banned"] == 12
+
+
+def test_ban_again_when_the_revoke_fails_again_is_502_and_audited(svc, repo, audit, client, revoker):
+    repo.get.return_value = _row(is_banned=True, banned_until=FUTURE)
+    repo.latest_ban_audit.return_value = FAILED_BAN
+    revoker.side_effect = SessionRevokeError("database_error:AdminUpstreamError")
+
+    with pytest.raises(AdminUpstreamError) as err:
+        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+
+    assert err.value.details == SESSION_REVOKE_FAILED
+    client.auth.admin.update_user_by_id.assert_not_called()  # the ban is never lifted
+    kwargs = audit.log.call_args.kwargs
+    assert kwargs["revoke_retry"] is True and kwargs["sessions_revoked"] is False
+    assert kwargs["session_revoke_error"] == "database_error:AdminUpstreamError"
+
+
+def test_ban_again_when_the_retry_audit_fails_is_502_audit_failed_and_keeps_the_ban(svc, repo, audit, client):
+    repo.get.return_value = _row(is_banned=True, banned_until=FUTURE)
+    repo.latest_ban_audit.return_value = FAILED_BAN
+    audit.log.side_effect = RuntimeError("db down")
+
+    with pytest.raises(AdminUpstreamError) as err:
+        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+
+    assert err.value.details == "AUDIT_FAILED"
+    client.auth.admin.update_user_by_id.assert_not_called()
+
+
+def test_ban_retry_then_ban_again_is_409(repo, audit, client):
+    """After a successful retry the newest BAN row says sessions_revoked: true, so the next ban is 409."""
+    written = []
+    repo.get.return_value = _row(is_banned=True, banned_until=FUTURE)
+    repo.latest_ban_audit.side_effect = lambda uid: (
+        {"id": 42, "operation_details": written[-1]} if written else FAILED_BAN)
+    repo.revoke_sessions.return_value = {"sessions": 1, "refresh_tokens": 1}
+    audit.log.side_effect = lambda *a, **k: written.append(k)
     service = UserAdminService(repo=repo, audit=audit, client_factory=lambda: client)
 
     service.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+    with pytest.raises(AdminConflict) as err:
+        service.ban(USER_ID, AdminUserBan(reason="r"), CTX)
 
-    assert client.auth.admin.sign_out.call_args.args[1] == "global"
-    assert audit.log.call_args.kwargs["sessions_revoked"] is True
+    assert err.value.conflict_code == "already_banned"
+    repo.revoke_sessions.assert_called_once()
+
+
+def test_ban_self_never_looks_at_the_audit(svc, repo):
+    with pytest.raises(AdminConflict):
+        svc.ban(CTX.actor_id, AdminUserBan(reason="r"), CTX)
+    repo.latest_ban_audit.assert_not_called()
 
 
 # ---------- unban ----------
@@ -452,6 +567,44 @@ def test_repo_search_calls_admin_search_users():
         "p_sort": "created_at", "p_dir": "desc"})
     assert result.rows == [_row()] and result.total == 1
     assert result.facets == {"all": 1, "banned": 0, "active": 1}
+
+
+@pytest.mark.parametrize("result", [{"sessions": 2, "refresh_tokens": 3}, [{"sessions": 2, "refresh_tokens": 3}]])
+def test_repo_revoke_sessions_calls_admin_revoke_user_sessions(result):
+    repo = _repo_with_rpc(UserAdminRepo, result)
+
+    assert repo.revoke_sessions(USER_ID) == {"sessions": 2, "refresh_tokens": 3}
+    repo.rpc.assert_called_once_with("admin_revoke_user_sessions", {"p_user_id": USER_ID})
+
+
+@pytest.mark.parametrize("result", [None, {}, {"sessions": None, "refresh_tokens": 0}, "ok"])
+def test_repo_revoke_sessions_without_counts_raises(result):
+    """Never report a revoke the database did not confirm."""
+    repo = _repo_with_rpc(UserAdminRepo, result)
+
+    with pytest.raises(ValueError):
+        repo.revoke_sessions(USER_ID)
+
+
+def test_repo_latest_ban_audit_reads_the_newest_ban_row_of_the_user():
+    repo = UserAdminRepo.__new__(UserAdminRepo)
+    repo.table_name = "users_copy"
+    repo.client = MagicMock(name="db")
+    query = repo.client.table.return_value
+    for step in ("select", "eq", "order", "limit"):
+        getattr(query, step).return_value = query
+    query.execute.return_value = SimpleNamespace(data=[FAILED_BAN])
+
+    assert repo.latest_ban_audit(USER_ID) == FAILED_BAN
+    repo.client.table.assert_called_once_with("audit_log")
+    assert [c.args for c in query.eq.call_args_list] == [("table_name", "auth.users"), ("operation", "BAN"),
+                                                         ("record_id", USER_ID)]
+    assert [c.args + tuple(c.kwargs.values()) for c in query.order.call_args_list] == [("changed_at", True),
+                                                                                       ("id", True)]
+    query.limit.assert_called_once_with(1)
+
+    query.execute.return_value = SimpleNamespace(data=[])
+    assert repo.latest_ban_audit(USER_ID) is None
 
 
 def test_repo_search_passes_sort_and_direction():

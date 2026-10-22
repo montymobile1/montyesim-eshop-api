@@ -10,17 +10,17 @@
 - ban also signs the user out everywhere (TEOS-111 case 9, see ``revoke_user_sessions``). A revoke
   failure keeps the ban (the safe state: GoTrue refuses sign-in and refresh of a banned user),
   writes the audit row with ``sessions_revoked: false`` and the cause, and returns 502
-  ``session_revoke_failed``;
+  ``session_revoke_failed``. Banning that user again then re-runs only the revoke (TEOS-149):
+  200 with the current ban when it works, audited as a BAN row with ``revoke_retry: true``;
 - an admin cannot ban or unban themselves: 409 ``cannot_ban_self``, checked first, so nothing is
   read, changed or audited (TEOS-111 case 23);
 - devices, wallet transactions and referrals: paged sub-lists with the true total.
 """
+import json
 import math
-import os
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Callable, Dict, Optional
 
-import jwt
 from gotrue.errors import AuthApiError
 from loguru import logger
 
@@ -45,8 +45,6 @@ AUDIT_FAILED = "AUDIT_FAILED"
 SESSION_REVOKE_FAILED = "session_revoke_failed"
 #: 409 code when an admin targets their own account.
 CANNOT_BAN_SELF = "cannot_ban_self"
-#: Lifetime of the token minted to revoke a user's sessions; it never leaves this process.
-REVOKE_TOKEN_SECONDS = 60
 
 
 class SessionRevokeError(Exception):
@@ -57,30 +55,34 @@ class SessionRevokeError(Exception):
         self.reason = reason
 
 
-def revoke_user_sessions(client: Any, user_id: str) -> None:
-    """Signs ``user_id`` out of every session (all refresh tokens revoked).
+def revoke_user_sessions(repo: UserAdminRepo, user_id: str) -> Dict[str, int]:
+    """Signs ``user_id`` out of every session: all sessions and refresh tokens deleted (TEOS-149).
 
-    Supabase Auth has no admin "sign out user X by id" call: ``auth.admin.sign_out(jwt, scope)``
-    (gotrue-py 2.12, same as supabase-js) needs a JWT of that user, and GoTrue has no
-    ``/admin/users/{id}/logout`` route. So a short-lived access token is minted for the user with
-    the project's JWT secret (HS256, the same secret ``app/dependencies/security.py`` verifies
-    with) and ``POST /logout?scope=global`` is called with it: GoTrue then deletes all the user's
-    sessions. The token has no ``session_id``, lives ``REVOKE_TOKEN_SECONDS`` and is never returned.
-    Raises ``SessionRevokeError`` when the secret is missing (projects on asymmetric signing keys)
-    or when GoTrue refuses the call.
+    GoTrue (v2.197) has no admin "log out user X" route, so ``admin_revoke_user_sessions`` deletes
+    the rows GoTrue's own global logout deletes. Afterwards every refresh token of the user is
+    refused and GoTrue answers ``/user`` with ``session_not_found`` for every access token issued
+    before. No JWT is involved, so it works with symmetric and asymmetric signing keys alike.
+    Returns ``{sessions, refresh_tokens}`` (0 and 0 for a user without sessions); raises
+    ``SessionRevokeError`` when the database call fails.
     """
-    secret = os.getenv("SUPABASE_JWT_SECRET")
-    if not secret:
-        raise SessionRevokeError("jwt_secret_not_configured")
-    now = datetime.now(timezone.utc)
-    token = jwt.encode({"sub": str(user_id), "role": "authenticated", "aud": "authenticated",
-                        "iat": int(now.timestamp()),
-                        "exp": int((now + timedelta(seconds=REVOKE_TOKEN_SECONDS)).timestamp())},
-                       secret, algorithm="HS256")
     try:
-        client.auth.admin.sign_out(token, "global")
+        return repo.revoke_sessions(str(user_id))
     except Exception as exc:
-        raise SessionRevokeError(f"gotrue_error:{type(exc).__name__}") from exc
+        raise SessionRevokeError(f"database_error:{type(exc).__name__}") from exc
+
+
+def revoke_pending(ban_audit: Any) -> bool:
+    """True when ``ban_audit`` (the user's newest BAN audit row) records a revoke that failed, i.e.
+    ``operation_details.sessions_revoked`` is exactly ``false``. Legacy rows without the flag: False."""
+    if not isinstance(ban_audit, dict):
+        return False
+    details = ban_audit.get("operation_details")
+    if isinstance(details, str):
+        try:
+            details = json.loads(details)
+        except ValueError:
+            return False
+    return isinstance(details, dict) and details.get("sessions_revoked") is False
 
 
 def _iso(value: Any) -> Optional[str]:
@@ -119,14 +121,14 @@ class UserAdminService:
     def __init__(self, repo: Optional[UserAdminRepo] = None, wallets: Optional[UserWalletAdminRepo] = None,
                  devices: Optional[DeviceAdminService] = None, audit: Optional[AuditService] = None,
                  client_factory: Callable = supabase_client,
-                 session_revoker: Optional[Callable[[str], None]] = None):
+                 session_revoker: Optional[Callable[[str], Any]] = None):
         self._repo = repo
         self._wallets = wallets
         self._devices = devices
         self._audit = audit
         self._client_factory = client_factory
         self._session_revoker = session_revoker or (
-            lambda user_id: revoke_user_sessions(self._client_factory(), user_id))
+            lambda user_id: revoke_user_sessions(self.repo, user_id))
 
     # created lazily so importing the router never opens a database client
     @property
@@ -184,10 +186,14 @@ class UserAdminService:
         """409 ``cannot_ban_self``; 404 unknown user; 409 ``already_banned``; 502 when GoTrue fails
         (nothing audited) or when the audit insert fails (the ban is lifted again); 502
         ``session_revoke_failed`` when the ban is applied and audited but the sessions could not be
-        revoked (the ban stays)."""
+        revoked (the ban stays). A user already banned whose newest BAN audit row has
+        ``sessions_revoked: false``: only the revoke is re-run (see ``_retry_revoke``)."""
         self._refuse_self(user_id, ctx)
         row = self._row_or_404(user_id)
         if row.get("is_banned"):
+            last_ban = self.repo.latest_ban_audit(str(user_id))
+            if revoke_pending(last_ban):
+                return self._retry_revoke(user_id, row, last_ban, body, ctx)
             raise AdminConflict("already_banned", banned_until=row.get("banned_until"))
         duration = f"{body.hours}h"
         user = self._set_ban_duration(user_id, duration)
@@ -232,6 +238,34 @@ class UserAdminService:
             raise AdminUpstreamError(AUDIT_FAILED) from exc
         return {"user_id": str(user_id), "email": email}
 
+    def _retry_revoke(self, user_id: str, row: Dict[str, Any], last_ban: Dict[str, Any], body: AdminUserBan,
+                      ctx: AuditContext) -> Dict[str, Any]:
+        """Re-runs only the session revoke of a ban whose revoke failed (TEOS-149). The ban itself is
+        not changed: ``body.hours`` is ignored and the current ban is returned. Audited as a BAN row
+        with ``revoke_retry: true`` and ``rows_affected: 0``, so a later ban answers 409
+        ``already_banned`` once the revoke worked. 502 ``session_revoke_failed`` when it fails again
+        (audited, retry possible), 502 ``AUDIT_FAILED`` when the audit row cannot be written."""
+        details = last_ban.get("operation_details")
+        if isinstance(details, str):
+            details = json.loads(details)
+        hours = details.get("hours_banned")
+        hours = hours if isinstance(hours, int) and not isinstance(hours, bool) else body.hours
+        banned_until = _iso(row.get("banned_until"))
+        email = row.get("email")
+        revoke_error = self._revoke_sessions(user_id)
+        try:
+            self.audit.log(ctx, AUTH_USERS_TABLE, OPERATION_BAN, record_id=user_id, rows_affected=0,
+                           user_id=str(user_id), user_email=email, hours_banned=hours,
+                           ban_duration=details.get("ban_duration"), banned_until=banned_until,
+                           revoke_retry=True, retry_of_audit_id=last_ban.get("id"),
+                           sessions_revoked=revoke_error is None, session_revoke_error=revoke_error)
+        except Exception as exc:
+            logger.error(f"admin ban: revoke retry audit insert failed: {type(exc).__name__}: {exc}")
+            raise AdminUpstreamError(AUDIT_FAILED) from exc
+        if revoke_error is not None:
+            raise AdminUpstreamError(SESSION_REVOKE_FAILED)
+        return {"user_id": str(user_id), "email": email, "banned_until": banned_until, "hours_banned": hours}
+
     # ---------- helpers ----------
 
     @staticmethod
@@ -244,7 +278,8 @@ class UserAdminService:
     def _revoke_sessions(self, user_id: str) -> Optional[str]:
         """None when every session of the user was revoked, else the cause (logged, then audited)."""
         try:
-            self._session_revoker(str(user_id))
+            deleted = self._session_revoker(str(user_id))
+            logger.info(f"admin ban: sessions of {user_id} revoked: {deleted}")
         except SessionRevokeError as exc:
             logger.error(f"admin ban: could not revoke the sessions of {user_id}: {exc.reason}")
             return exc.reason
