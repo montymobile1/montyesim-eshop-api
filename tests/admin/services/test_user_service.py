@@ -148,6 +148,34 @@ def test_ban_updates_gotrue_then_audits(svc, repo, audit, client):
     assert kwargs["rows_affected"] == 1
 
 
+def test_ban_reads_banned_until_back_from_the_users_row(svc, repo, audit, client):
+    """gotrue-py's User has no banned_until: the date comes from the users row read after the ban."""
+    until = "2026-10-23T10:00:00+00:00"
+    repo.get.side_effect = [_row(), _row(is_banned=True, banned_until=until)]
+    client.auth.admin.update_user_by_id.return_value = SimpleNamespace(
+        user=SimpleNamespace(id=USER_ID, email="jane@example.com"))  # as gotrue-py 2.12 returns it
+
+    result = svc.ban(USER_ID, AdminUserBan(hours=24, reason="r"), CTX)
+
+    assert result["banned_until"] == until
+    assert audit.log.call_args.kwargs["banned_until"] == until
+    assert [c.args for c in repo.get.call_args_list] == [(USER_ID,), (USER_ID,)]
+
+
+@pytest.mark.parametrize("read_back", [_row(), RuntimeError("db down"), None])
+def test_ban_banned_until_falls_back_to_now_plus_hours(svc, repo, audit, client, read_back):
+    repo.get.side_effect = [_row(), read_back]
+    client.auth.admin.update_user_by_id.return_value = SimpleNamespace(
+        user=SimpleNamespace(id=USER_ID, email="jane@example.com"))
+    before = datetime.now(timezone.utc)
+
+    result = svc.ban(USER_ID, AdminUserBan(hours=24, reason="r"), CTX)
+
+    until = datetime.fromisoformat(result["banned_until"])
+    assert before + timedelta(hours=24) <= until <= datetime.now(timezone.utc) + timedelta(hours=24)
+    assert audit.log.call_args.kwargs["banned_until"] == result["banned_until"]
+
+
 def test_ban_custom_hours(svc, repo, client):
     repo.get.return_value = _row()
     svc.ban(USER_ID, AdminUserBan(hours=48, reason="r"), CTX)

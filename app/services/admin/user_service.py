@@ -18,7 +18,7 @@
 """
 import json
 import math
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Optional
 
 from gotrue.errors import AuthApiError
@@ -197,7 +197,7 @@ class UserAdminService:
             raise AdminConflict("already_banned", banned_until=row.get("banned_until"))
         duration = f"{body.hours}h"
         user = self._set_ban_duration(user_id, duration)
-        banned_until = _iso(getattr(user, "banned_until", None))
+        banned_until = self._banned_until_after_ban(user_id, user, body.hours)
         email = getattr(user, "email", None) or row.get("email")
         revoke_error = self._revoke_sessions(user_id)
         try:
@@ -287,6 +287,20 @@ class UserAdminService:
             logger.error(f"admin ban: could not revoke the sessions of {user_id}: {type(exc).__name__}: {exc}")
             return f"unexpected:{type(exc).__name__}"
         return None
+
+    def _banned_until_after_ban(self, user_id: str, user: Any, hours: int) -> str:
+        """The end of the ban just applied. gotrue-py's User model drops GoTrue's ``banned_until``, so
+        it is read back from the users row (``admin_search_users`` joins auth.users); when that read
+        fails or has no date, now + ``hours``. The ban is already applied, so this never raises."""
+        value = getattr(user, "banned_until", None)
+        if value is None:
+            try:
+                value = (self.repo.get(str(user_id)) or {}).get("banned_until")
+            except Exception as exc:
+                logger.error(f"admin ban: could not read banned_until back for {user_id}: {type(exc).__name__}")
+        if _parse(value) is None:
+            value = datetime.now(timezone.utc) + timedelta(hours=hours)
+        return _iso(value)
 
     def _row_or_404(self, user_id: str) -> Dict[str, Any]:
         row = self.repo.get(str(user_id))

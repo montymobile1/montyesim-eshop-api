@@ -336,3 +336,20 @@ def test_unban_is_unaffected(api_client, as_super_admin, db_revoke_users):
     db_revoke_users["client"].auth.admin.update_user_by_id.assert_called_once_with(USER_ID, {"ban_duration": "none"})
     repo.revoke_sessions.assert_not_called()
     repo.latest_ban_audit.assert_not_called()
+
+
+def test_ban_200_and_audit_carry_the_real_banned_until(api_client, as_super_admin, db_revoke_users):
+    """TEOS-149 follow-up: gotrue-py drops banned_until, so it is read back from the users row."""
+    until = "2026-10-23T12:34:56+00:00"
+    db_revoke_users["repo"].get.side_effect = [
+        {"id": USER_ID, "email": "jane@example.com", "is_banned": False, "banned_until": None},
+        {"id": USER_ID, "email": "jane@example.com", "is_banned": True, "banned_until": until},
+    ]
+    db_revoke_users["client"].auth.admin.update_user_by_id.return_value = SimpleNamespace(
+        user=SimpleNamespace(email="jane@example.com"))
+
+    response = api_client.post(f"{USERS}/{USER_ID}/ban", json={"hours": 24, "reason": "fraud"})
+
+    assert response.status_code == 200
+    assert response.json()["data"]["banned_until"] == until
+    assert db_revoke_users["audit"].log.call_args.kwargs["banned_until"] == until
