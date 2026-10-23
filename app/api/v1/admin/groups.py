@@ -5,6 +5,7 @@ Create and edit are multipart/form-data: a ``payload`` field with the JSON body 
 (existing tags). Any other form field is 422. The permission is checked before any file is read.
 """
 import json
+import os
 from typing import Dict, Optional, Tuple, Type, TypeVar
 
 from fastapi import Depends, Path, Query, Request
@@ -15,11 +16,11 @@ from starlette.responses import Response as HttpResponse
 from app.api.v1.admin._lookup import add_lookup_route
 from app.api.v1.admin._route import admin_router
 from app.dependencies.admin_security import AdminUser, require_permission
-from app.exceptions.admin import AdminValidationError
+from app.exceptions.admin import AdminPayloadTooLarge, AdminValidationError
 from app.schemas.admin.common import AdminPage, AdminStatusPatch, PageParams, ok, ok_page, page_params
-from app.schemas.admin.groups import (ICON_FIELD_PREFIX, PAYLOAD_FIELD, AdminGroup, AdminGroupCreate,
-                                      AdminGroupDetail, AdminGroupStatus, AdminGroupUpdate, AdminTag,
-                                      AdminTagOrder, AdminTagOrderResult, GroupStatus)
+from app.schemas.admin.groups import (ICON_FIELD_PREFIX, MAX_ICON_FILES, PAYLOAD_FIELD, AdminGroup,
+                                      AdminGroupCreate, AdminGroupDetail, AdminGroupStatus, AdminGroupUpdate,
+                                      AdminTag, AdminTagOrder, AdminTagOrderResult, GroupCategory, GroupStatus)
 from app.schemas.response import Response
 from app.services.admin.audit_service import audit_context
 from app.services.admin.group_service import GroupAdminService
@@ -35,6 +36,17 @@ GroupId = Path(..., ge=1, description="group id")
 
 M = TypeVar("M", bound=BaseModel)
 
+#: Whole multipart body of a group create or edit, 413 above (TEOS-188). Each icon is also limited to
+#: ADMIN_MAX_UPLOAD_BYTES. The story gives no figure: 20 MB is a default to confirm with product.
+DEFAULT_MAX_GROUP_FORM_BYTES = 20 * 1024 * 1024
+
+
+def _max_form_bytes() -> int:
+    try:
+        return int(os.getenv("ADMIN_MAX_GROUP_FORM_BYTES", DEFAULT_MAX_GROUP_FORM_BYTES))
+    except ValueError:
+        return DEFAULT_MAX_GROUP_FORM_BYTES
+
 
 def _validation_text(exc: ValidationError) -> str:
     parts = []
@@ -45,20 +57,36 @@ def _validation_text(exc: ValidationError) -> str:
 
 
 async def _group_form(request: Request, model: Type[M]) -> Tuple[M, Dict[str, bytes]]:
-    """``payload`` parsed as ``model`` plus ``{client_key: bytes}`` of the ``icon_*`` files."""
+    """``payload`` parsed as ``model`` plus ``{client_key: bytes}`` of the ``icon_*`` files.
+
+    413 before any upload when the body is over the form limit (declared length or bytes read) or holds
+    more than ``MAX_ICON_FILES`` files (TEOS-187, TEOS-188)."""
+    max_bytes = _max_form_bytes()
+    length = request.headers.get("content-length")
+    if length and length.isdigit() and int(length) > max_bytes:
+        raise AdminPayloadTooLarge("request body too large")
     form = await request.form()
     payload: Optional[str] = None
-    files: Dict[str, bytes] = {}
+    icons: Dict[str, UploadFile] = {}
     unknown = []
     for key, value in form.multi_items():
         if key == PAYLOAD_FIELD and isinstance(value, str):
             payload = value
         elif key.startswith(ICON_FIELD_PREFIX) and len(key) > len(ICON_FIELD_PREFIX) and isinstance(value, UploadFile):
-            files[key[len(ICON_FIELD_PREFIX):]] = service.read_image(value.file)
+            icons[key[len(ICON_FIELD_PREFIX):]] = value
         else:
             unknown.append(key)
     if unknown:
         raise AdminValidationError(f"unknown field(s): {', '.join(sorted(set(unknown)))}")
+    if len(icons) > MAX_ICON_FILES:
+        raise AdminPayloadTooLarge(f"too many files: at most {MAX_ICON_FILES}")
+    files: Dict[str, bytes] = {}
+    total = len(payload or "")
+    for key, value in icons.items():
+        files[key] = service.read_image(value.file)
+        total += len(files[key])
+        if total > max_bytes:
+            raise AdminPayloadTooLarge("request body too large")
     if payload is None:
         raise AdminValidationError(f"{PAYLOAD_FIELD}: required (JSON text)")
     try:
@@ -81,10 +109,13 @@ async def update_form(request: Request) -> Tuple[AdminGroupUpdate, Dict[str, byt
 @router.get("", response_model=Response[AdminPage[AdminGroup]])
 def list_groups(search: Optional[str] = Query(None, max_length=100, description="part of the group name"),
                 status: GroupStatus = Query("all"),
+                type: Optional[int] = Query(None, ge=1, le=2, description="1 = group, 2 = flat"),
+                group_category: Optional[GroupCategory] = Query(None, description="on_land or at_sea"),
                 page: PageParams = Depends(page_params),
                 user: AdminUser = Depends(require_permission("admin.groups.read"))) -> Response:
-    """Groups, newest first, each with ``tag_count``; ``facets:{all,active,inactive}`` over the searched set."""
-    return ok_page(service.list(search, status, page))
+    """Groups, newest first, each with ``tag_count``; ``facets:{all,active,inactive}`` over the searched set
+    (search, ``type`` and ``group_category`` applied, the status tab not: TEOS-174)."""
+    return ok_page(service.list(search, status, page, type=type, group_category=group_category))
 
 
 @router.get("/{group_id}", response_model=Response[AdminGroupDetail])

@@ -37,7 +37,9 @@ def _tag(tag_id=T1, name="Middle East", icon=PUBLIC + "Regions/1111-Middle%20Eas
 
 @pytest.fixture
 def repo():
-    return MagicMock(spec=TagGroupAdminRepo)
+    mock = MagicMock(spec=TagGroupAdminRepo)
+    mock.name_taken.return_value = False
+    return mock
 
 
 @pytest.fixture
@@ -101,7 +103,7 @@ def test_list_shapes_rows_with_tag_count_and_facets(svc, repo):
     assert result.total_count == 2 and result.facets == {"all": 2, "active": 1, "inactive": 1}
     assert result.data[0]["tag_count"] == 12 and "tag" not in result.data[0]
     assert result.data[1]["tag_count"] == 0 and result.data[1]["is_active"] is False
-    repo.search.assert_called_once_with("reg", "all", PageParams())
+    repo.search.assert_called_once_with("reg", "all", PageParams(), type=None, group_category=None)
 
 
 def test_get_orders_tags_and_adds_top_countries_count_for_countries(svc, repo):
@@ -383,11 +385,13 @@ def test_repo_search_embeds_the_tag_count_and_facets_filter():
     assert repo.facets("50%") == {"all": 3, "active": 1, "inactive": 2}
 
     repo.q.assert_called_once_with("*, tag(count)")
-    repo.filters.assert_called_once_with(query, ilike={"name": "50%"}, eq={"is_active": False})
-    assert repo.count.call_args_list[1].kwargs == {"ilike": {"name": "50%"}, "eq": {"is_active": True}}
+    repo.filters.assert_called_once_with(query, ilike={"name": "50%"},
+                                         eq={"is_active": False, "type": None, "group_category": None})
+    assert repo.count.call_args_list[1].kwargs == {"ilike": {"name": "50%"},
+                                                   "eq": {"type": None, "group_category": None, "is_active": True}}
 
 
-def test_repo_get_with_tags_orders_the_embed_and_filters_tag_names():
+def test_repo_get_with_tags_filters_tag_names_without_a_related_order():
     repo = TagGroupAdminRepo.__new__(TagGroupAdminRepo)
     repo.table_name = "tag_group"
     query = MagicMock()
@@ -403,8 +407,8 @@ def test_repo_get_with_tags_orders_the_embed_and_filters_tag_names():
 
     repo.table.select.assert_called_once_with("*, tag(*)")
     query.ilike.assert_called_once_with("tag.name", "%a\\_b%")
-    assert query.order.call_args_list == [call("sorting_number", desc=False, foreign_table="tag"),
-                                          call("name", desc=False, foreign_table="tag")]
+    # TEOS-180: no order(..., foreign_table="tag"): PostgREST refuses it on a to-many embed (PGRST118)
+    query.order.assert_not_called()
 
 
 def test_repo_top_countries_count_reads_app_config():

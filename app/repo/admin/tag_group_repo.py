@@ -13,8 +13,14 @@ from app.schemas.admin.common import PageParams
 
 _STATUS_ACTIVE = {"active": True, "inactive": False}
 TOP_COUNTRIES_KEY = "TOP_COUNTRIES_COUNT"
-#: Tags embedded in a group, ordered the way the app and the reorder page show them.
-TAG_ORDER = (("sorting_number", False), ("name", False))
+#: Default tag.sorting_number (supabase_ddl.sql), used for rows that have none.
+DEFAULT_SORTING_NUMBER = 10000
+
+
+def _tag_order(tag: Dict[str, Any]):
+    """Tags in the order the app and the reorder page show them: sorting_number, then name."""
+    number = tag.get("sorting_number")
+    return (number if number is not None else DEFAULT_SORTING_NUMBER, (tag.get("name") or "").lower())
 
 
 class TagGroupAdminRepo(AdminBaseRepository):
@@ -33,29 +39,48 @@ class TagGroupAdminRepo(AdminBaseRepository):
         query = self.filters(self.q("id,name,type,group_category"), ilike={"name": search}, eq={"id": record_id})
         return self.paged(query, page, order=(("name", False), ("id", False)))
 
-    def search(self, search: Optional[str], status: str, page: PageParams) -> Paged:
-        """One page of groups whose name contains ``search``, filtered by status, newest first.
-        Each row carries ``tag: [{"count": n}]`` (PostgREST embedded count)."""
+    def search(self, search: Optional[str], status: str, page: PageParams, type: Optional[int] = None,
+               group_category: Optional[str] = None) -> Paged:
+        """One page of groups whose name contains ``search``, filtered by status, ``type`` and
+        ``group_category``, newest first. Each row carries ``tag: [{"count": n}]`` (PostgREST embedded count)."""
         query = self.filters(self.q("*, tag(count)"), ilike={"name": search},
-                             eq={"is_active": _STATUS_ACTIVE.get(status)})
+                             eq={"is_active": _STATUS_ACTIVE.get(status), "type": type,
+                                 "group_category": group_category})
         return self.paged(query, page)
 
-    def facets(self, search: Optional[str]) -> Dict[str, int]:
-        """Status tab counts over the searched set (the status filter itself is not applied)."""
-        total = self.count(ilike={"name": search})
-        active = self.count(ilike={"name": search}, eq={"is_active": True})
+    def facets(self, search: Optional[str], type: Optional[int] = None,
+               group_category: Optional[str] = None) -> Dict[str, int]:
+        """Status tab counts over the searched and filtered set (the status filter itself is not applied)."""
+        eq = {"type": type, "group_category": group_category}
+        total = self.count(ilike={"name": search}, eq=eq)
+        active = self.count(ilike={"name": search}, eq={**eq, "is_active": True})
         return {"all": total, "active": active, "inactive": max(total - active, 0)}
 
     def get_with_tags(self, group_id: int, tag_search: Optional[str] = None) -> Optional[Dict[str, Any]]:
         """The group with its tags embedded as ``tag: [...]`` ordered by sorting_number then name;
-        ``tag_search`` keeps only the tags whose name contains it. None when the group does not exist."""
+        ``tag_search`` keeps only the tags whose name contains it. None when the group does not exist.
+
+        The tags are sorted here, not by PostgREST: ``order(..., foreign_table="tag")`` is sent as
+        ``order=tag(sorting_number)``, a related order that PostgREST refuses on a to-many embed
+        (PGRST118), which made every GET and PUT /groups/{id} fail with 502 (TEOS-180, TEOS-181)."""
         query = self.table.select("*, tag(*)").eq("id", group_id)
         if tag_search is not None and str(tag_search).strip():
             query = query.ilike("tag.name", self.like(str(tag_search).strip()))
-        for column, desc in TAG_ORDER:
-            query = query.order(column, desc=desc, foreign_table="tag")
         response = self._run(lambda: query.limit(1).execute())
-        return response.data[0] if response.data else None
+        if not response.data:
+            return None
+        row = response.data[0]
+        return {**row, "tag": sorted(row.get("tag") or [], key=_tag_order)}
+
+    def name_taken(self, name: str, exclude_id: Optional[int] = None) -> bool:
+        """True when another group is called ``name`` ignoring case (TEOS-186). The exact-case duplicate
+        is also refused by the unique constraint; this read covers the other cases."""
+        exact = self.like(str(name or "").strip())[1:-1]  # escaped, without the surrounding %
+        query = self.table.select("id").ilike("name", exact)
+        if exclude_id is not None:
+            query = query.neq("id", exclude_id)
+        response = self._run(lambda: query.limit(1).execute())
+        return bool(response.data)
 
     def top_countries_count(self) -> Optional[int]:
         """The ``TOP_COUNTRIES_COUNT`` setting as an integer, None when missing or not a number."""
