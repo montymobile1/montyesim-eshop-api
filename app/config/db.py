@@ -109,3 +109,4 @@ class DatabaseTables(StrEnum):
     # Admin API (app/repo/admin)
     TABLE_AUDIT_LOG = "audit_log"
     TABLE_STORAGE_CLEANUP_QUEUE = "storage_cleanup_queue"
+    TABLE_ADMIN_LOGIN_ATTEMPT = "admin_login_attempt"

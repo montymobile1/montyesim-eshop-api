@@ -273,7 +273,9 @@ After applying, if the API still answers 502 with "Could not find the function",
 
 ### Admin settings (.env)
 
-`ADMIN_MEDIA_BUCKET`, `ADMIN_MAX_UPLOAD_BYTES` (1 MB), `ADMIN_MAX_JSON_BYTES`, `ADMIN_EXPORT_ROW_CAP`, `ADMIN_LOGIN_RATE_LIMIT`. Defaults and descriptions are in `.env.example`.
+`ADMIN_MEDIA_BUCKET`, `ADMIN_MAX_UPLOAD_BYTES` (1 MB), `ADMIN_MAX_JSON_BYTES`, `ADMIN_EXPORT_ROW_CAP`, `ADMIN_LOGIN_RATE_LIMIT`, `ADMIN_TRUSTED_PROXY_HOPS`. Defaults and descriptions are in `.env.example`.
+
+The login rate limit is counted in the database, shared by every worker: apply `db/admin_login_rate_limit/001_admin_login_attempt.up.sql` before deploying (without it every admin login answers 502).
 
 ### Run the admin tests
 
