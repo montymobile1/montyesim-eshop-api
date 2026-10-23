@@ -2,7 +2,7 @@
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 from fastapi import Query
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.response import Response, ResponseHelper
 
@@ -10,11 +10,22 @@ T = TypeVar("T")
 
 MAX_PAGE_SIZE = 100
 DEFAULT_PAGE_SIZE = 20
+#: The admin list SQL functions take the offset (or the page) as ``integer`` (TEOS-141).
+MAX_SQL_INT = 2_147_483_647
 
 
 class PageParams(BaseModel):
     page: int = 1
     page_size: int = DEFAULT_PAGE_SIZE
+
+    @model_validator(mode="after")
+    def _fit_sql_int(self) -> "PageParams":
+        """A page whose offset (or number) would not fit an SQL ``integer`` becomes the last page that fits
+        (TEOS-141): that page is past every row as well, so the list answers exactly like any other page
+        past the end (no rows, the real total and facets) instead of 502 on an integer overflow."""
+        if self.page_size >= 1:
+            self.page = min(self.page, MAX_SQL_INT // self.page_size + 1, MAX_SQL_INT)
+        return self
 
     @property
     def offset(self) -> int:
