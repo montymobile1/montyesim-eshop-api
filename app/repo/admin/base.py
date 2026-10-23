@@ -7,11 +7,13 @@ write needs:
 - ``like`` / ``or_ilike`` / ``filters``: search and filters built from user input safely (the
   text is always matched literally; ``%``, ``_``, commas, quotes and parentheses cannot change
   the query);
-- ``paged``: a stable order (``created_at desc, id desc`` by default) plus the page and the total;
+- ``paged``: a stable order (``created_at desc, id desc`` by default) plus the page and the total
+  (a page past the last row answers no rows and the real total);
 - ``insert_audited`` / ``update_audited`` / ``delete_audited``: writes through the
   ``admin_*_audited`` SQL functions, which write the audit row in the same transaction;
 - ``_run``: database errors turned into admin errors (409 duplicate / referenced, 404, 422, 502).
 """
+import copy
 import json
 import re
 from dataclasses import dataclass
@@ -29,6 +31,8 @@ from app.schemas.admin.common import PageParams
 
 _IDENTIFIER = re.compile(r"^[a-z_][a-z0-9_]*(\.[a-z_][a-z0-9_]*)?$")
 DEFAULT_ORDER: Tuple[Tuple[str, bool], ...] = (("created_at", True), ("id", True))
+#: PostgREST's 416 for an offset past the total row count of a ``count=exact`` select.
+RANGE_NOT_SATISFIABLE = "PGRST103"
 
 
 class AdminRow(BaseModel):
@@ -132,10 +136,23 @@ class AdminBaseRepository(BaseRepository):
     # ---------- running queries ----------
 
     def paged(self, query, page: PageParams, order: Sequence[Tuple[str, bool]] = DEFAULT_ORDER) -> Paged:
-        """One page of ``query`` in a stable order, with the total row count (``q(count=True)``)."""
+        """One page of ``query`` in a stable order, with the total row count (``q(count=True)``).
+
+        PostgREST answers 416 PGRST103 for an offset past the total; that page is then no rows and the
+        total of the same query read with ``limit(0)`` (AUTH-038), like the lists built on SQL functions."""
         for column, desc in order:
             query = query.order(_column(column), desc=desc)
-        response = self._run(lambda: query.range(page.offset, page.range_end).execute())
+        count_query = copy.copy(query)  # range() adds offset and limit to the builder itself
+
+        def page_or_total():
+            try:
+                return query.range(page.offset, page.range_end).execute()
+            except APIError as exc:
+                if exc.code != RANGE_NOT_SATISFIABLE:
+                    raise
+                return count_query.limit(0).execute()
+
+        response = self._run(page_or_total)
         rows = response.data or []
         total = response.count if response.count is not None else len(rows)
         return Paged(rows=rows, total=total)
