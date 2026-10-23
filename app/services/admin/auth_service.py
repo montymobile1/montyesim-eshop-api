@@ -6,10 +6,7 @@ Supabase session plus the admin's role and permissions. Only accounts whose
 revoked immediately and the request is refused with 403.
 """
 import os
-import threading
-import time
-from collections import defaultdict, deque
-from typing import Callable, Deque, Dict, Optional
+from typing import Callable, Optional
 
 from gotrue.errors import AuthApiError, AuthError, AuthRetryableError, AuthUnknownError
 from loguru import logger
@@ -19,10 +16,12 @@ from app.config.config import supabase_client
 from app.config.constants import ErrorMessages
 from app.dependencies.admin_security import AdminUser
 from app.exceptions.admin import AdminForbidden, AdminRateLimited, AdminUnauthorized, AdminUpstreamError
+from app.repo.admin.login_attempt_repo import OUTCOME_ABORTED, OUTCOME_SUCCESS, LoginAttemptRepo
 from app.schemas.admin.auth import AdminProfile, AdminSession
 
-DEFAULT_LOGIN_RATE_LIMIT = "5/300"  # failed attempts / seconds, per IP + email
+DEFAULT_LOGIN_RATE_LIMIT = "5/300"  # failed attempts / seconds, per IP and per email
 AUTH_SERVICE_UNAVAILABLE = "AUTH_SERVICE_UNAVAILABLE"
+RATE_LIMIT_STORE_UNAVAILABLE = "RATE_LIMIT_STORE_UNAVAILABLE"
 INVALID_REFRESH_TOKEN = "INVALID_REFRESH_TOKEN"
 
 
@@ -48,45 +47,70 @@ def _is_upstream_failure(exc: AuthError) -> bool:
 
 
 class LoginRateLimiter:
-    """Counts failed sign-ins per key in a sliding window. In-process only: behind several
-    replicas each replica counts separately (Supabase Auth keeps its own limits as well)."""
+    """Counts admin sign-ins per client IP and per email in a sliding window, in the database
+    (``LoginAttemptRepo``), so every worker and instance shares the counts (TEOS-109).
 
-    def __init__(self, max_failures: int, window_seconds: int, clock: Callable[[], float] = time.monotonic):
+    ``begin`` records the attempt before Supabase Auth is asked, so parallel requests are counted
+    too; the 429 comes once ``max_failures`` attempts of the IP, or of the email, are in the window.
+    An attempt that did not fail on the caller's side is taken back: ``succeeded`` clears that
+    IP + email pair (a successful login resets the count), ``aborted`` only the attempt itself.
+    When the store cannot be reached the login is refused with 502 (fail closed)."""
+
+    def __init__(self, max_failures: int, window_seconds: int,
+                 store_factory: Callable[[], LoginAttemptRepo] = LoginAttemptRepo):
         self.max_failures = max_failures
         self.window_seconds = window_seconds
-        self._clock = clock
-        self._failures: Dict[str, Deque[float]] = defaultdict(deque)
-        self._lock = threading.Lock()
+        self._store_factory = store_factory
+        self._store: Optional[LoginAttemptRepo] = None
 
     @classmethod
     def from_env(cls) -> "LoginRateLimiter":
         return cls(*_parse_rate_limit(os.getenv("ADMIN_LOGIN_RATE_LIMIT")))
 
-    def _recent(self, key: str, now: float) -> int:
-        failures = self._failures.get(key)
-        if not failures:
-            return 0
-        while failures and now - failures[0] >= self.window_seconds:
-            failures.popleft()
-        if not failures:
-            del self._failures[key]
-            return 0
-        return len(failures)
+    @property
+    def store(self) -> LoginAttemptRepo:
+        # created lazily so importing the router never opens a database client
+        if self._store is None:
+            self._store = self._store_factory()
+        return self._store
 
-    def check(self, key: str) -> None:
-        with self._lock:
-            if self._recent(key, self._clock()) >= self.max_failures:
-                raise AdminRateLimited(ErrorMessages.ADMIN_TOO_MANY_ATTEMPTS.value)
+    @staticmethod
+    def ip_key(ip: Optional[str]) -> str:
+        return (ip or "").strip() or "-"
 
-    def record_failure(self, key: str) -> None:
-        with self._lock:
-            now = self._clock()
-            self._recent(key, now)
-            self._failures[key].append(now)
+    @staticmethod
+    def email_key(email: str) -> str:
+        return (email or "").strip().lower()
 
-    def reset(self, key: str) -> None:
-        with self._lock:
-            self._failures.pop(key, None)
+    def begin(self, ip: Optional[str], email: str) -> int:
+        """The id of the recorded attempt. 429 when the IP or the email is at the limit, 502 when
+        the store is unavailable."""
+        ip_key = self.ip_key(ip)
+        try:
+            allowed, attempt_id = self.store.begin(ip_key, self.email_key(email), self.max_failures,
+                                                   self.window_seconds)
+            if allowed and attempt_id is None:
+                raise ValueError("attempt allowed without an id")
+        except Exception as exc:
+            logger.error(f"admin login: rate limit store unavailable: {type(exc).__name__}")
+            raise AdminUpstreamError(RATE_LIMIT_STORE_UNAVAILABLE) from exc
+        if not allowed:
+            logger.info(f"admin login refused by the rate limit: ip={ip_key}")
+            raise AdminRateLimited(ErrorMessages.ADMIN_TOO_MANY_ATTEMPTS.value)
+        return attempt_id
+
+    def succeeded(self, attempt_id: int) -> None:
+        self._finish(attempt_id, OUTCOME_SUCCESS)
+
+    def aborted(self, attempt_id: int) -> None:
+        self._finish(attempt_id, OUTCOME_ABORTED)
+
+    def _finish(self, attempt_id: int, outcome: str) -> None:
+        """Best effort: on failure the attempt stays counted until it leaves the window."""
+        try:
+            self.store.finish(attempt_id, outcome)
+        except Exception as exc:
+            logger.error(f"admin login: could not mark attempt {attempt_id} {outcome}: {type(exc).__name__}")
 
 
 class AdminAuthService:
@@ -96,21 +120,23 @@ class AdminAuthService:
 
     def login(self, email: str, password: str, ip: Optional[str]) -> AdminSession:
         email = email.strip()
-        key = f"{ip or '-'}|{email.lower()}"
-        self._rate_limiter.check(key)
+        # recorded before Supabase is asked; it stays counted unless the credentials were accepted
+        attempt_id = self._rate_limiter.begin(ip, email)
         client = self._client_factory()
         try:
             response = client.auth.sign_in_with_password({"email": email, "password": password})
         except AuthError as exc:
             if _is_upstream_failure(exc):
                 logger.error(f"admin login: Supabase Auth failed: {type(exc).__name__}")
+                self._rate_limiter.aborted(attempt_id)
                 raise AdminUpstreamError(AUTH_SERVICE_UNAVAILABLE)
-            self._rate_limiter.record_failure(key)
             raise self._login_failed()
+        except Exception:
+            self._rate_limiter.aborted(attempt_id)
+            raise
         if not response or not response.session or not response.user:
-            self._rate_limiter.record_failure(key)
             raise self._login_failed()
-        self._rate_limiter.reset(key)
+        self._rate_limiter.succeeded(attempt_id)
         return self._admin_session(client, response.session, response.user)
 
     def refresh(self, refresh_token: str) -> AdminSession:

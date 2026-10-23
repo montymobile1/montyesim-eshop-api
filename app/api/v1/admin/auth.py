@@ -3,7 +3,7 @@ from fastapi import Depends, Request
 from starlette.responses import Response as HttpResponse
 
 from app.api.v1.admin._route import admin_router
-from app.dependencies.admin_security import AdminUser, admin_user, client_ip
+from app.dependencies.admin_security import AdminUser, admin_user, rate_limit_ip
 from app.schemas.admin.auth import AdminLoginRequest, AdminProfile, AdminRefreshRequest, AdminSession
 from app.schemas.admin.common import ok
 from app.schemas.response import Response
@@ -17,7 +17,7 @@ service = AdminAuthService()
 @router.post("/login", response_model=Response[AdminSession])
 def login(body: AdminLoginRequest, request: Request) -> Response:
     """Email + password sign-in. 401 ADMIN_LOGIN_FAILED, 403 ADMIN_ROLE_REQUIRED, 429 too many attempts."""
-    return ok(service.login(body.email, body.password, client_ip(request)))
+    return ok(service.login(body.email, body.password, rate_limit_ip(request)))
 
 
 @router.post("/refresh", response_model=Response[AdminSession])

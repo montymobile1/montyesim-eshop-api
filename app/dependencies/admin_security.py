@@ -4,6 +4,7 @@
 role from ``app_metadata.role``, so revoking a role or banning an admin takes effect on the
 next request instead of when the token expires. ``require_permission`` is the per-route check.
 """
+import ipaddress
 import os
 from dataclasses import dataclass, field
 from typing import Callable, FrozenSet, Optional
@@ -84,6 +85,47 @@ def require_permission(permission: str) -> Callable[..., AdminUser]:
 
     dependency.__name__ = f"require_{permission.replace('.', '_')}"
     return dependency
+
+
+DEFAULT_TRUSTED_PROXY_HOPS = 1
+
+
+def _trusted_proxy_hops() -> int:
+    value = os.getenv("ADMIN_TRUSTED_PROXY_HOPS")
+    if value is None or not value.strip():
+        return DEFAULT_TRUSTED_PROXY_HOPS
+    try:
+        hops = int(value)
+        if hops >= 0:
+            return hops
+    except ValueError:
+        pass
+    logger.warning(f"invalid ADMIN_TRUSTED_PROXY_HOPS {value!r}, using {DEFAULT_TRUSTED_PROXY_HOPS}")
+    return DEFAULT_TRUSTED_PROXY_HOPS
+
+
+def _valid_ip(value: Optional[str]) -> Optional[str]:
+    try:
+        return str(ipaddress.ip_address((value or "").strip()))
+    except ValueError:
+        return None
+
+
+def rate_limit_ip(request: Request) -> Optional[str]:
+    """Client IP the admin login rate limit counts by (TEOS-109). Unlike ``client_ip`` it cannot be
+    chosen by the caller: with ``ADMIN_TRUSTED_PROXY_HOPS`` = n (default 1, Render's proxy) it is the
+    n-th X-Forwarded-For entry counted from the RIGHT, i.e. the address the outermost trusted proxy
+    saw. Entries to the left of it, CF-Connecting-IP and X-Real-IP are client-controlled and ignored.
+    0 hops, too few entries or an entry that is not an IP: the TCP peer."""
+    peer = request.client.host if request.client else None
+    hops = _trusted_proxy_hops()
+    if hops == 0:
+        return peer
+    entries = [part.strip() for header in request.headers.getlist("x-forwarded-for")
+               for part in header.split(",") if part.strip()]
+    if len(entries) < hops:
+        return peer
+    return _valid_ip(entries[-hops]) or peer
 
 
 def client_ip(request: Request) -> Optional[str]:
