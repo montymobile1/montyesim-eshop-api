@@ -2,7 +2,7 @@
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 from fastapi import Query
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validato
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from app.schemas.response import Response, ResponseHelper
 
