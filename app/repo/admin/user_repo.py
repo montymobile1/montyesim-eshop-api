@@ -4,6 +4,8 @@
   with auth.users in SQL, migrations/admin/080_users.sql), the wallet transactions through
   ``admin_wallet_transactions`` (same file) and the referrals through
   ``admin_referral_transactions`` (owned by the Referrals story, migrations/admin/090_wallet_referrals.sql);
+  the ban's session revoke through ``admin_revoke_user_sessions`` and the newest BAN audit row of a
+  user (TEOS-149, db/admin_revoke_user_sessions);
 - ``UserWalletAdminRepo``: the wallet row of one user (amount and currency).
 """
 from dataclasses import dataclass, field
@@ -14,6 +16,8 @@ from app.config.db import DatabaseTables
 from app.repo.admin.base import AdminBaseRepository, Paged
 from app.schemas.admin.common import PageParams
 
+#: audit_log.table_name of ban and unban rows (user_service.AUTH_USERS_TABLE).
+AUTH_USERS_AUDIT_TABLE = "auth.users"
 
 @dataclass(frozen=True)
 class UserSearch:
@@ -68,6 +72,23 @@ class UserAdminRepo(AdminBaseRepository):
             "p_search": None, "p_ban_status": "all", "p_limit": 1, "p_offset": 0, "p_id": str(user_id),
         }))
         rows = body.get("data") or []
+        return rows[0] if rows else None
+
+    def revoke_sessions(self, user_id: str) -> Dict[str, int]:
+        """Deletes every session and refresh token of the user through ``admin_revoke_user_sessions``
+        (db/admin_revoke_user_sessions); ``{sessions, refresh_tokens}`` = how many were deleted."""
+        body = _unwrap(self.rpc("admin_revoke_user_sessions", {"p_user_id": str(user_id)}))
+        if not isinstance(body.get("sessions"), int) or not isinstance(body.get("refresh_tokens"), int):
+            raise ValueError("admin_revoke_user_sessions returned no counts")
+        return {"sessions": body["sessions"], "refresh_tokens": body["refresh_tokens"]}
+
+    def latest_ban_audit(self, user_id: str) -> Optional[Dict[str, Any]]:
+        """The newest BAN audit row of the user (``id``, ``operation_details``), or ``None``."""
+        query = (self.client.table(DatabaseTables.TABLE_AUDIT_LOG)
+                 .select("id,changed_at,operation_details")
+                 .eq("table_name", AUTH_USERS_AUDIT_TABLE).eq("operation", "BAN").eq("record_id", str(user_id))
+                 .order("changed_at", desc=True).order("id", desc=True).limit(1))
+        rows = self._run(lambda: query.execute()).data or []
         return rows[0] if rows else None
 
     def wallet_transactions(self, user_id: str, page: PageParams) -> Paged:

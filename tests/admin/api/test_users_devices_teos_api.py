@@ -248,3 +248,108 @@ def test_ban_revokes_sessions(api_client, as_super_admin, real_users):
 
     assert response.status_code == 200
     real_users["revoker"].assert_called_once_with(USER_ID)
+
+
+# ---------- TEOS-149: revoke through the database, retry of a failed revoke ----------
+
+@pytest.fixture
+def db_revoke_users(monkeypatch):
+    """The real UserAdminService with its default revoker: the repo's admin_revoke_user_sessions RPC."""
+    from app.api.v1.admin import users as routes
+    monkeypatch.delenv("SUPABASE_JWT_SECRET", raising=False)
+    repo, audit, client = MagicMock(), MagicMock(), MagicMock()
+    repo.get.return_value = {"id": USER_ID, "email": "jane@example.com", "is_banned": False, "banned_until": None}
+    repo.latest_ban_audit.return_value = None
+    repo.revoke_sessions.return_value = {"sessions": 1, "refresh_tokens": 1}
+    client.auth.admin.update_user_by_id.return_value = SimpleNamespace(
+        user=SimpleNamespace(email="jane@example.com", banned_until="2026-10-23T10:00:00+00:00"))
+    monkeypatch.setattr(routes, "service", UserAdminService(repo=repo, audit=audit, client_factory=lambda: client))
+    return {"repo": repo, "audit": audit, "client": client}
+
+
+def test_ban_is_200_with_the_ban_and_revokes_through_the_database(api_client, as_super_admin, db_revoke_users):
+    response = api_client.post(f"{USERS}/{USER_ID}/ban", json={"hours": 24, "reason": "fraud"})
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {"user_id": USER_ID, "email": "jane@example.com",
+                                       "banned_until": "2026-10-23T10:00:00+00:00", "hours_banned": 24}
+    db_revoke_users["repo"].revoke_sessions.assert_called_once_with(USER_ID)
+    db_revoke_users["client"].auth.admin.sign_out.assert_not_called()
+    assert db_revoke_users["audit"].log.call_args.kwargs["sessions_revoked"] is True
+
+
+def test_ban_again_after_a_failed_revoke_is_200_and_revokes(api_client, as_super_admin, db_revoke_users):
+    repo = db_revoke_users["repo"]
+    repo.get.return_value = {"id": USER_ID, "email": "jane@example.com", "is_banned": True,
+                             "banned_until": "2026-10-23T10:00:00+00:00"}
+    repo.latest_ban_audit.return_value = {"id": 9, "operation_details": {"hours_banned": 24, "ban_duration": "24h",
+                                                                         "sessions_revoked": False}}
+
+    response = api_client.post(f"{USERS}/{USER_ID}/ban", json={"hours": 72, "reason": "retry"})
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {"user_id": USER_ID, "email": "jane@example.com",
+                                       "banned_until": "2026-10-23T10:00:00+00:00", "hours_banned": 24}
+    repo.revoke_sessions.assert_called_once_with(USER_ID)
+    db_revoke_users["client"].auth.admin.update_user_by_id.assert_not_called()
+    kwargs = db_revoke_users["audit"].log.call_args.kwargs
+    assert kwargs["revoke_retry"] is True and kwargs["sessions_revoked"] is True
+
+
+def test_ban_again_when_the_revoke_fails_again_is_502_session_revoke_failed(api_client, as_super_admin,
+                                                                           db_revoke_users):
+    repo = db_revoke_users["repo"]
+    repo.get.return_value = {"id": USER_ID, "email": "jane@example.com", "is_banned": True,
+                             "banned_until": "2026-10-23T10:00:00+00:00"}
+    repo.latest_ban_audit.return_value = {"id": 9, "operation_details": {"sessions_revoked": False}}
+    repo.revoke_sessions.side_effect = RuntimeError("db down")
+
+    response = api_client.post(f"{USERS}/{USER_ID}/ban", json={"hours": 24, "reason": "retry"})
+
+    assert response.status_code == 502
+    assert response.json()["developerMessage"] == "session_revoke_failed"
+    assert db_revoke_users["audit"].log.call_args.kwargs["session_revoke_error"] == "database_error:RuntimeError"
+
+
+def test_ban_again_after_a_successful_revoke_is_still_409(api_client, as_super_admin, db_revoke_users):
+    repo = db_revoke_users["repo"]
+    repo.get.return_value = {"id": USER_ID, "email": "jane@example.com", "is_banned": True,
+                             "banned_until": "2026-10-23T10:00:00+00:00"}
+    repo.latest_ban_audit.return_value = {"id": 9, "operation_details": {"sessions_revoked": True}}
+
+    response = api_client.post(f"{USERS}/{USER_ID}/ban", json={"hours": 24, "reason": "again"})
+
+    assert response.status_code == 409
+    assert json.loads(response.json()["developerMessage"])["code"] == "already_banned"
+    repo.revoke_sessions.assert_not_called()
+
+
+def test_unban_is_unaffected(api_client, as_super_admin, db_revoke_users):
+    repo = db_revoke_users["repo"]
+    repo.get.return_value = {"id": USER_ID, "email": "jane@example.com", "is_banned": True,
+                             "banned_until": "2026-10-23T10:00:00+00:00"}
+
+    response = api_client.post(f"{USERS}/{USER_ID}/unban", json={"reason": "appeal"})
+
+    assert response.status_code == 200
+    assert response.json()["data"] == {"user_id": USER_ID, "email": "jane@example.com"}
+    db_revoke_users["client"].auth.admin.update_user_by_id.assert_called_once_with(USER_ID, {"ban_duration": "none"})
+    repo.revoke_sessions.assert_not_called()
+    repo.latest_ban_audit.assert_not_called()
+
+
+def test_ban_200_and_audit_carry_the_real_banned_until(api_client, as_super_admin, db_revoke_users):
+    """TEOS-149 follow-up: gotrue-py drops banned_until, so it is read back from the users row."""
+    until = "2026-10-23T12:34:56+00:00"
+    db_revoke_users["repo"].get.side_effect = [
+        {"id": USER_ID, "email": "jane@example.com", "is_banned": False, "banned_until": None},
+        {"id": USER_ID, "email": "jane@example.com", "is_banned": True, "banned_until": until},
+    ]
+    db_revoke_users["client"].auth.admin.update_user_by_id.return_value = SimpleNamespace(
+        user=SimpleNamespace(email="jane@example.com"))
+
+    response = api_client.post(f"{USERS}/{USER_ID}/ban", json={"hours": 24, "reason": "fraud"})
+
+    assert response.status_code == 200
+    assert response.json()["data"]["banned_until"] == until
+    assert db_revoke_users["audit"].log.call_args.kwargs["banned_until"] == until
