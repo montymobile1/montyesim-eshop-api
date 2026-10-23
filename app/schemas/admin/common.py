@@ -2,7 +2,7 @@
 from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 from fastapi import Query
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from app.schemas.response import Response, ResponseHelper
 
@@ -74,8 +74,9 @@ class LookupItem(BaseModel):
 
 
 class AdminStatusPatch(BaseModel):
-    """Body of ``PATCH /<resource>/{id}/status``."""
-    is_active: bool
+    """Body of ``PATCH /<resource>/{id}/status``. ``is_active`` must be a JSON boolean: "false", "no",
+    0 or 1 are refused with 422 instead of being converted (TEOS-175)."""
+    is_active: StrictBool
     reason: Optional[str] = Field(None, min_length=1, max_length=500)
 
     model_config = ConfigDict(extra="forbid")

@@ -19,7 +19,7 @@ URL encoding (fixes MS-5066: ``Middle%20East`` on create, ``Middle East`` on edi
 from typing import Any, BinaryIO, Dict, Iterable, List, Optional
 from uuid import uuid4
 
-from app.exceptions.admin import AdminNotFound, AdminValidationError
+from app.exceptions.admin import AdminConflict, AdminNotFound, AdminValidationError
 from app.repo.admin.base import AuditContext
 from app.repo.admin.tag_group_repo import TagGroupAdminRepo
 from app.repo.admin.tag_repo import TagAdminRepo
@@ -96,10 +96,11 @@ class GroupAdminService:
 
     # ---------- reads ----------
 
-    def list(self, search: Optional[str], status: str, page: PageParams) -> AdminPage:
-        result = self.repo.search(search, status, page)
+    def list(self, search: Optional[str], status: str, page: PageParams, type: Optional[int] = None,
+             group_category: Optional[str] = None) -> AdminPage:
+        result = self.repo.search(search, status, page, type=type, group_category=group_category)
         return AdminPage(data=[self._group(row) for row in result.rows], total_count=result.total,
-                         facets=self.repo.facets(search))
+                         facets=self.repo.facets(search, type=type, group_category=group_category))
 
     def get(self, group_id: int, tag_search: Optional[str] = None) -> Dict[str, Any]:
         """The group with its tags (filtered by ``tag_search``), plus ``top_countries_count`` for Countries."""
@@ -126,6 +127,7 @@ class GroupAdminService:
         Any failure after an upload removes the uploaded files."""
         keys = {tag.client_key for tag in payload.tags}
         self._only_known_files(files, keys)
+        self._check_names(payload.name, [tag.name for tag in payload.tags])
         group = payload.model_dump(include={"name", "type", "group_category"})
         uploaded: Dict[str, StoredMedia] = {}
         try:
@@ -161,6 +163,12 @@ class GroupAdminService:
         new_keys = {tag.client_key for tag in payload.new_tags}
         files = {key.lower() if key.lower() in existing else key: data for key, data in files.items()}
         self._only_known_files(files, new_keys | set(updated_ids))
+
+        # the tag names once the edit is applied: kept tags (renamed when updated) plus the new ones
+        renamed = {tag.id.lower(): tag.name for tag in payload.updated_tags}
+        final_names = [renamed.get(tag_id, tag.get("name") or "") for tag_id, tag in existing.items()
+                       if tag_id not in deleted_ids] + [tag.name for tag in payload.new_tags]
+        self._check_names(payload.name, final_names, group_id=group_id)
 
         group = payload.model_dump(include={"name", "type", "group_category"})
         uploaded: Dict[str, StoredMedia] = {}
@@ -219,6 +227,20 @@ class GroupAdminService:
         return {"tag_ids": [str(tag_id) for tag_id in (result or {}).get("tag_ids") or tag_ids]}
 
     # ---------- helpers ----------
+
+    def _check_names(self, group_name: str, tag_names: List[str], group_id: Optional[int] = None) -> None:
+        """TEOS-186, checked before any upload: group and tag names are unique ignoring case.
+        409 ``duplicate_group_name`` when another group has the name in another case, 409
+        ``duplicate_tag_name`` when two tags of the group would only differ by case (the exact
+        duplicates are still refused by the database constraints)."""
+        if self.repo.name_taken(group_name, exclude_id=group_id):
+            raise AdminConflict("duplicate_group_name")
+        seen = set()
+        for name in tag_names:
+            key = (name or "").strip().casefold()
+            if key in seen:
+                raise AdminConflict("duplicate_tag_name")
+            seen.add(key)
 
     @staticmethod
     def _only_known_files(files: Dict[str, bytes], keys: Iterable[str]) -> None:

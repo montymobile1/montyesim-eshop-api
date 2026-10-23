@@ -12,17 +12,21 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 GroupStatus = Literal["all", "active", "inactive"]
 #: tag_group.type: 1 = group (several tags), 2 = flat (one tag named after the group).
 GroupType = Literal[1, 2]
+#: tag_group.group_category: the two values the portal offers (TEOS-184; every group on qa uses one).
+GroupCategory = Literal["on_land", "at_sea"]
 
 #: tag_group.name is checked by the database as length < 30 (supabase_ddl.sql).
 GROUP_NAME_MAX = 29
-TAG_NAME_MAX = 300
-GROUP_CATEGORY_MAX = 50
+#: Tag names are 1 to 60 characters (story TEOS-125; TEOS-185). The tag.name column allows 300.
+TAG_NAME_MAX = 60
 CLIENT_KEY_PATTERN = r"^[A-Za-z0-9_-]{1,50}$"
 UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
 #: Multipart fields accepted on create and edit: ``payload`` and the icon files.
 PAYLOAD_FIELD = "payload"
 ICON_FIELD_PREFIX = "icon_"
 MAX_TAGS = 500
+#: At most 200 icon files in one create or edit, 413 above (story TEOS-125 case 15; TEOS-187).
+MAX_ICON_FILES = 200
 
 _uuid = re.compile(UUID_PATTERN)
 
@@ -38,12 +42,17 @@ def _clean_name(value: str, max_length: int, label: str) -> str:
 
 def normalize_alternative_country(value: Union[str, List[str], None]) -> Optional[str]:
     """Search keywords as the comma-separated string stored in ``tag.data.alternative_country``
-    (a list or a string is accepted); ``None`` when empty."""
+    (a list or a string is accepted); ``None`` when empty. Trimmed, empty values dropped and
+    duplicates removed ignoring case, first spelling kept (TEOS-182: " Beirut ,beirut,LB" -> "Beirut,LB")."""
     if value is None:
         return None
     parts = value if isinstance(value, list) else str(value).split(",")
-    cleaned = [str(part).strip() for part in parts if str(part).strip()]
-    return ",".join(cleaned) or None
+    cleaned: Dict[str, str] = {}
+    for part in parts:
+        text = str(part).strip()
+        if text:
+            cleaned.setdefault(text.casefold(), text)
+    return ",".join(cleaned.values()) or None
 
 
 class AdminGroup(BaseModel):
@@ -110,7 +119,7 @@ class AdminGroupUpdatedTag(BaseModel):
 class _GroupFields(BaseModel):
     name: str = Field(..., min_length=1, max_length=GROUP_NAME_MAX)
     type: GroupType
-    group_category: str = Field(..., min_length=1, max_length=GROUP_CATEGORY_MAX)
+    group_category: GroupCategory
 
     model_config = ConfigDict(extra="forbid")
 
@@ -118,11 +127,6 @@ class _GroupFields(BaseModel):
     @classmethod
     def _name(cls, value: str) -> str:
         return _clean_name(value, GROUP_NAME_MAX, "name")
-
-    @field_validator("group_category")
-    @classmethod
-    def _category(cls, value: str) -> str:
-        return _clean_name(value, GROUP_CATEGORY_MAX, "group_category")
 
 
 class AdminGroupCreate(_GroupFields):
