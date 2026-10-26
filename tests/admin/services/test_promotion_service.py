@@ -252,6 +252,28 @@ def test_update_editable_fields_only_no_guard(svc, repo):
         PROMO_ID, {"name": "Winter", "bundle_code": "EU5", "valid_to": "2027-01-31T00:00:00"}, CTX, guard=None)
 
 
+@pytest.mark.parametrize("extra", [{}, {"bundle_codes": None}], ids=["missing", "null"])
+def test_update_without_bundle_codes_keeps_the_bundles(svc, repo, extra):
+    """TEOS-226: renaming or extending a promotion must not make it apply to every bundle."""
+    repo.get.return_value = _row()
+    repo.update_audited.return_value = _row(name="Winter")
+
+    svc.update(PROMO_ID, AdminPromotionUpdate(name="Winter", valid_to="2027-01-31T00:00:00Z", **extra), CTX)
+
+    patch = repo.update_audited.call_args.args[1]
+    assert "bundle_code" not in patch
+    assert patch == {"name": "Winter", "valid_to": "2027-01-31T00:00:00"}
+
+
+def test_update_explicit_empty_bundle_codes_applies_to_every_bundle(svc, repo):
+    repo.get.return_value = _row()
+    repo.update_audited.return_value = _row(bundle_code=None)
+
+    svc.update(PROMO_ID, AdminPromotionUpdate(name="Summer", bundle_codes=[]), CTX)
+
+    assert repo.update_audited.call_args.args[1] == {"name": "Summer", "bundle_code": None}
+
+
 def test_update_unchanged_immutable_values_are_not_a_change(svc, repo):
     repo.get.return_value = _row()
     repo.update_audited.return_value = _row()

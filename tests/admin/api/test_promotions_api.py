@@ -284,6 +284,16 @@ def test_update_sends_editable_fields(api_client, service, as_admin):
     assert body.code is None and body.rule_id is None and body.amount is None
 
 
+def test_update_without_bundle_codes_passes_none_not_empty(api_client, service, as_admin):
+    """TEOS-226: a rename alone must not read as "remove every bundle"."""
+    service.update.return_value = {**ROW, "name": "Winter"}
+
+    response = api_client.put(f"{BASE}/{PROMO_ID}", json={"name": "Winter", "valid_to": "2027-01-31T00:00:00Z"})
+
+    assert response.status_code == 200
+    assert service.update.call_args.args[1].bundle_codes is None
+
+
 def test_update_used_promotion_is_409_promotion_used(api_client, service, as_admin):
     service.update.side_effect = AdminConflict("promotion_used", times_used=4, fields=["code"])
 

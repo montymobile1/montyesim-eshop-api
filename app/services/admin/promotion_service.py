@@ -254,7 +254,10 @@ class PromotionAdminService:
         """200 (also when nothing changed). 404; 409 duplicate_*; 409 promotion_used when an immutable field
         changes on a used promotion; 422 unknown bundle code, rule or amount."""
         current = self._row_or_404(promotion_id)
-        patch: Dict[str, Any] = {"name": body.name, "bundle_code": join_bundle_codes(body.bundle_codes)}
+        patch: Dict[str, Any] = {"name": body.name}
+        # TEOS-226: bundle_codes not sent keeps the bundles; an explicit [] means every bundle
+        if body.bundle_codes is not None:
+            patch["bundle_code"] = join_bundle_codes(body.bundle_codes)
         if body.valid_to is not None:
             patch["valid_to"] = to_db_timestamp(body.valid_to)
 
