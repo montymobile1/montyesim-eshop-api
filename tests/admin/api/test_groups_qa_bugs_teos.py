@@ -2,7 +2,8 @@
 
 The SQL functions cannot run here (no database): their Python side and error mapping are tested, and
 supabase_ddl.sql / new_change_ddl.sql are checked as text (the fix is in the function body, and the
-copy in new_change_ddl.sql is identical to the one in supabase_ddl.sql).
+copy in new_change_ddl.sql is identical to the one in supabase_ddl.sql). new_change_ddl.sql lives in the
+gitignored migrations/admin/ folder (handed to the lead outside git): its checks are skipped where it is absent.
 """
 import json
 import re
@@ -25,6 +26,9 @@ from app.services.admin.group_service import GroupAdminService
 from tests.admin.conftest import make_admin
 
 ROOT = Path(__file__).resolve().parents[3]
+NEW_CHANGE_DDL = "migrations/admin/new_change_ddl.sql"
+needs_new_change_ddl = pytest.mark.skipif(not (ROOT / NEW_CHANGE_DDL).exists(),
+                                          reason=f"{NEW_CHANGE_DDL} is local only (gitignored)")
 CTX = AuditContext(actor_id="11111111-1111-1111-1111-111111111111", ip="1.2.3.4")
 T1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 T2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
@@ -111,33 +115,51 @@ GROUP_OBJECTS = ["admin_set_bundle_tags", "admin_edit_tag_group", "admin_delete_
                  "admin_group_bundle_counts"]
 
 
-@pytest.mark.parametrize("name", GROUP_OBJECTS)
-def test_new_change_ddl_holds_the_same_function_as_supabase_ddl(name):
-    assert _function(_ddl("new_change_ddl.sql"), name) == _function(_admin_section(), name)
-
-
-@pytest.mark.parametrize("signature", [
+SIGNATURES = [
     "admin_set_bundle_tags(uuid, uuid[], uuid, text, text)",
     "admin_edit_tag_group(bigint, text, integer, text, jsonb, jsonb, uuid[], uuid, text, text, boolean)",
     "admin_delete_group(bigint, uuid, text, text, boolean)",
     "admin_reorder_tags(bigint, uuid[], uuid, text, text, boolean)",
     "admin_group_bundle_counts(bigint[])",
-])
+]
+INDEX_LINE = "CREATE INDEX IF NOT EXISTS bundle_tag_tag_id_idx ON public.bundle_tag (tag_id);"
+
+
+@needs_new_change_ddl
+@pytest.mark.parametrize("name", GROUP_OBJECTS)
+def test_new_change_ddl_holds_the_same_function_as_supabase_ddl(name):
+    assert _function(_ddl(NEW_CHANGE_DDL), name) == _function(_admin_section(), name)
+
+
+@pytest.mark.parametrize("signature", SIGNATURES)
+def test_supabase_ddl_keeps_the_grants(signature):
+    text = _admin_section()
+    assert f"REVOKE ALL ON FUNCTION public.{signature}" in text
+    assert f"GRANT EXECUTE ON FUNCTION public.{signature}\n    TO service_role;" in text
+
+
+@needs_new_change_ddl
+@pytest.mark.parametrize("signature", SIGNATURES)
 def test_new_change_ddl_keeps_the_grants(signature):
-    for text in (_ddl("new_change_ddl.sql"), _admin_section()):
-        assert f"REVOKE ALL ON FUNCTION public.{signature}" in text
-        assert f"GRANT EXECUTE ON FUNCTION public.{signature}\n    TO service_role;" in text
+    text = _ddl(NEW_CHANGE_DDL)
+    assert f"REVOKE ALL ON FUNCTION public.{signature}" in text
+    assert f"GRANT EXECUTE ON FUNCTION public.{signature}\n    TO service_role;" in text
 
 
-def test_bundle_tag_tag_id_index_is_in_both_files():
-    line = "CREATE INDEX IF NOT EXISTS bundle_tag_tag_id_idx ON public.bundle_tag (tag_id);"
-    assert line in _ddl("new_change_ddl.sql") and line in _admin_section()
+def test_bundle_tag_tag_id_index_is_in_supabase_ddl():
+    assert INDEX_LINE in _admin_section()
 
 
+@needs_new_change_ddl
+def test_bundle_tag_tag_id_index_is_in_new_change_ddl():
+    assert INDEX_LINE in _ddl(NEW_CHANGE_DDL)
+
+
+@needs_new_change_ddl
 @pytest.mark.parametrize("header", ["-- TEOS-168:", "-- TEOS-196, TEOS-176:", "-- TEOS-176:",
                                     "-- TEOS-197, TEOS-198:", "-- TEOS-173:"])
 def test_new_change_ddl_has_a_header_per_change(header):
-    assert any(line.startswith(header) for line in _ddl("new_change_ddl.sql").splitlines())
+    assert any(line.startswith(header) for line in _ddl(NEW_CHANGE_DDL).splitlines())
 
 
 # ---------- TEOS-168: inactive group tag on PUT /bundles/{id}/tags ----------
