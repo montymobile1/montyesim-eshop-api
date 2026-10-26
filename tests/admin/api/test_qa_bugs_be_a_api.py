@@ -29,7 +29,8 @@ def _service(monkeypatch, module):
 
 def _422(response, text):
     body = response.json()
-    assert response.status_code == 422 and body["responseCode"] == 422, body
+    assert response.status_code == 422, body
+    assert body["responseCode"] == 422, body
     assert text in body["developerMessage"], body
 
 

@@ -254,22 +254,8 @@ class PromotionAdminService:
         """200 (also when nothing changed). 404; 409 duplicate_*; 409 promotion_used when an immutable field
         changes on a used promotion; 422 unknown bundle code, rule or amount."""
         current = self._row_or_404(promotion_id)
-        patch: Dict[str, Any] = {"name": body.name}
-        # TEOS-226: bundle_codes not sent keeps the bundles; an explicit [] means every bundle
-        if body.bundle_codes is not None:
-            patch["bundle_code"] = join_bundle_codes(body.bundle_codes)
-        if body.valid_to is not None:
-            patch["valid_to"] = to_db_timestamp(body.valid_to)
-
-        immutable: Dict[str, Any] = {}
-        if body.code is not None and body.code != current.get("code"):
-            immutable["code"] = body.code
-        if body.rule_id is not None and str(body.rule_id) != str(current.get("rule_id")):
-            immutable["rule_id"] = str(body.rule_id)
-        if body.amount is not None and float(body.amount) != float(current.get("amount") or 0):
-            immutable["amount"] = body.amount
-        if body.valid_from is not None and to_db_timestamp(body.valid_from) != _as_db(current.get("valid_from")):
-            immutable["valid_from"] = to_db_timestamp(body.valid_from)
+        patch = _editable_patch(body)
+        immutable = _immutable_changes(body, current)
 
         times_used = int(current.get("times_used") or 0)
         if immutable and times_used > 0:
@@ -277,17 +263,27 @@ class PromotionAdminService:
                                 fields=sorted(immutable))
         guard = None
         if immutable:
-            rule = self._rule_or_422(immutable.get("rule_id") or str(current.get("rule_id")))
-            amount = immutable["amount"] if "amount" in immutable else current.get("amount")
-            immutable_amount = self._check_amount(rule, amount)
-            if "amount" in immutable or "rule_id" in immutable:
-                immutable["amount"] = immutable_amount
-            valid_from = _naive(immutable.get("valid_from") or current.get("valid_from"))
-            valid_to = _naive(patch.get("valid_to") or current.get("valid_to"))
-            if valid_from and valid_to and valid_to <= valid_from:
-                raise AdminValidationError("valid_to must be after valid_from")
+            self._check_immutable(immutable, current, patch)
             patch.update(immutable)
             guard = {"times_used": 0}  # a checkout racing this edit makes it fail (409 promotion_used)
+        self._save_update(promotion_id, patch, ctx, guard, times_used, immutable)
+        return self.get(promotion_id)
+
+    def _check_immutable(self, immutable: Dict[str, Any], current: Dict[str, Any], patch: Dict[str, Any]) -> None:
+        """422 when the new rule/amount pair or the dates are invalid; stores the checked amount."""
+        rule = self._rule_or_422(immutable.get("rule_id") or str(current.get("rule_id")))
+        amount = immutable["amount"] if "amount" in immutable else current.get("amount")
+        checked_amount = self._check_amount(rule, amount)
+        if "amount" in immutable or "rule_id" in immutable:
+            immutable["amount"] = checked_amount
+        valid_from = _naive(immutable.get("valid_from") or current.get("valid_from"))
+        valid_to = _naive(patch.get("valid_to") or current.get("valid_to"))
+        if valid_from and valid_to and valid_to <= valid_from:
+            raise AdminValidationError("valid_to must be after valid_from")
+
+    def _save_update(self, promotion_id: str, patch: Dict[str, Any], ctx: AuditContext,
+                     guard: Optional[Dict[str, Any]], times_used: int, immutable: Dict[str, Any]) -> None:
+        """The audited write; ``no_change`` is not an error, a lost guard is 409 ``promotion_used``."""
         try:
             self._write(lambda: self.repo.update_audited(promotion_id, patch, ctx, guard=guard))
         except AdminConflict as exc:
@@ -295,7 +291,6 @@ class PromotionAdminService:
                 raise AdminConflict("promotion_used", times_used=times_used or 1, fields=sorted(immutable)) from exc
             if exc.conflict_code != "no_change":
                 raise
-        return self.get(promotion_id)
 
     def set_status(self, promotion_id: str, body: AdminStatusPatch, ctx: AuditContext) -> Dict[str, Any]:
         """404 when missing; 409 no_change when already in that state (from the SQL function)."""
@@ -356,6 +351,31 @@ class PromotionAdminService:
                 code = text.split(":", 1)[1].strip() if ":" in text else ""
                 raise AdminValidationError(f"bundle_codes: unknown bundle code {code}".rstrip()) from exc
             raise
+
+
+def _editable_patch(body: AdminPromotionUpdate) -> Dict[str, Any]:
+    """The fields that can always change: name, and bundle_codes / valid_to when sent."""
+    patch: Dict[str, Any] = {"name": body.name}
+    # TEOS-226: bundle_codes not sent keeps the bundles; an explicit [] means every bundle
+    if body.bundle_codes is not None:
+        patch["bundle_code"] = join_bundle_codes(body.bundle_codes)
+    if body.valid_to is not None:
+        patch["valid_to"] = to_db_timestamp(body.valid_to)
+    return patch
+
+
+def _immutable_changes(body: AdminPromotionUpdate, current: Dict[str, Any]) -> Dict[str, Any]:
+    """The fields locked once the promotion is used, when sent with a value different from the stored one."""
+    changes: Dict[str, Any] = {}
+    if body.code is not None and body.code != current.get("code"):
+        changes["code"] = body.code
+    if body.rule_id is not None and str(body.rule_id) != str(current.get("rule_id")):
+        changes["rule_id"] = str(body.rule_id)
+    if body.amount is not None and float(body.amount) != float(current.get("amount") or 0):
+        changes["amount"] = body.amount
+    if body.valid_from is not None and to_db_timestamp(body.valid_from) != _as_db(current.get("valid_from")):
+        changes["valid_from"] = to_db_timestamp(body.valid_from)
+    return changes
 
 
 def _as_db(value: Any) -> Optional[str]:

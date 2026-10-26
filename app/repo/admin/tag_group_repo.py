@@ -79,7 +79,7 @@ class TagGroupAdminRepo(AdminBaseRepository):
         ids = [int(group_id) for group_id in dict.fromkeys(group_ids) if group_id is not None]
         if not ids:
             return {}
-        counts = {group_id: 0 for group_id in ids}
+        counts = dict.fromkeys(ids, 0)
         for row in self.rpc("admin_group_bundle_counts", {"p_group_ids": ids}) or []:
             try:
                 counts[int(row.get("group_id"))] = int(row.get("bundle_count") or 0)
