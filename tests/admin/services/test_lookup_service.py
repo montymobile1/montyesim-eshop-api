@@ -67,7 +67,7 @@ def test_bundles_order_keeps_display_title_first_then_id():
 
 
 @pytest.mark.parametrize("repo_class, select, column", [
-    (TagGroupAdminRepo, "id,name,type,group_category", "name"),
+    (TagGroupAdminRepo, "id,name,type,group_category,is_active", "name"),
     (TagAdminRepo, "id,name,tag_group(name)", "name"),
     (PromotionRuleAdminRepo, "id,name", "name"),
 ])
@@ -158,7 +158,8 @@ def test_groups_carry_type_and_category_and_string_ids(service, repos):
 
     items = [item.model_dump() for item in service.groups(None, PAGE).data]
 
-    assert items == [{"id": "7", "label": "Regions", "type": 1, "group_category": "region"}]
+    # is_active missing (NULL) counts as active (TEOS-168)
+    assert items == [{"id": "7", "label": "Regions", "type": 1, "group_category": "region", "is_active": True}]
 
 
 def test_tags_label_is_name_and_group(service, repos):

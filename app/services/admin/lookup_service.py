@@ -38,8 +38,9 @@ def bundle_item(row: Dict[str, Any]) -> LookupItem:
 
 
 def group_item(row: Dict[str, Any]) -> LookupItem:
+    # is_active (TEOS-168): the assign page disables inactive groups; NULL counts as active
     return LookupItem(id=str(row["id"]), label=row.get("name") or "", type=row.get("type"),
-                      group_category=row.get("group_category"))
+                      group_category=row.get("group_category"), is_active=row.get("is_active") is not False)
 
 
 def tag_item(row: Dict[str, Any]) -> LookupItem:
@@ -73,7 +74,7 @@ class LookupService:
 
     def groups(self, search: Optional[str], page: PageParams,
                 record_id: Optional[str] = None) -> AdminPage[LookupItem]:
-        """``{id, label: name, type, group_category}``."""
+        """``{id, label: name, type, group_category, is_active}``."""
         return _page(self._groups.lookup(search, page, record_id), group_item)
 
     def tags(self, search: Optional[str], page: PageParams,

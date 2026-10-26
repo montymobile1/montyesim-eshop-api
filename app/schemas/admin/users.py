@@ -1,7 +1,9 @@
 """Request and response shapes of /api/v1/admin/users (MS-5079)."""
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.schemas.admin.common import AdminReason
 
 UserBanStatus = Literal["all", "banned", "active"]
 #: Sort columns of the users list (TEOS-111); anything else is a 422.
@@ -12,39 +14,21 @@ SortDirection = Literal["asc", "desc"]
 DEFAULT_BAN_HOURS = 24 * 365
 #: 10 years.
 MAX_BAN_HOURS = 87_600
-MAX_REASON_LENGTH = 500
-
-
-def _non_blank(value: str) -> str:
-    value = value.strip() if isinstance(value, str) else value
-    if not value:
-        raise ValueError("reason must not be blank")
-    return value
 
 
 class AdminUserBan(BaseModel):
-    """Body of ``POST /users/{id}/ban``."""
+    """Body of ``POST /users/{id}/ban``. ``reason``: 3 to 500 characters after trimming (TEOS-148)."""
     hours: int = Field(DEFAULT_BAN_HOURS, ge=1, le=MAX_BAN_HOURS)
-    reason: str = Field(..., min_length=1, max_length=MAX_REASON_LENGTH)
+    reason: AdminReason
 
     model_config = ConfigDict(extra="forbid")
-
-    @field_validator("reason")
-    @classmethod
-    def _reason_not_blank(cls, value: str) -> str:
-        return _non_blank(value)
 
 
 class AdminUserUnban(BaseModel):
-    """Body of ``POST /users/{id}/unban``."""
-    reason: str = Field(..., min_length=1, max_length=MAX_REASON_LENGTH)
+    """Body of ``POST /users/{id}/unban``. ``reason``: 3 to 500 characters after trimming (TEOS-148)."""
+    reason: AdminReason
 
     model_config = ConfigDict(extra="forbid")
-
-    @field_validator("reason")
-    @classmethod
-    def _reason_not_blank(cls, value: str) -> str:
-        return _non_blank(value)
 
 
 class AdminUserRow(BaseModel):

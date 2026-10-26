@@ -6,12 +6,14 @@
 - create: uniqueness by the database (unique lower(code)) instead of a browser pre-check (MS-5070); the
   code is optional: when omitted the server generates a 12-character code with ``secrets`` and retries on
   the unique-constraint conflict; the amount is capped by the VOUCHER_MAX_AMOUNT setting (TEOS-133);
+  ``expired_at`` (a calendar day) is stored as the end of that day (UTC), so a voucher is valid through
+  its last day and one created for today is not already expired (TEOS-214);
 - status and delete: audited in the same transaction as the change (MS-5071); a used voucher cannot be
   deleted (409 voucher_used) nor re-activated (409 already_used); deactivating it stays allowed.
 """
 import os
 import secrets
-from datetime import datetime, timezone
+from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Iterable, Optional
 
@@ -46,6 +48,14 @@ def parse_max_amount(value: Any) -> float:
     if value is None or not number.is_finite() or number <= 0:
         return float(MAX_VOUCHER_AMOUNT)
     return float(number)
+
+
+def end_of_day(day: date) -> str:
+    """The last instant of ``day`` as stored in ``voucher.expired_at`` (``timestamp`` without time zone,
+    UTC, microsecond precision): ``YYYY-MM-DDT23:59:59.999999`` (TEOS-214). Every reader (the admin
+    ``is_expired`` and status tabs: ``expired_at <= now``; the customer redeem: by date) then keeps the
+    voucher valid through that whole day. Vouchers stored before at midnight are left as they are."""
+    return datetime.combine(day, time.max).isoformat()
 
 
 def _is_expired(row: Dict[str, Any]) -> bool:
@@ -107,7 +117,7 @@ class VoucherAdminService:
         limit = self.max_amount()
         if body.amount > limit:
             raise AdminValidationError(f"amount: must be at most {limit:g} (VOUCHER_MAX_AMOUNT)")
-        row = {"amount": body.amount, "expired_at": body.expired_at.isoformat() if body.expired_at else None}
+        row = {"amount": body.amount, "expired_at": end_of_day(body.expired_at) if body.expired_at else None}
         if body.code is not None:
             return self._shape(self.repo.insert_audited({"code": body.code, **row}, ctx), {}, self._currency())
         for attempt in range(1, GENERATE_ATTEMPTS + 1):

@@ -155,7 +155,7 @@ def test_ban_reads_banned_until_back_from_the_users_row(svc, repo, audit, client
     client.auth.admin.update_user_by_id.return_value = SimpleNamespace(
         user=SimpleNamespace(id=USER_ID, email="jane@example.com"))  # as gotrue-py 2.12 returns it
 
-    result = svc.ban(USER_ID, AdminUserBan(hours=24, reason="r"), CTX)
+    result = svc.ban(USER_ID, AdminUserBan(hours=24, reason="fraud"), CTX)
 
     assert result["banned_until"] == until
     assert audit.log.call_args.kwargs["banned_until"] == until
@@ -169,7 +169,7 @@ def test_ban_banned_until_falls_back_to_now_plus_hours(svc, repo, audit, client,
         user=SimpleNamespace(id=USER_ID, email="jane@example.com"))
     before = datetime.now(timezone.utc)
 
-    result = svc.ban(USER_ID, AdminUserBan(hours=24, reason="r"), CTX)
+    result = svc.ban(USER_ID, AdminUserBan(hours=24, reason="fraud"), CTX)
 
     until = datetime.fromisoformat(result["banned_until"])
     assert before + timedelta(hours=24) <= until <= datetime.now(timezone.utc) + timedelta(hours=24)
@@ -178,7 +178,7 @@ def test_ban_banned_until_falls_back_to_now_plus_hours(svc, repo, audit, client,
 
 def test_ban_custom_hours(svc, repo, client):
     repo.get.return_value = _row()
-    svc.ban(USER_ID, AdminUserBan(hours=48, reason="r"), CTX)
+    svc.ban(USER_ID, AdminUserBan(hours=48, reason="fraud"), CTX)
     client.auth.admin.update_user_by_id.assert_called_once_with(USER_ID, {"ban_duration": "48h"})
 
 
@@ -194,7 +194,7 @@ def test_ban_already_banned_is_409_and_touches_nothing(svc, repo, audit, client,
     repo.latest_ban_audit.return_value = last_ban
 
     with pytest.raises(AdminConflict) as err:
-        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
     assert err.value.conflict_code == "already_banned"
     assert err.value.extra == {"banned_until": FUTURE}
@@ -207,7 +207,7 @@ def test_ban_already_banned_is_409_and_touches_nothing(svc, repo, audit, client,
 def test_ban_unknown_user_is_404(svc, repo, client):
     repo.get.return_value = None
     with pytest.raises(AdminNotFound):
-        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
     client.auth.admin.update_user_by_id.assert_not_called()
 
 
@@ -215,7 +215,7 @@ def test_ban_gotrue_404_is_404(svc, repo, client, audit):
     repo.get.return_value = _row()
     client.auth.admin.update_user_by_id.side_effect = AuthApiError("User not found", 404, "user_not_found")
     with pytest.raises(AdminNotFound):
-        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
     audit.log.assert_not_called()
 
 
@@ -225,7 +225,7 @@ def test_ban_gotrue_failure_is_502_and_nothing_audited(svc, repo, client, audit,
     client.auth.admin.update_user_by_id.side_effect = error
 
     with pytest.raises(AdminUpstreamError) as err:
-        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
     assert err.value.details == "AUTH_SERVICE_UNAVAILABLE"
     audit.log.assert_not_called()
@@ -236,7 +236,7 @@ def test_ban_audit_failure_lifts_the_ban_and_returns_502(svc, repo, client, audi
     audit.log.side_effect = AdminUpstreamError("DATABASE_ERROR")
 
     with pytest.raises(AdminUpstreamError) as err:
-        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
     assert err.value.details == "AUDIT_FAILED"
     calls = [c.args for c in client.auth.admin.update_user_by_id.call_args_list]
@@ -251,7 +251,7 @@ def test_ban_compensation_failure_still_returns_502(svc, repo, client, audit):
         RuntimeError("gotrue down"),
     ]
     with pytest.raises(AdminUpstreamError):
-        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
 
 # ---------- TEOS-111: sessions revoked on ban, no self-ban ----------
@@ -268,7 +268,7 @@ def test_ban_revokes_the_sessions_after_the_ban_and_audits_it(svc, repo, audit, 
     revoker.side_effect = lambda uid: order.append("revoke")
     audit.log.side_effect = lambda *a, **k: order.append("audit")
 
-    svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+    svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
     assert order == ["ban", "revoke", "audit"]
     revoker.assert_called_once_with(USER_ID)
@@ -286,7 +286,7 @@ def test_ban_revoke_failure_keeps_the_ban_audits_it_and_returns_502(svc, repo, a
     revoker.side_effect = error
 
     with pytest.raises(AdminUpstreamError) as err:
-        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
     assert err.value.details == SESSION_REVOKE_FAILED
     # the ban is applied once and never lifted again
@@ -302,7 +302,7 @@ def test_ban_revoke_and_audit_failure_lifts_the_ban_and_reports_the_audit(svc, r
     audit.log.side_effect = RuntimeError("db down")
 
     with pytest.raises(AdminUpstreamError) as err:
-        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
     assert err.value.details == "AUDIT_FAILED"
     calls = [c.args for c in client.auth.admin.update_user_by_id.call_args_list]
@@ -313,14 +313,14 @@ def test_ban_gotrue_failure_never_revokes(svc, repo, client, revoker):
     repo.get.return_value = _row()
     client.auth.admin.update_user_by_id.side_effect = RuntimeError("network")
     with pytest.raises(AdminUpstreamError):
-        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
     revoker.assert_not_called()
 
 
 @pytest.mark.parametrize("target", [CTX.actor_id, CTX.actor_id.upper()])
 def test_ban_self_is_409_and_touches_nothing(svc, repo, audit, client, revoker, target):
     with pytest.raises(AdminConflict) as err:
-        svc.ban(target, AdminUserBan(reason="r"), CTX)
+        svc.ban(target, AdminUserBan(reason="fraud"), CTX)
 
     assert err.value.conflict_code == CANNOT_BAN_SELF
     repo.get.assert_not_called()
@@ -331,7 +331,7 @@ def test_ban_self_is_409_and_touches_nothing(svc, repo, audit, client, revoker, 
 
 def test_unban_self_is_409_and_touches_nothing(svc, repo, audit, client):
     with pytest.raises(AdminConflict) as err:
-        svc.unban(CTX.actor_id, AdminUserUnban(reason="r"), CTX)
+        svc.unban(CTX.actor_id, AdminUserUnban(reason="fraud"), CTX)
 
     assert err.value.conflict_code == CANNOT_BAN_SELF
     repo.get.assert_not_called()
@@ -341,7 +341,7 @@ def test_unban_self_is_409_and_touches_nothing(svc, repo, audit, client):
 
 def test_unban_never_revokes_sessions(svc, repo, revoker):
     repo.get.return_value = _row(is_banned=True, banned_until=FUTURE)
-    svc.unban(USER_ID, AdminUserUnban(reason="r"), CTX)
+    svc.unban(USER_ID, AdminUserUnban(reason="fraud"), CTX)
     revoker.assert_not_called()
 
 
@@ -374,7 +374,7 @@ def test_service_default_revoker_needs_no_jwt_secret_and_never_calls_gotrue_logo
     repo.revoke_sessions.return_value = {"sessions": 1, "refresh_tokens": 1}
     service = UserAdminService(repo=repo, audit=audit, client_factory=lambda: client)
 
-    result = service.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+    result = service.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
     assert result["user_id"] == USER_ID and result["hours_banned"] == 8760
     repo.revoke_sessions.assert_called_once_with(USER_ID)
@@ -388,7 +388,7 @@ def test_ban_of_a_user_without_sessions_is_200_and_audited_as_revoked(repo, audi
     repo.revoke_sessions.return_value = {"sessions": 0, "refresh_tokens": 0}
     service = UserAdminService(repo=repo, audit=audit, client_factory=lambda: client)
 
-    assert service.ban(USER_ID, AdminUserBan(reason="r"), CTX)["user_id"] == USER_ID
+    assert service.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)["user_id"] == USER_ID
     assert audit.log.call_args.kwargs["sessions_revoked"] is True
 
 
@@ -398,7 +398,7 @@ def test_ban_with_a_revoke_rpc_failure_is_502_and_audits_the_error(repo, audit, 
     service = UserAdminService(repo=repo, audit=audit, client_factory=lambda: client)
 
     with pytest.raises(AdminUpstreamError) as err:
-        service.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        service.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
     assert err.value.details == SESSION_REVOKE_FAILED
     kwargs = audit.log.call_args.kwargs
@@ -435,7 +435,7 @@ def test_ban_again_reads_operation_details_stored_as_json_text(svc, repo, audit,
     repo.get.return_value = _row(is_banned=True, banned_until=FUTURE)
     repo.latest_ban_audit.return_value = {**FAILED_BAN, "operation_details": json.dumps(FAILED_BAN["operation_details"])}
 
-    assert svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)["hours_banned"] == 24
+    assert svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)["hours_banned"] == 24
     revoker.assert_called_once_with(USER_ID)
 
 
@@ -443,7 +443,7 @@ def test_ban_again_without_hours_in_the_audit_uses_the_request_hours(svc, repo, 
     repo.get.return_value = _row(is_banned=True, banned_until=FUTURE)
     repo.latest_ban_audit.return_value = {"id": 41, "operation_details": {"sessions_revoked": False}}
 
-    assert svc.ban(USER_ID, AdminUserBan(hours=12, reason="r"), CTX)["hours_banned"] == 12
+    assert svc.ban(USER_ID, AdminUserBan(hours=12, reason="fraud"), CTX)["hours_banned"] == 12
 
 
 def test_ban_again_when_the_revoke_fails_again_is_502_and_audited(svc, repo, audit, client, revoker):
@@ -452,7 +452,7 @@ def test_ban_again_when_the_revoke_fails_again_is_502_and_audited(svc, repo, aud
     revoker.side_effect = SessionRevokeError("database_error:AdminUpstreamError")
 
     with pytest.raises(AdminUpstreamError) as err:
-        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
     assert err.value.details == SESSION_REVOKE_FAILED
     client.auth.admin.update_user_by_id.assert_not_called()  # the ban is never lifted
@@ -467,7 +467,7 @@ def test_ban_again_when_the_retry_audit_fails_is_502_audit_failed_and_keeps_the_
     audit.log.side_effect = RuntimeError("db down")
 
     with pytest.raises(AdminUpstreamError) as err:
-        svc.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
     assert err.value.details == "AUDIT_FAILED"
     client.auth.admin.update_user_by_id.assert_not_called()
@@ -483,9 +483,9 @@ def test_ban_retry_then_ban_again_is_409(repo, audit, client):
     audit.log.side_effect = lambda *a, **k: written.append(k)
     service = UserAdminService(repo=repo, audit=audit, client_factory=lambda: client)
 
-    service.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+    service.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
     with pytest.raises(AdminConflict) as err:
-        service.ban(USER_ID, AdminUserBan(reason="r"), CTX)
+        service.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
     assert err.value.conflict_code == "already_banned"
     repo.revoke_sessions.assert_called_once()
@@ -493,7 +493,7 @@ def test_ban_retry_then_ban_again_is_409(repo, audit, client):
 
 def test_ban_self_never_looks_at_the_audit(svc, repo):
     with pytest.raises(AdminConflict):
-        svc.ban(CTX.actor_id, AdminUserBan(reason="r"), CTX)
+        svc.ban(CTX.actor_id, AdminUserBan(reason="fraud"), CTX)
     repo.latest_ban_audit.assert_not_called()
 
 
@@ -516,7 +516,7 @@ def test_unban_not_banned_is_409(svc, repo, client, audit):
     repo.get.return_value = _row(is_banned=False, banned_until="2020-01-01T00:00:00+00:00")  # lapsed ban
 
     with pytest.raises(AdminConflict) as err:
-        svc.unban(USER_ID, AdminUserUnban(reason="r"), CTX)
+        svc.unban(USER_ID, AdminUserUnban(reason="fraud"), CTX)
 
     assert err.value.conflict_code == "not_banned"
     client.auth.admin.update_user_by_id.assert_not_called()
@@ -526,7 +526,7 @@ def test_unban_not_banned_is_409(svc, repo, client, audit):
 def test_unban_unknown_user_is_404(svc, repo):
     repo.get.return_value = None
     with pytest.raises(AdminNotFound):
-        svc.unban(USER_ID, AdminUserUnban(reason="r"), CTX)
+        svc.unban(USER_ID, AdminUserUnban(reason="fraud"), CTX)
 
 
 def test_unban_audit_failure_reapplies_the_remaining_ban(svc, repo, client, audit):
@@ -534,7 +534,7 @@ def test_unban_audit_failure_reapplies_the_remaining_ban(svc, repo, client, audi
     audit.log.side_effect = RuntimeError("db down")
 
     with pytest.raises(AdminUpstreamError) as err:
-        svc.unban(USER_ID, AdminUserUnban(reason="r"), CTX)
+        svc.unban(USER_ID, AdminUserUnban(reason="fraud"), CTX)
 
     assert err.value.details == "AUDIT_FAILED"
     first, second = [c.args for c in client.auth.admin.update_user_by_id.call_args_list]
@@ -548,7 +548,7 @@ def test_unban_gotrue_failure_is_502(svc, repo, client, audit):
     repo.get.return_value = _row(is_banned=True, banned_until=FUTURE)
     client.auth.admin.update_user_by_id.side_effect = AuthApiError("boom", 502, "unexpected_failure")
     with pytest.raises(AdminUpstreamError):
-        svc.unban(USER_ID, AdminUserUnban(reason="r"), CTX)
+        svc.unban(USER_ID, AdminUserUnban(reason="fraud"), CTX)
     audit.log.assert_not_called()
 
 
@@ -569,8 +569,8 @@ def test_ban_body_defaults_and_trims():
     assert body.hours == 8760 and body.reason == "fraud"
 
 
-@pytest.mark.parametrize("kwargs", [{"hours": 0, "reason": "r"}, {"hours": 87601, "reason": "r"},
-                                    {"reason": " "}, {"reason": "r", "extra": 1}])
+@pytest.mark.parametrize("kwargs", [{"hours": 0, "reason": "fraud"}, {"hours": 87601, "reason": "fraud"},
+                                    {"reason": " "}, {"reason": "fraud", "extra": 1}])
 def test_ban_body_rejects(kwargs):
     with pytest.raises(ValueError):
         AdminUserBan(**kwargs)

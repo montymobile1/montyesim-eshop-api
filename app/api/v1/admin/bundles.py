@@ -82,5 +82,7 @@ def set_bundle_status(body: AdminBundleStatusPatch, request: Request, bundle_id:
 @router.put("/{bundle_id}/tags", response_model=Response[AdminBundleTags])
 def set_bundle_tags(body: AdminBundleTagsSet, request: Request, bundle_id: UUID = BundleId,
                     user: AdminUser = Depends(require_permission("admin.bundles.write"))) -> Response:
-    """Replaces the bundle's tag set; an empty list removes every tag. 404; 422 unknown tag."""
+    """Replaces the bundle's tag set; an empty list removes every tag. 404; 422 unknown tag;
+    422 ``inactive_group_tag`` (``tag_ids``) for any tag whose group is inactive, tags the bundle
+    already has included (nothing is written)."""
     return ok(service.set_tags(str(bundle_id), body, audit_context(user, request)))

@@ -1,17 +1,35 @@
 """Shared request/response shapes of the admin API (contract: docs section 4 of the migration plan)."""
-from typing import Any, Dict, Generic, List, Optional, TypeVar
+from typing import Annotated, Any, Dict, Generic, List, Optional, TypeVar, Union
 
 from fastapi import Query
-from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
+from pydantic import (BaseModel, ConfigDict, Field, StrictBool, StrictFloat, StrictInt, StringConstraints,
+                      model_validator)
 
 from app.schemas.response import Response, ResponseHelper
 
 T = TypeVar("T")
 
+MIN_REASON_LENGTH = 3
+MAX_REASON_LENGTH = 500
+#: The reason of an audited admin action (ban, unban, bundle status): 3 to 500 characters once the
+#: surrounding spaces are trimmed, so "ab" or "   " is a 422 (TEOS-148, TEOS-166).
+AdminReason = Annotated[str, StringConstraints(strip_whitespace=True, min_length=MIN_REASON_LENGTH,
+                                               max_length=MAX_REASON_LENGTH)]
+#: A JSON number, never a string: "5" is a 422 instead of being converted (TEOS-211, TEOS-215).
+#: Integers stay integers; use with ``Field(gt=...)`` / ``Field(ge=..., le=...)`` for the bounds.
+StrictNumber = Union[StrictInt, StrictFloat]
+
 MAX_PAGE_SIZE = 100
 DEFAULT_PAGE_SIZE = 20
 #: The admin list SQL functions take the offset (or the page) as ``integer`` (TEOS-141).
 MAX_SQL_INT = 2_147_483_647
+
+
+#: OpenAPI ``content`` of an admin error: the standard ``Response`` envelope (``responseCode`` = the HTTP
+#: status, the machine code in ``developerMessage``), always JSON, also on routes answering 204 or a file.
+#: Referenced rather than passed as ``model``: FastAPI would file a model under the route's own media type
+#: (the xlsx exports) (TEOS-163).
+ERROR_ENVELOPE = {"application/json": {"schema": {"$ref": "#/components/schemas/Response"}}}
 
 
 class PageParams(BaseModel):

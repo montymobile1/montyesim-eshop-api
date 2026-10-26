@@ -78,9 +78,12 @@ class AdminPromotionUpdate(BaseModel):
     ``name``, ``bundle_codes`` and ``valid_to`` can always change. ``code``, ``rule_id``, ``amount`` and
     ``valid_from`` are optional here and immutable once the promotion has been used: sending a different
     value for one of them when ``times_used > 0`` returns 409 ``promotion_used``.
+
+    ``bundle_codes`` (TEOS-226): missing or null keeps the promotion's bundles; only an explicit ``[]`` makes
+    it apply to every bundle.
     """
     name: str = Field(..., min_length=2, max_length=100)
-    bundle_codes: List[str] = Field(default_factory=list, max_length=MAX_BUNDLE_CODES)
+    bundle_codes: Optional[List[str]] = Field(None, max_length=MAX_BUNDLE_CODES)
     valid_to: Optional[datetime] = None
     code: Optional[str] = Field(None, pattern=PROMOTION_CODE_PATTERN)
     rule_id: Optional[UUID] = None
@@ -98,8 +101,8 @@ class AdminPromotionUpdate(BaseModel):
 
     @field_validator("bundle_codes")
     @classmethod
-    def _bundle_codes(cls, value: Optional[List[str]]) -> List[str]:
-        return _clean_bundle_codes(value)
+    def _bundle_codes(cls, value: Optional[List[str]]) -> Optional[List[str]]:
+        return None if value is None else _clean_bundle_codes(value)
 
     @model_validator(mode="after")
     def _dates_in_order(self):

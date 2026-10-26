@@ -14,7 +14,8 @@
   200 with the current ban when it works, audited as a BAN row with ``revoke_retry: true``;
 - an admin cannot ban or unban themselves: 409 ``cannot_ban_self``, checked first, so nothing is
   read, changed or audited (TEOS-111 case 23);
-- devices, wallet transactions and referrals: paged sub-lists with the true total.
+- devices, wallet transactions and referrals: paged sub-lists with the true total; 404
+  ``user_not_found`` for an unknown user, 200 empty for a user without rows (TEOS-153).
 """
 import json
 import math
@@ -107,6 +108,15 @@ def _parse(value: Any) -> Optional[datetime]:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+def _active_ban_end(banned_until: Any, now: Optional[datetime] = None) -> Optional[str]:
+    """``banned_until`` as ISO text while that ban is still running; None when there is none, it is
+    unreadable or it already lapsed. BAN audit rows store it as ``previous_banned_until`` (TEOS-150)."""
+    until = _parse(banned_until)
+    if until is None or until <= (now or datetime.now(timezone.utc)):
+        return None
+    return _iso(banned_until)
+
+
 def remaining_ban_duration(previous_banned_until: Any, now: Optional[datetime] = None) -> Optional[str]:
     """GoTrue duration (``"<seconds>s"``) that re-applies a ban until ``previous_banned_until``;
     None when that date is unreadable or already in the past."""
@@ -168,14 +178,17 @@ class UserAdminService:
         return {**row, "wallet": self.wallets.for_user(user_id)}
 
     def list_devices(self, user_id: str, page: PageParams) -> AdminPage:
+        self._row_or_404(user_id)
         return self.devices.list(page, user_id=str(user_id))
 
     def list_wallet_transactions(self, user_id: str, page: PageParams) -> AdminPage:
+        self._row_or_404(user_id)
         result = self.repo.wallet_transactions(user_id, page)
         return AdminPage(data=result.rows, total_count=result.total)
 
     def list_referrals(self, user_id: str, page: PageParams, *, search: Optional[str] = None,
                        from_email: Optional[str] = None, referral_date: Optional[date] = None) -> AdminPage:
+        self._row_or_404(user_id)
         result = self.repo.referrals(user_id, page, search=search, from_email=from_email,
                                      referral_date=referral_date)
         return AdminPage(data=result.rows, total_count=result.total)
@@ -195,6 +208,7 @@ class UserAdminService:
             if revoke_pending(last_ban):
                 return self._retry_revoke(user_id, row, last_ban, body, ctx)
             raise AdminConflict("already_banned", banned_until=row.get("banned_until"))
+        previous_banned_until = _active_ban_end(row.get("banned_until"))
         duration = f"{body.hours}h"
         user = self._set_ban_duration(user_id, duration)
         banned_until = self._banned_until_after_ban(user_id, user, body.hours)
@@ -204,6 +218,7 @@ class UserAdminService:
             self.audit.log(ctx, AUTH_USERS_TABLE, OPERATION_BAN, record_id=user_id, rows_affected=1,
                            user_id=str(user_id), user_email=email, hours_banned=body.hours,
                            ban_duration=duration, banned_until=banned_until,
+                           previous_banned_until=previous_banned_until,
                            banned_at=datetime.now(timezone.utc).isoformat(),
                            sessions_revoked=revoke_error is None, session_revoke_error=revoke_error)
         except Exception as exc:
@@ -257,6 +272,7 @@ class UserAdminService:
             self.audit.log(ctx, AUTH_USERS_TABLE, OPERATION_BAN, record_id=user_id, rows_affected=0,
                            user_id=str(user_id), user_email=email, hours_banned=hours,
                            ban_duration=details.get("ban_duration"), banned_until=banned_until,
+                           previous_banned_until=_active_ban_end(row.get("banned_until")),
                            revoke_retry=True, retry_of_audit_id=last_ban.get("id"),
                            sessions_revoked=revoke_error is None, session_revoke_error=revoke_error)
         except Exception as exc:

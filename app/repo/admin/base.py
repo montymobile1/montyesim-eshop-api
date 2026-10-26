@@ -65,6 +65,10 @@ class AdminBaseRepository(BaseRepository):
     #: Unique-constraint name fragment -> 409 code returned to the portal, e.g.
     #: {"promotion_code_key": "duplicate_code"}. Unlisted duplicates return "duplicate".
     UNIQUE_CONFLICTS: Dict[str, str] = {}
+    #: AD422 DETAIL codes returned as the JSON ``{"code": ..., ...}`` developerMessage (like the 409s)
+    #: instead of the plain MESSAGE text, e.g. {"inactive_group_tag"} (TEOS-168). Unlisted codes keep
+    #: the text, so no existing 422 changes.
+    STRUCTURED_VALIDATION_CODES: frozenset = frozenset()
 
     def __init__(self, table_name: DatabaseTables, model: Type[BaseModel] = AdminRow):
         super().__init__(table_name, model)
@@ -220,24 +224,40 @@ class AdminBaseRepository(BaseRepository):
     def _map_api_error(self, exc: APIError) -> Exception:
         code = exc.code or ""
         message = exc.message or ""
-        detail = _detail_json(exc.details)
         if code == "23505":
-            text = f"{message} {exc.details or ''}"
-            for fragment, conflict_code in self.UNIQUE_CONFLICTS.items():
-                if fragment in text:
-                    return AdminConflict(conflict_code)
-            return AdminConflict("duplicate")
+            return self._unique_conflict(f"{message} {exc.details or ''}")
         if code == "23503":
             return AdminConflict("referenced")
+        if code in _ADMIN_ERROR_CODES:
+            return self._map_admin_error(code, message, _detail_json(exc.details))
+        if code in _VALIDATION_ERROR_CODES:
+            return AdminValidationError(message or "invalid input")
+        logger.error(f"admin repository {self.table_name}: database error {code}: {message}")
+        return AdminUpstreamError("DATABASE_ERROR")
+
+    def _unique_conflict(self, text: str) -> AdminConflict:
+        """23505: the conflict code of the first known constraint named in ``text``, else ``duplicate``."""
+        for fragment, conflict_code in self.UNIQUE_CONFLICTS.items():
+            if fragment in text:
+                return AdminConflict(conflict_code)
+        return AdminConflict("duplicate")
+
+    def _map_admin_error(self, code: str, message: str, detail: Dict[str, Any]) -> Exception:
+        """The AD404 / AD409 / AD422 errors raised by the admin_* SQL functions."""
         if code == "AD404":
             return AdminNotFound(message or "not_found")
         if code == "AD409":
             conflict_code = detail.pop("code", None) or message or "conflict"
             return AdminConflict(conflict_code, **detail)
-        if code == "AD422" or code in ("22P02", "23502", "23514", "P0001"):
-            return AdminValidationError(message or "invalid input")
-        logger.error(f"admin repository {self.table_name}: database error {code}: {message}")
-        return AdminUpstreamError("DATABASE_ERROR")
+        if detail.get("code") in self.STRUCTURED_VALIDATION_CODES:
+            return AdminValidationError(json.dumps(detail, default=str))
+        return AdminValidationError(message or "invalid input")
+
+
+#: Errors raised by the admin_* SQL functions (see _map_admin_error).
+_ADMIN_ERROR_CODES = ("AD404", "AD409", "AD422")
+#: Postgres errors for invalid input: 22P02 bad text representation, 23502 not null, 23514 check, P0001 raise.
+_VALIDATION_ERROR_CODES = ("22P02", "23502", "23514", "P0001")
 
 
 def _detail_json(details: Optional[str]) -> Dict[str, Any]:

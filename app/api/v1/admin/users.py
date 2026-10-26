@@ -18,8 +18,10 @@ from app.services.admin.user_service import UserAdminService
 
 router = admin_router()
 
-# MS-5077: GET /lookup. Keep it above any /{id} route.
-add_lookup_route(router, "users", "admin.users.read")
+READ = "admin.users.read"
+
+# MS-5077: GET /lookup. Keep it above any /{id} route. A 1-character search is a 422 (TEOS-147).
+add_lookup_route(router, "users", READ, min_search_length=2)
 
 # ---------- MS-5079: users page and user detail ----------
 
@@ -35,7 +37,7 @@ def list_users(search: Optional[str] = SearchParam,
                sort: UserSort = Query("created_at"),
                direction: SortDirection = Query("desc", alias="dir"),
                page: PageParams = Depends(page_params),
-               user: AdminUser = Depends(require_permission("admin.users.read"))) -> Response:
+               user: AdminUser = Depends(require_permission(READ))) -> Response:
     """Users with their ban state, newest first by default (`sort=created_at|email`, `dir=asc|desc`,
     ties broken by id), and `facets:{all,banned,active}` over the searched set."""
     return ok_page(service.list(search, ban_status, page, sort=sort, direction=direction))
@@ -43,7 +45,7 @@ def list_users(search: Optional[str] = SearchParam,
 
 @router.get("/{user_id}", response_model=Response[AdminUserDetail])
 def get_user(user_id: UUID = UserId,
-             user: AdminUser = Depends(require_permission("admin.users.read"))) -> Response:
+             user: AdminUser = Depends(require_permission(READ))) -> Response:
     """One user with `wallet:{amount,currency}` (null without a wallet). 404 unknown id."""
     return ok(service.get(str(user_id)))
 
@@ -66,7 +68,7 @@ def unban_user(body: AdminUserUnban, request: Request, user_id: UUID = UserId,
     return ok(service.unban(str(user_id), body, audit_context(user, request, body.reason)))
 
 
-@router.get("/{user_id}/devices", summary="The user's devices, newest first")
+@router.get("/{user_id}/devices", summary="The user's devices, newest first (404 unknown user)")
 def list_user_devices(user_id: UUID = UserId, page: PageParams = Depends(page_params),
                       user: AdminUser = Depends(require_permission("admin.devices.read"))) -> Response:
     return ok_page(service.list_devices(str(user_id), page))
@@ -74,8 +76,8 @@ def list_user_devices(user_id: UUID = UserId, page: PageParams = Depends(page_pa
 
 @router.get("/{user_id}/wallet-transactions", response_model=Response[AdminPage[AdminWalletTransaction]])
 def list_user_wallet_transactions(user_id: UUID = UserId, page: PageParams = Depends(page_params),
-                                  user: AdminUser = Depends(require_permission("admin.users.read"))) -> Response:
-    """The user's wallet transactions, newest first, with the true total."""
+                                  user: AdminUser = Depends(require_permission(READ))) -> Response:
+    """The user's wallet transactions, newest first, with the true total. 404 unknown user."""
     return ok_page(service.list_wallet_transactions(str(user_id), page))
 
 
@@ -86,6 +88,6 @@ def list_user_referrals(user_id: UUID = UserId,
                         referral_date: Optional[date] = Query(None, alias="date"),
                         page: PageParams = Depends(page_params),
                         user: AdminUser = Depends(require_permission("admin.referrals.read"))) -> Response:
-    """The user's referral transactions (same filters as `GET /referrals`)."""
+    """The user's referral transactions (same filters as `GET /referrals`). 404 unknown user."""
     return ok_page(service.list_referrals(str(user_id), page, search=search, from_email=from_email,
                                           referral_date=referral_date))

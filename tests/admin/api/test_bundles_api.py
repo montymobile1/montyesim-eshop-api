@@ -251,7 +251,7 @@ def test_status_is_super_admin_only_as_today(api_client, service, as_admin):
 # ---------- bulk ----------
 
 def test_bulk_deactivate_is_super_admin_only(api_client, service, as_admin):
-    _failed(api_client.post(f"{BASE}/status/bulk", json={"is_active": False, "reason": "r"}), 403)
+    _failed(api_client.post(f"{BASE}/status/bulk", json={"is_active": False, "reason": "provider down"}), 403)
     service.set_all_status.assert_not_called()
 
 

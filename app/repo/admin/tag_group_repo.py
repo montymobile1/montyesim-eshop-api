@@ -35,8 +35,8 @@ class TagGroupAdminRepo(AdminBaseRepository):
     # ---------- reads ----------
 
     def lookup(self, search: Optional[str], page: PageParams, record_id: Optional[str] = None) -> Paged:
-        """``{id, name, type, group_category}`` rows matching ``search`` on name, ordered by name, id."""
-        query = self.filters(self.q("id,name,type,group_category"), ilike={"name": search}, eq={"id": record_id})
+        """``{id, name, type, group_category, is_active}`` rows matching ``search`` on name, ordered by name, id."""
+        query = self.filters(self.q("id,name,type,group_category,is_active"), ilike={"name": search}, eq={"id": record_id})
         return self.paged(query, page, order=(("name", False), ("id", False)))
 
     def search(self, search: Optional[str], status: str, page: PageParams, type: Optional[int] = None,
@@ -71,6 +71,21 @@ class TagGroupAdminRepo(AdminBaseRepository):
             return None
         row = response.data[0]
         return {**row, "tag": sorted(row.get("tag") or [], key=_tag_order)}
+
+    def bundle_counts(self, group_ids: List[int]) -> Dict[int, int]:
+        """``{group_id: distinct bundles tagged with any tag of the group}`` (TEOS-173), counted in SQL by
+        ``admin_group_bundle_counts`` in one call for the whole page. Groups without bundles map to 0;
+        no call when ``group_ids`` is empty."""
+        ids = [int(group_id) for group_id in dict.fromkeys(group_ids) if group_id is not None]
+        if not ids:
+            return {}
+        counts = dict.fromkeys(ids, 0)
+        for row in self.rpc("admin_group_bundle_counts", {"p_group_ids": ids}) or []:
+            try:
+                counts[int(row.get("group_id"))] = int(row.get("bundle_count") or 0)
+            except (TypeError, ValueError):
+                continue
+        return counts
 
     def name_taken(self, name: str, exclude_id: Optional[int] = None) -> bool:
         """True when another group is called ``name`` ignoring case (TEOS-186). The exact-case duplicate
@@ -108,7 +123,9 @@ class TagGroupAdminRepo(AdminBaseRepository):
     def edit_tag_group(self, group_id: int, group: Dict[str, Any], new_tags: List[Dict[str, Any]],
                        updated_tags: List[Dict[str, Any]], deleted_tag_ids: List[str], ctx: AuditContext,
                        rotate_cache: bool = True) -> Dict[str, Any]:
-        """Updates the group, inserts, updates and deletes tags in one transaction; returns ``{group, tags}``."""
+        """Updates the group, inserts, updates and deletes tags in one transaction; returns ``{group, tags}``.
+        AD409 ``linked_bundles`` when a deleted tag is assigned to a bundle, with ``bundle_count`` (distinct
+        bundles), ``tag_ids`` and ``tags: [{id, name, bundle_count}]`` of the linked deleted tags (TEOS-196)."""
         return self.rpc("admin_edit_tag_group", {
             "p_id": group_id, "p_name": group["name"], "p_type": group["type"],
             "p_group_category": group["group_category"], "p_new_tags": new_tags, "p_updated_tags": updated_tags,
@@ -118,7 +135,8 @@ class TagGroupAdminRepo(AdminBaseRepository):
 
     def delete_group(self, group_id: int, ctx: AuditContext, rotate_cache: bool = True) -> Dict[str, Any]:
         """Deletes the group and its tags; returns ``{group, tags}`` as they were.
-        AD409 ``linked_bundles`` (with ``bundle_count``) when a tag is assigned to a bundle."""
+        AD409 ``linked_bundles`` (with ``bundle_count``, distinct bundles: TEOS-176) when a tag is assigned
+        to a bundle."""
         return self.rpc("admin_delete_group", {
             "p_id": group_id, "p_actor": ctx.actor_id, "p_ip": ctx.ip, "p_reason": ctx.reason,
             "p_rotate_cache": rotate_cache,
@@ -126,7 +144,9 @@ class TagGroupAdminRepo(AdminBaseRepository):
 
     def reorder_tags(self, group_id: int, tag_ids: List[str], ctx: AuditContext,
                      rotate_cache: bool = True) -> Dict[str, Any]:
-        """``sorting_number`` = position in ``tag_ids`` (the full set of the group's tags); returns ``{tag_ids}``."""
+        """``sorting_number`` = position in ``tag_ids`` (the full set of the group's tags); returns ``{tag_ids}``.
+        The order already stored (and ``[]`` for a group without tags) writes nothing: no audit row, no
+        cache rotation (TEOS-197, TEOS-198)."""
         return self.rpc("admin_reorder_tags", {
             "p_group_id": group_id, "p_tag_ids": tag_ids, "p_actor": ctx.actor_id, "p_ip": ctx.ip,
             "p_reason": ctx.reason, "p_rotate_cache": rotate_cache,

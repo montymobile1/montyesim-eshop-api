@@ -5,19 +5,22 @@ router, so every lookup has the same parameters and response:
 ``?search&page&page_size`` -> ``{data: [{id, label, ...extra}], total_count}``.
 ``?id=<id>`` returns only that item (the portal uses it to show a dropdown's label after a reload).
 Add it before any ``/{id}`` route of the same router, so ``lookup`` is not read as an id.
+``min_search_length``: a trimmed ``search`` shorter than that (but not empty) is a 422; empty or omitted
+still lists everything (users: 2, TEOS-147).
 """
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 
 from app.dependencies.admin_security import AdminUser, require_permission
+from app.exceptions.admin import AdminValidationError
 from app.schemas.admin.common import PageParams, ok_page, page_params
 from app.services.admin import lookup_service
 
 MAX_SEARCH_LENGTH = 100
 
 
-def add_lookup_route(router: APIRouter, method: str, permission: str) -> None:
+def add_lookup_route(router: APIRouter, method: str, permission: str, min_search_length: int = 0) -> None:
     if not callable(getattr(lookup_service.LookupService, method, None)):
         raise ValueError(f"LookupService has no lookup {method!r}")
 
@@ -25,6 +28,8 @@ def add_lookup_route(router: APIRouter, method: str, permission: str) -> None:
                record_id: Optional[str] = Query(None, alias="id", min_length=1, max_length=100),
                page: PageParams = Depends(page_params),
                user: AdminUser = Depends(require_permission(permission))):
+        if 0 < len((search or "").strip()) < min_search_length:
+            raise AdminValidationError(f"search: String should have at least {min_search_length} characters")
         # resolved per request, so tests can replace lookup_service.service
         return ok_page(getattr(lookup_service.service, method)(search, page, record_id))
 

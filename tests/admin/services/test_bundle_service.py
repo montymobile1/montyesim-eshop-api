@@ -98,7 +98,8 @@ def test_get_shapes_tags_with_their_group(svc, repo):
     repo.detail.assert_called_once_with(BID)
     assert result["bundle_name"] == "Europe"
     assert [t["bundle_tag_id"] for t in result["tags"]] == [3, 5]
-    assert result["tags"][0]["tag"]["group"] == {"id": 2, "name": "Europe", "type": 1, "group_category": "country"}
+    assert result["tags"][0]["tag"]["group"] == {"id": 2, "name": "Europe", "type": 1, "group_category": "country",
+                                                 "is_active": True}
     assert result["tags"][1]["tag"]["group"] is None
 
 
@@ -122,7 +123,7 @@ def test_rename_calls_repo_and_returns_id_and_name(svc, repo):
 def test_set_status_returns_id_and_state(svc, repo):
     repo.set_status.return_value = {"id": BID, "is_active": False}
 
-    result = svc.set_status(BID, AdminBundleStatusPatch(is_active=False, reason="r"), CTX)
+    result = svc.set_status(BID, AdminBundleStatusPatch(is_active=False, reason="maintenance"), CTX)
 
     repo.set_status.assert_called_once_with(BID, False, CTX)
     assert result == {"id": BID, "is_active": False}

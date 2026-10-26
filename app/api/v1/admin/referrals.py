@@ -4,7 +4,7 @@ from starlette.responses import StreamingResponse
 
 from app.api.v1.admin._route import admin_router
 from app.dependencies.admin_security import AdminUser, require_permission
-from app.schemas.admin.common import AdminPage, PageParams, ok_page, page_params
+from app.schemas.admin.common import ERROR_ENVELOPE, AdminPage, PageParams, ok_page, page_params
 from app.schemas.admin.referrals import (AdminReferral, AdminReferralExportRequest, AdminReferralFilters,
                                          referral_filters)
 from app.schemas.response import Response
@@ -28,7 +28,8 @@ def list_referrals(filters: AdminReferralFilters = Depends(referral_filters),
 @router.post("/export", response_class=StreamingResponse, responses={
     200: {"content": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}},
           "description": "The matching rows as an .xlsx attachment"},
-    422: {"description": "Invalid filters, or more rows than ADMIN_EXPORT_ROW_CAP (`too_many_rows`)"},
+    422: {"content": ERROR_ENVELOPE,
+          "description": "Invalid filters, or more rows than ADMIN_EXPORT_ROW_CAP (`too_many_rows`)"},
 })
 def export_referrals(body: AdminReferralExportRequest, request: Request,
                      user: AdminUser = Depends(require_permission("admin.referrals.export"))) -> StreamingResponse:

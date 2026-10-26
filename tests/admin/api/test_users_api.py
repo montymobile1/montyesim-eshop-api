@@ -166,14 +166,14 @@ def test_ban_passes_body_and_audit_context(api_client, service, as_super_admin):
 @pytest.mark.parametrize("hours", [1, 87600])
 def test_ban_accepts_boundary_hours(api_client, service, as_super_admin, hours):
     service.ban.return_value = {"user_id": USER_ID, "email": None, "banned_until": None, "hours_banned": hours}
-    assert api_client.post(f"{BASE}/{USER_ID}/ban", json={"hours": hours, "reason": "r"}).status_code == 200
+    assert api_client.post(f"{BASE}/{USER_ID}/ban", json={"hours": hours, "reason": "fraud"}).status_code == 200
     assert service.ban.call_args.args[1].hours == hours
 
 
 def test_ban_already_banned_is_409(api_client, service, as_super_admin):
     service.ban.side_effect = AdminConflict("already_banned", banned_until="2027-01-01T00:00:00+00:00")
 
-    response = api_client.post(f"{BASE}/{USER_ID}/ban", json={"reason": "r"})
+    response = api_client.post(f"{BASE}/{USER_ID}/ban", json={"reason": "fraud"})
 
     _failed(response, 409)
     assert _code(response) == "already_banned"
@@ -181,23 +181,23 @@ def test_ban_already_banned_is_409(api_client, service, as_super_admin):
 
 def test_ban_unknown_user_is_404(api_client, service, as_super_admin):
     service.ban.side_effect = AdminNotFound("user_not_found")
-    _failed(api_client.post(f"{BASE}/{USER_ID}/ban", json={"reason": "r"}), 404)
+    _failed(api_client.post(f"{BASE}/{USER_ID}/ban", json={"reason": "fraud"}), 404)
 
 
 def test_ban_upstream_failure_is_502(api_client, service, as_super_admin):
     service.ban.side_effect = AdminUpstreamError("AUDIT_FAILED")
-    _failed(api_client.post(f"{BASE}/{USER_ID}/ban", json={"reason": "r"}), 502)
+    _failed(api_client.post(f"{BASE}/{USER_ID}/ban", json={"reason": "fraud"}), 502)
 
 
 @pytest.mark.parametrize("payload", [
-    {"hours": 0, "reason": "r"},
-    {"hours": 87601, "reason": "r"},
-    {"hours": 1.5, "reason": "r"},
+    {"hours": 0, "reason": "fraud"},
+    {"hours": 87601, "reason": "fraud"},
+    {"hours": 1.5, "reason": "fraud"},
     {"hours": 1},
     {"hours": 1, "reason": ""},
     {"hours": 1, "reason": "   "},
     {"hours": 1, "reason": "x" * 501},
-    {"hours": 1, "reason": "r", "admin_id": "me"},
+    {"hours": 1, "reason": "fraud", "admin_id": "me"},
 ])
 def test_ban_invalid_body_is_422(api_client, service, as_super_admin, payload):
     _failed(api_client.post(f"{BASE}/{USER_ID}/ban", json=payload), 422)
@@ -205,12 +205,12 @@ def test_ban_invalid_body_is_422(api_client, service, as_super_admin, payload):
 
 
 def test_ban_without_ban_permission_is_403(api_client, service, as_admin):
-    _failed(api_client.post(f"{BASE}/{USER_ID}/ban", json={"reason": "r"}), 403)
+    _failed(api_client.post(f"{BASE}/{USER_ID}/ban", json={"reason": "fraud"}), 403)
     service.ban.assert_not_called()
 
 
 def test_ban_without_session_is_401(api_client, service):
-    _failed(api_client.post(f"{BASE}/{USER_ID}/ban", json={"reason": "r"}), 401)
+    _failed(api_client.post(f"{BASE}/{USER_ID}/ban", json={"reason": "fraud"}), 401)
 
 
 # ---------- unban ----------
@@ -229,20 +229,20 @@ def test_unban_passes_reason(api_client, service, as_super_admin):
 def test_unban_not_banned_is_409(api_client, service, as_super_admin):
     service.unban.side_effect = AdminConflict("not_banned")
 
-    response = api_client.post(f"{BASE}/{USER_ID}/unban", json={"reason": "r"})
+    response = api_client.post(f"{BASE}/{USER_ID}/unban", json={"reason": "fraud"})
 
     _failed(response, 409)
     assert _code(response) == "not_banned"
 
 
-@pytest.mark.parametrize("payload", [{}, {"reason": ""}, {"reason": "r", "hours": 1}])
+@pytest.mark.parametrize("payload", [{}, {"reason": ""}, {"reason": "fraud", "hours": 1}])
 def test_unban_invalid_body_is_422(api_client, service, as_super_admin, payload):
     _failed(api_client.post(f"{BASE}/{USER_ID}/unban", json=payload), 422)
     service.unban.assert_not_called()
 
 
 def test_unban_without_ban_permission_is_403(api_client, service, as_admin):
-    _failed(api_client.post(f"{BASE}/{USER_ID}/unban", json={"reason": "r"}), 403)
+    _failed(api_client.post(f"{BASE}/{USER_ID}/unban", json={"reason": "fraud"}), 403)
     service.unban.assert_not_called()
 
 
