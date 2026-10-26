@@ -4770,6 +4770,8 @@ GRANT EXECUTE ON FUNCTION public.admin_search_bundles(text, uuid[], boolean, int
     AD422  invalid_input  p_actor missing; a reason is required to deactivate (backstop of the
                           API rule); p_tag_ids NULL
     AD422  unknown_tag    a tag id does not exist (DETAIL has "tag_ids")
+    AD422  inactive_group_tag  a tag belongs to an inactive group, tags the bundle already has
+                          included (DETAIL has "tag_ids"); nothing is written (TEOS-168)
 
   Idempotent (CREATE OR REPLACE, REVOKE/GRANT). Depends on 050_admin_audit_helpers.sql and on
   the unique key bundle_tag(bundle_id, tag_id) (unique_bundle_tag in supabase_ddl.sql, also
@@ -4967,6 +4969,7 @@ AS $$
 DECLARE
     v_tag_ids  uuid[];
     v_missing  uuid[];
+    v_inactive uuid[];
     v_old_ids  jsonb;
     v_new_ids  jsonb;
     v_removed  integer := 0;
@@ -5013,6 +5016,22 @@ BEGIN
             ERRCODE = 'AD422',
             MESSAGE = format('unknown tag id(s): %s', array_to_string(v_missing, ', ')),
             DETAIL  = jsonb_build_object('code', 'unknown_tag', 'tag_ids', to_jsonb(v_missing))::text;
+    END IF;
+
+    -- TEOS-168: a bundle cannot be saved with any tag whose group is inactive, tags it already
+    -- has included: the admin removes those tags first. Refused before any write.
+    SELECT array_agg(t ORDER BY t)
+      INTO v_inactive
+      FROM unnest(v_tag_ids) AS t
+      JOIN public.tag AS g ON g.id = t
+      JOIN public.tag_group AS tg ON tg.id = g.tag_group_id
+     WHERE tg.is_active IS FALSE;
+
+    IF v_inactive IS NOT NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = format('tag(s) of an inactive group: %s', array_to_string(v_inactive, ', ')),
+            DETAIL  = jsonb_build_object('code', 'inactive_group_tag', 'tag_ids', to_jsonb(v_inactive))::text;
     END IF;
 
     SELECT coalesce(jsonb_agg(bt.tag_id::text ORDER BY bt.tag_id), '[]'::jsonb)
@@ -5126,12 +5145,22 @@ GRANT EXECUTE ON FUNCTION public.admin_set_bundle_tags(uuid, uuid[], uuid, text,
     admin_reorder_tags(p_group_id bigint, p_tag_ids uuid[], p_actor uuid,
                        p_ip text DEFAULT NULL, p_reason text DEFAULT NULL,
                        p_rotate_cache boolean DEFAULT true)
-      -> jsonb {tag_ids}       sorting_number = position in p_tag_ids (1-based)
+      -> jsonb {tag_ids}       sorting_number = position in p_tag_ids (1-based).
+         Already stored as 1..n in that order (or an empty group and an empty list): nothing
+         is written, audited or rotated (TEOS-197, TEOS-198).
+
+    admin_group_bundle_counts(p_group_ids bigint[])
+      -> TABLE(group_id bigint, bundle_count integer)
+         Distinct bundles tagged with any tag of each group; groups without bundles are
+         not returned (0). One call per list page (TEOS-173).
 
   Errors (SQLSTATE / MESSAGE / DETAIL is a JSON string with "code")
     AD404  not_found          group does not exist
     AD409  linked_bundles     a tag of the group (delete) or a deleted tag (edit)
-                              is assigned to a bundle; DETAIL has "bundle_count".
+                              is assigned to a bundle; DETAIL has "bundle_count"
+                              (distinct bundles, TEOS-176); on edit also "tag_ids" and
+                              "tags": [{id, name, bundle_count}] of the linked deleted
+                              tags (TEOS-196).
                               Nothing is changed (fixes MS-5064).
     AD422  tag_not_in_group   an updated / deleted / reordered tag belongs to
                               another group or does not exist (DETAIL "tag_ids")
@@ -5329,6 +5358,8 @@ DECLARE
     v_new_tags     jsonb  := coalesce(p_new_tags, '[]'::jsonb);
     v_updated_tags jsonb  := coalesce(p_updated_tags, '[]'::jsonb);
     v_bundle_count integer;
+    v_linked_ids   jsonb;
+    v_linked       jsonb;
     v_inserted     integer := 0;
     v_updated      integer := 0;
     v_removed      integer := 0;
@@ -5362,16 +5393,29 @@ BEGIN
             DETAIL  = jsonb_build_object('code', 'tag_not_in_group', 'group_id', p_id, 'tag_ids', to_jsonb(v_bad))::text;
     END IF;
 
-    -- a tag assigned to a bundle cannot be deleted (bundle_tag.tag_id has no cascade)
-    SELECT count(*) INTO v_bundle_count
+    -- a tag assigned to a bundle cannot be deleted (bundle_tag.tag_id has no cascade).
+    -- bundle_count = distinct bundles (TEOS-176); the 409 also names the linked tags (TEOS-196).
+    SELECT count(DISTINCT bt.bundle_id) INTO v_bundle_count
       FROM public.bundle_tag AS bt
      WHERE bt.tag_id = ANY (v_deleted);
 
     IF v_bundle_count > 0 THEN
+        SELECT jsonb_agg(l.id::text ORDER BY l.name, l.id),
+               jsonb_agg(jsonb_build_object('id', l.id::text, 'name', l.name, 'bundle_count', l.bundle_count)
+                         ORDER BY l.name, l.id)
+          INTO v_linked_ids, v_linked
+          FROM (SELECT t.id, t.name, count(DISTINCT bt.bundle_id)::int AS bundle_count
+                  FROM public.tag AS t
+                  JOIN public.bundle_tag AS bt ON bt.tag_id = t.id
+                 WHERE t.id = ANY (v_deleted)
+                 GROUP BY t.id, t.name) AS l;
+
         RAISE EXCEPTION USING
             ERRCODE = 'AD409',
             MESSAGE = 'linked_bundles',
-            DETAIL  = jsonb_build_object('code', 'linked_bundles', 'bundle_count', v_bundle_count)::text;
+            DETAIL  = jsonb_build_object('code', 'linked_bundles', 'bundle_count', v_bundle_count,
+                                         'tag_ids', coalesce(v_linked_ids, '[]'::jsonb),
+                                         'tags', coalesce(v_linked, '[]'::jsonb))::text;
     END IF;
 
     UPDATE public.tag_group
@@ -5457,8 +5501,9 @@ BEGIN
 
     v_group := public.admin_lock_group(p_id);
 
-    -- bundles reached through bundle_tag -> tag -> this group: refuse, change nothing
-    SELECT count(*) INTO v_bundle_count
+    -- bundles reached through bundle_tag -> tag -> this group: refuse, change nothing.
+    -- A bundle carrying several tags of the group counts once (TEOS-176).
+    SELECT count(DISTINCT bt.bundle_id) INTO v_bundle_count
       FROM public.bundle_tag AS bt
       JOIN public.tag AS t ON t.id = bt.tag_id
      WHERE t.tag_group_id = p_id;
@@ -5521,7 +5566,8 @@ BEGIN
             DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_actor')::text;
     END IF;
 
-    IF p_tag_ids IS NULL OR cardinality(p_tag_ids) = 0 THEN
+    -- an empty array is accepted (TEOS-198): fine for a group without tags, incomplete_order otherwise
+    IF p_tag_ids IS NULL THEN
         RAISE EXCEPTION USING
             ERRCODE = 'AD422',
             MESSAGE = 'p_tag_ids must list every tag of the group',
@@ -5562,6 +5608,16 @@ BEGIN
                                          'missing_tag_ids', to_jsonb(v_missing))::text;
     END IF;
 
+    -- TEOS-197 / TEOS-198: every tag already has sorting_number = its position in p_tag_ids
+    -- (an empty group sent an empty list included): no write, no audit row, no cache rotation.
+    -- Comparing the stored numbers, not only the order, still writes a same order stored as 3, 7, 9.
+    IF NOT EXISTS (SELECT 1
+                     FROM unnest(p_tag_ids) WITH ORDINALITY AS o(id, n)
+                     JOIN public.tag AS t ON t.id = o.id AND t.tag_group_id = p_group_id
+                    WHERE t.sorting_number IS DISTINCT FROM o.n::integer) THEN
+        RETURN jsonb_build_object('tag_ids', to_jsonb(p_tag_ids));
+    END IF;
+
     SELECT coalesce(jsonb_agg(t.id ORDER BY t.sorting_number, t.name, t.id), '[]'::jsonb)
       INTO v_old
       FROM public.tag AS t
@@ -5590,6 +5646,27 @@ END;
 $$;
 
 ------------------------------------------------------------------------------
+-- admin_group_bundle_counts (TEOS-173)
+------------------------------------------------------------------------------
+-- bundle_tag is read by tag_id here and in the linked_bundles checks; its only other index is
+-- unique_bundle_tag (bundle_id, tag_id), which does not serve a lookup by tag_id.
+CREATE INDEX IF NOT EXISTS bundle_tag_tag_id_idx ON public.bundle_tag (tag_id);
+
+CREATE OR REPLACE FUNCTION public.admin_group_bundle_counts(p_group_ids bigint[])
+RETURNS TABLE (group_id bigint, bundle_count integer)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+    SELECT t.tag_group_id, count(DISTINCT bt.bundle_id)::integer
+      FROM public.tag AS t
+      JOIN public.bundle_tag AS bt ON bt.tag_id = t.id
+     WHERE t.tag_group_id = ANY (coalesce(p_group_ids, ARRAY[]::bigint[]))
+     GROUP BY t.tag_group_id;
+$$;
+
+------------------------------------------------------------------------------
 -- Privileges: service_role only
 ------------------------------------------------------------------------------
 REVOKE ALL ON FUNCTION public.admin_group_snapshot(bigint)                           FROM PUBLIC, anon, authenticated;
@@ -5611,6 +5688,10 @@ GRANT EXECUTE ON FUNCTION public.admin_edit_tag_group(bigint, text, integer, tex
 GRANT EXECUTE ON FUNCTION public.admin_delete_group(bigint, uuid, text, text, boolean)
     TO service_role;
 GRANT EXECUTE ON FUNCTION public.admin_reorder_tags(bigint, uuid[], uuid, text, text, boolean)
+    TO service_role;
+REVOKE ALL ON FUNCTION public.admin_group_bundle_counts(bigint[])
+    FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_group_bundle_counts(bigint[])
     TO service_role;
 
 

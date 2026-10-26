@@ -113,7 +113,8 @@ def list_groups(search: Optional[str] = Query(None, max_length=100, description=
                 group_category: Optional[GroupCategory] = Query(None, description="on_land or at_sea"),
                 page: PageParams = Depends(page_params),
                 user: AdminUser = Depends(require_permission("admin.groups.read"))) -> Response:
-    """Groups, newest first, each with ``tag_count``; ``facets:{all,active,inactive}`` over the searched set
+    """Groups, newest first, each with ``tag_count`` and ``bundle_count`` (distinct bundles tagged with any of
+    the group's tags, TEOS-173); ``facets:{all,active,inactive}`` over the searched set
     (search, ``type`` and ``group_category`` applied, the status tab not: TEOS-174)."""
     return ok_page(service.list(search, status, page, type=type, group_category=group_category))
 
@@ -122,7 +123,8 @@ def list_groups(search: Optional[str] = Query(None, max_length=100, description=
 def get_group(group_id: int = GroupId,
               tag_search: Optional[str] = Query(None, max_length=100, description="part of a tag name"),
               user: AdminUser = Depends(require_permission("admin.groups.read"))) -> Response:
-    """One group with its tags ordered by sorting_number then name (``tag_search`` filters them). 404 unknown id."""
+    """One group with its tags ordered by sorting_number then name (``tag_search`` filters them), plus
+    ``bundle_count``. 404 unknown id."""
     return ok(service.get(group_id, tag_search))
 
 
@@ -150,7 +152,8 @@ def update_group(request: Request, group_id: int = GroupId,
                  user: AdminUser = Depends(require_permission("admin.groups.write")),
                  form: Tuple[AdminGroupUpdate, Dict[str, bytes]] = Depends(update_form)) -> Response:
     """200 group with tags. 404; 409 ``duplicate_group_name`` / ``duplicate_tag_name`` / ``linked_bundles``
-    (a deleted tag is assigned to a bundle); 422 tag of another group, unknown icon, bad payload."""
+    (a deleted tag is assigned to a bundle: ``{"code":"linked_bundles","bundle_count":n,"tag_ids":[...],
+    "tags":[{"id","name","bundle_count"}]}``, TEOS-196); 422 tag of another group, unknown icon, bad payload."""
     payload, files = form
     return ok(service.update(group_id, payload, files, audit_context(user, request)))
 
@@ -159,7 +162,8 @@ def update_group(request: Request, group_id: int = GroupId,
 def delete_group(request: Request, group_id: int = GroupId,
                  user: AdminUser = Depends(require_permission("admin.groups.write"))) -> HttpResponse:
     """204, then the tag icons are removed from storage. 404 unknown id;
-    409 ``{"code":"linked_bundles","bundle_count":n}`` when a tag is assigned to a bundle (nothing changes)."""
+    409 ``{"code":"linked_bundles","bundle_count":n}`` (n = distinct bundles) when a tag is assigned to a bundle
+    (nothing changes)."""
     service.delete(group_id, audit_context(user, request))
     return HttpResponse(status_code=204)
 
@@ -175,5 +179,6 @@ def set_group_status(request: Request, body: AdminStatusPatch, group_id: int = G
 def reorder_group_tags(request: Request, body: AdminTagOrder, group_id: int = GroupId,
                        user: AdminUser = Depends(require_permission("admin.groups.write"))) -> Response:
     """``tag_ids`` = every tag of the group in the wanted order; ``sorting_number`` becomes the position.
-    404 unknown group; 422 when a tag is missing, repeated or belongs to another group."""
+    404 unknown group; 422 when a tag is missing, repeated or belongs to another group. The order already
+    stored, or ``[]`` on a group without tags, is 200 with nothing written, audited or rotated (TEOS-197, 198)."""
     return ok(service.reorder(group_id, body.tag_ids, audit_context(user, request)))

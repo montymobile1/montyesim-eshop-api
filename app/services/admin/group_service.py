@@ -98,19 +98,24 @@ class GroupAdminService:
 
     def list(self, search: Optional[str], status: str, page: PageParams, type: Optional[int] = None,
              group_category: Optional[str] = None) -> AdminPage:
+        """Each row carries ``tag_count`` and ``bundle_count`` (distinct bundles, one SQL call for the page:
+        TEOS-173)."""
         result = self.repo.search(search, status, page, type=type, group_category=group_category)
-        return AdminPage(data=[self._group(row) for row in result.rows], total_count=result.total,
+        counts = self.repo.bundle_counts([row.get("id") for row in result.rows])
+        data = [{**self._group(row), "bundle_count": counts.get(row.get("id"), 0)} for row in result.rows]
+        return AdminPage(data=data, total_count=result.total,
                          facets=self.repo.facets(search, type=type, group_category=group_category))
 
     def get(self, group_id: int, tag_search: Optional[str] = None) -> Dict[str, Any]:
-        """The group with its tags (filtered by ``tag_search``), plus ``top_countries_count`` for Countries."""
+        """The group with its tags (filtered by ``tag_search``), plus ``top_countries_count`` for Countries
+        and ``bundle_count`` (TEOS-173)."""
         row = self.repo.get_with_tags(group_id, tag_search)
         if row is None:
             raise AdminNotFound("not_found")
         top = None
         if (row.get("name") or "").strip().lower() == COUNTRIES_GROUP:
             top = self.repo.top_countries_count()
-        return self._detail(row, row.get("tag") or [], top)
+        return {**self._detail(row, row.get("tag") or [], top), "bundle_count": self._bundle_count(group_id)}
 
     def tags(self, group_id: int) -> List[Dict[str, Any]]:
         self.repo.get_or_404(group_id, select="id")
@@ -206,7 +211,7 @@ class GroupAdminService:
         paths = [path for path in to_remove if path and path not in fresh]
         if paths:
             self.media.remove_after_commit(paths, reason=f"group {group_id} edited")
-        return self._from_result(result)
+        return {**self._from_result(result), "bundle_count": self._bundle_count(group_id)}
 
     def delete(self, group_id: int, ctx: AuditContext) -> None:
         """Audited delete of the group and its tags; 409 ``linked_bundles`` (with ``bundle_count``) when a
@@ -222,7 +227,9 @@ class GroupAdminService:
         return {"id": row.get("id"), "is_active": bool(row.get("is_active"))}
 
     def reorder(self, group_id: int, tag_ids: List[str], ctx: AuditContext) -> Dict[str, Any]:
-        """``sorting_number`` = position in ``tag_ids``; 422 when a tag is missing or belongs elsewhere."""
+        """``sorting_number`` = position in ``tag_ids``; 422 when a tag is missing or belongs elsewhere.
+        The order already stored, or ``[]`` on a group without tags, is 200 with no audit row and no cache
+        rotation (decided in ``admin_reorder_tags``: TEOS-197, TEOS-198)."""
         result = self.repo.reorder_tags(group_id, tag_ids, ctx, rotate_cache=ROTATE_CACHE)
         return {"tag_ids": [str(tag_id) for tag_id in (result or {}).get("tag_ids") or tag_ids]}
 
@@ -241,6 +248,9 @@ class GroupAdminService:
             if key in seen:
                 raise AdminConflict("duplicate_tag_name")
             seen.add(key)
+
+    def _bundle_count(self, group_id: int) -> int:
+        return self.repo.bundle_counts([group_id]).get(int(group_id), 0)
 
     @staticmethod
     def _only_known_files(files: Dict[str, bytes], keys: Iterable[str]) -> None:

@@ -13,8 +13,10 @@ from app.config.db import DatabaseTables
 from app.repo.admin.base import AdminBaseRepository, Paged
 from app.schemas.admin.common import PageParams
 
-#: The list select: the rule plus its action and event (PostgREST embeds).
-RULE_SELECT = "*,promotion_rule_action(id,name),promotion_rule_event(id,name)"
+#: The list select: the rule plus its action and event (PostgREST embeds) and ``promotion: [{"count": n}]``,
+#: the number of promotions using the rule (PostgREST embedded count over the ``promotion.rule_id`` foreign
+#: key, computed in the same query for the whole page; TEOS-210).
+RULE_SELECT = "*,promotion_rule_action(id,name),promotion_rule_event(id,name),promotion(count)"
 
 
 class PromotionRuleAdminRepo(AdminBaseRepository):

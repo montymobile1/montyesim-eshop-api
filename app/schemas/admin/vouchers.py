@@ -4,6 +4,8 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.schemas.admin.common import StrictNumber
+
 VoucherStatus = Literal["all", "active", "inactive", "used", "expired"]
 
 #: TEOS-133: letters, digits and "-", 4 to 32 characters. Letters are accepted in any case and stored upper
@@ -20,9 +22,10 @@ GENERATED_CODE_LENGTH = 12
 class AdminVoucherCreate(BaseModel):
     """Body of ``POST /vouchers``. ``code`` is optional: omitted (or null) the server generates one;
     given, it is stored upper case. ``amount`` > 0 and at most the VOUCHER_MAX_AMOUNT setting (checked by the
-    service). ``expired_at`` is a calendar day (``YYYY-MM-DD``), today or later."""
+    service), and a JSON number: "5" is a 422 instead of being converted (TEOS-215). ``expired_at`` is a
+    calendar day (``YYYY-MM-DD``), today or later."""
     code: Optional[str] = Field(None, pattern=VOUCHER_CODE_PATTERN)
-    amount: float = Field(..., gt=0)
+    amount: StrictNumber = Field(..., gt=0)
     expired_at: Optional[date] = None
 
     model_config = ConfigDict(extra="forbid")

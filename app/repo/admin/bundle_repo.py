@@ -19,7 +19,7 @@ LOOKUP_SELECT = "id,display_title:data->>display_title,bundle_code:data->>bundle
 LIST_SELECT = "id,bundle_name,is_active,created_at,updated_at,data"
 DETAIL_SELECT = (
     "id,bundle_name,is_active,created_at,updated_at,data,"
-    "bundle_tag(id,tag(id,name,icon,tag_group(id,name,type,group_category)))"
+    "bundle_tag(id,tag(id,name,icon,tag_group(id,name,type,group_category,is_active)))"
 )
 
 
@@ -28,6 +28,9 @@ def _has_text(value: Optional[str]) -> bool:
 
 
 class BundleAdminRepo(AdminBaseRepository):
+    #: admin_set_bundle_tags: 422 developerMessage {"code": "inactive_group_tag", "tag_ids": [...]} (TEOS-168)
+    STRUCTURED_VALIDATION_CODES = frozenset({"inactive_group_tag"})
+
     def __init__(self):
         super().__init__(DatabaseTables.TABLE_BUNDLE)
 
@@ -120,7 +123,8 @@ class BundleAdminRepo(AdminBaseRepository):
         })
 
     def set_tags(self, bundle_id: str, tag_ids: List[str], ctx: AuditContext) -> Dict[str, Any]:
-        """``{id, tag_ids, added, removed}``. AD404 unknown bundle; AD422 unknown_tag."""
+        """``{id, tag_ids, added, removed}``. AD404 unknown bundle; AD422 unknown_tag; AD422
+        inactive_group_tag (any tag of an inactive group, already-linked tags included, TEOS-168)."""
         return self.rpc("admin_set_bundle_tags", {
             "p_bundle_id": str(bundle_id), "p_tag_ids": [str(t) for t in tag_ids],
             "p_actor": ctx.actor_id, "p_ip": ctx.ip, "p_reason": ctx.reason,

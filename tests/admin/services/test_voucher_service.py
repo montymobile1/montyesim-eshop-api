@@ -77,7 +77,7 @@ def test_create_inserts_audited_row(svc, repo):
 
     result = svc.create(AdminVoucherCreate(code="new1", amount=12, expired_at="2099-01-01"), CTX)
 
-    repo.insert_audited.assert_called_once_with({"code": "NEW1", "amount": 12.0, "expired_at": "2099-01-01"}, CTX)
+    repo.insert_audited.assert_called_once_with({"code": "NEW1", "amount": 12.0, "expired_at": "2099-01-01T23:59:59.999999"}, CTX)
     assert result["code"] == "NEW1" and result["used_by_user"] is None
 
 

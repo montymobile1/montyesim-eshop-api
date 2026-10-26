@@ -65,6 +65,10 @@ class AdminBaseRepository(BaseRepository):
     #: Unique-constraint name fragment -> 409 code returned to the portal, e.g.
     #: {"promotion_code_key": "duplicate_code"}. Unlisted duplicates return "duplicate".
     UNIQUE_CONFLICTS: Dict[str, str] = {}
+    #: AD422 DETAIL codes returned as the JSON ``{"code": ..., ...}`` developerMessage (like the 409s)
+    #: instead of the plain MESSAGE text, e.g. {"inactive_group_tag"} (TEOS-168). Unlisted codes keep
+    #: the text, so no existing 422 changes.
+    STRUCTURED_VALIDATION_CODES: frozenset = frozenset()
 
     def __init__(self, table_name: DatabaseTables, model: Type[BaseModel] = AdminRow):
         super().__init__(table_name, model)
@@ -234,6 +238,8 @@ class AdminBaseRepository(BaseRepository):
         if code == "AD409":
             conflict_code = detail.pop("code", None) or message or "conflict"
             return AdminConflict(conflict_code, **detail)
+        if code == "AD422" and detail.get("code") in self.STRUCTURED_VALIDATION_CODES:
+            return AdminValidationError(json.dumps(detail, default=str))
         if code == "AD422" or code in ("22P02", "23502", "23514", "P0001"):
             return AdminValidationError(message or "invalid input")
         logger.error(f"admin repository {self.table_name}: database error {code}: {message}")

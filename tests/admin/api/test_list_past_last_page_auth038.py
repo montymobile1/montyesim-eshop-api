@@ -39,6 +39,9 @@ class FakePostgrest:
     """Answers PostgREST table reads: ``count=exact`` selects and HEAD counts. The total is TOTAL, or
     FILTERED_TOTAL when the query carries one of FILTER_MARKERS (a search or filter of the test)."""
 
+    #: The only RPCs a PostgREST list makes: the groups page reads its bundle counts (TEOS-173), none here.
+    RPC_ANSWERS = {"/rest/v1/rpc/admin_group_bundle_counts": []}
+
     def __init__(self):
         self.reads = []  # (table, {param: value}) of every GET
 
@@ -47,6 +50,8 @@ class FakePostgrest:
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         path = urlsplit(str(request.url)).path
+        if path in self.RPC_ANSWERS:
+            return httpx.Response(200, json=self.RPC_ANSWERS[path], request=request)
         assert path.startswith("/rest/v1/") and "/rpc/" not in path, f"unexpected call {request.method} {path}"
         table = path.rsplit("/", 1)[-1]
         query = unquote(request.url.query.decode())

@@ -18,8 +18,8 @@ from app.services.admin.user_service import UserAdminService
 
 router = admin_router()
 
-# MS-5077: GET /lookup. Keep it above any /{id} route.
-add_lookup_route(router, "users", "admin.users.read")
+# MS-5077: GET /lookup. Keep it above any /{id} route. A 1-character search is a 422 (TEOS-147).
+add_lookup_route(router, "users", "admin.users.read", min_search_length=2)
 
 # ---------- MS-5079: users page and user detail ----------
 
@@ -66,7 +66,7 @@ def unban_user(body: AdminUserUnban, request: Request, user_id: UUID = UserId,
     return ok(service.unban(str(user_id), body, audit_context(user, request, body.reason)))
 
 
-@router.get("/{user_id}/devices", summary="The user's devices, newest first")
+@router.get("/{user_id}/devices", summary="The user's devices, newest first (404 unknown user)")
 def list_user_devices(user_id: UUID = UserId, page: PageParams = Depends(page_params),
                       user: AdminUser = Depends(require_permission("admin.devices.read"))) -> Response:
     return ok_page(service.list_devices(str(user_id), page))
@@ -75,7 +75,7 @@ def list_user_devices(user_id: UUID = UserId, page: PageParams = Depends(page_pa
 @router.get("/{user_id}/wallet-transactions", response_model=Response[AdminPage[AdminWalletTransaction]])
 def list_user_wallet_transactions(user_id: UUID = UserId, page: PageParams = Depends(page_params),
                                   user: AdminUser = Depends(require_permission("admin.users.read"))) -> Response:
-    """The user's wallet transactions, newest first, with the true total."""
+    """The user's wallet transactions, newest first, with the true total. 404 unknown user."""
     return ok_page(service.list_wallet_transactions(str(user_id), page))
 
 
@@ -86,6 +86,6 @@ def list_user_referrals(user_id: UUID = UserId,
                         referral_date: Optional[date] = Query(None, alias="date"),
                         page: PageParams = Depends(page_params),
                         user: AdminUser = Depends(require_permission("admin.referrals.read"))) -> Response:
-    """The user's referral transactions (same filters as `GET /referrals`)."""
+    """The user's referral transactions (same filters as `GET /referrals`). 404 unknown user."""
     return ok_page(service.list_referrals(str(user_id), page, search=search, from_email=from_email,
                                           referral_date=referral_date))

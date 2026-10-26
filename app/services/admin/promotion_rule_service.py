@@ -1,6 +1,7 @@
 """Promotion rules page of the admin portal (MS-5087).
 
-- list: literal search on ``id_text``, action and event filters, action/event joined by PostgREST;
+- list: literal search on ``id_text``, action and event filters, action/event joined by PostgREST, and
+  ``promotion_count`` (promotions using the rule) counted in the same query (TEOS-210);
 - actions and events: the two small reference tables;
 - create and edit: uniqueness by the database (unique ``(action, event, max_usage)``, 409
   ``duplicate_rule``) instead of a browser read-then-write (MS-5070); audited in the same transaction;
@@ -14,6 +15,14 @@ from app.repo.admin.promotion_rule_repo import (PromotionRuleActionAdminRepo, Pr
                                                 PromotionRuleEventAdminRepo)
 from app.schemas.admin.common import AdminPage, PageParams
 from app.schemas.admin.promotion_rules import AdminPromotionRuleBody
+
+
+def _promotion_count(row: Dict[str, Any]) -> int:
+    """The PostgREST embedded count ``promotion: [{"count": n}]``; 0 when absent."""
+    embedded = row.get("promotion")
+    if isinstance(embedded, list) and embedded and isinstance(embedded[0], dict):
+        return int(embedded[0].get("count") or 0)
+    return 0
 
 
 def shape_rule(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -31,6 +40,7 @@ def shape_rule(row: Dict[str, Any]) -> Dict[str, Any]:
         "created_at": row.get("created_at"),
         "action": {"id": action["id"], "name": action.get("name")} if action else None,
         "event": {"id": event["id"], "name": event.get("name")} if event else None,
+        "promotion_count": _promotion_count(row),
     }
 
 

@@ -114,6 +114,8 @@ class BundleAdminService:
                     "group": {
                         "id": group.get("id"), "name": group.get("name"), "type": group.get("type"),
                         "group_category": group.get("group_category"),
+                        # TEOS-168: NULL counts as active, as admin_set_bundle_tags does (is_active IS FALSE)
+                        "is_active": group.get("is_active") is not False,
                     } if group and group.get("id") is not None else None,
                 },
             })

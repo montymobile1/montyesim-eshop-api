@@ -56,7 +56,8 @@ def normalize_alternative_country(value: Union[str, List[str], None]) -> Optiona
 
 
 class AdminGroup(BaseModel):
-    """A tag group as the list returns it (``tag_count`` = number of its tags)."""
+    """A tag group as the list returns it (``tag_count`` = number of its tags, ``bundle_count`` = number
+    of distinct bundles tagged with any of its tags, TEOS-173)."""
     id: int
     name: Optional[str] = None
     type: Optional[int] = None
@@ -65,6 +66,7 @@ class AdminGroup(BaseModel):
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
     tag_count: int = 0
+    bundle_count: int = 0
 
 
 class AdminTag(BaseModel):
@@ -168,8 +170,9 @@ class AdminGroupUpdate(_GroupFields):
 
 
 class AdminTagOrder(BaseModel):
-    """Body of PUT /groups/{id}/tags/order: every tag of the group, in the wanted order."""
-    tag_ids: List[str] = Field(..., min_length=1, max_length=MAX_TAGS)
+    """Body of PUT /groups/{id}/tags/order: every tag of the group, in the wanted order. ``[]`` is accepted
+    for a group without tags (200, nothing written); on a group with tags it is 422 incomplete_order (TEOS-198)."""
+    tag_ids: List[str] = Field(..., min_length=0, max_length=MAX_TAGS)
 
     model_config = ConfigDict(extra="forbid")
 

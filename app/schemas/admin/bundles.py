@@ -4,7 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.schemas.admin.common import AdminStatusPatch
+from app.schemas.admin.common import AdminReason, AdminStatusPatch
 
 BundleStatus = Literal["all", "active", "inactive"]
 
@@ -29,6 +29,7 @@ class AdminBundleTagGroup(BaseModel):
     name: Optional[str] = None
     type: Optional[int] = None
     group_category: Optional[str] = None
+    is_active: bool = True  # TEOS-168: the assign page flags tags of an inactive group
 
 
 class AdminBundleTagItem(BaseModel):
@@ -75,7 +76,9 @@ def _reason_required_when_deactivating(is_active: bool, reason: Optional[str]) -
 
 
 class AdminBundleStatusPatch(AdminStatusPatch):
-    """``PATCH /bundles/{id}/status``: the standard status body, the reason being required to deactivate."""
+    """``PATCH /bundles/{id}/status``: the standard status body, the reason being required to deactivate.
+    A reason, when given, is 3 to 500 characters after trimming (TEOS-166)."""
+    reason: Optional[AdminReason] = None
 
     @model_validator(mode="after")
     def _check_reason(self):
@@ -90,9 +93,10 @@ class AdminBundleStatus(BaseModel):
 
 class AdminBundleBulkStatus(BaseModel):
     """Body of ``POST /bundles/status/bulk``: every bundle goes to ``is_active``; a reason is required
-    to deactivate (optional to activate), as in the portal dialogs."""
+    to deactivate (optional to activate), as in the portal dialogs; 3 to 500 characters after trimming
+    (TEOS-166)."""
     is_active: bool
-    reason: Optional[str] = Field(None, min_length=1, max_length=500)
+    reason: Optional[AdminReason] = None
 
     model_config = ConfigDict(extra="forbid")
 

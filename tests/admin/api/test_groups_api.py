@@ -359,7 +359,8 @@ def test_reorder_sends_the_ordered_ids(api_client, service, as_admin):
     assert (group_id, tag_ids) == (7, [TAG_ID_2, TAG_ID])
 
 
-@pytest.mark.parametrize("body", [{"tag_ids": []}, {"tag_ids": ["x"]}, {"tag_ids": [TAG_ID, TAG_ID]},
+# {"tag_ids": []} is valid since TEOS-198 (a group without tags): see test_groups_qa_bugs_teos.py
+@pytest.mark.parametrize("body", [{"tag_ids": ["x"]}, {"tag_ids": [TAG_ID, TAG_ID]},
                                   {"tag_ids": [TAG_ID], "extra": 1}, {}])
 def test_reorder_bad_body_is_422(api_client, service, as_admin, body):
     _failed(api_client.put(f"{BASE}/7/tags/order", json=body), 422)
