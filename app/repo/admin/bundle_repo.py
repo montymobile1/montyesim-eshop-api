@@ -4,8 +4,8 @@
 - list, detail, rename, status, bulk status and tag set: MS-5083 (bundles page, assign to groups).
 
 Reads go through PostgREST, except a search by text or by tags, which needs the ``bundle_tag``
-join and therefore the ``admin_search_bundles`` SQL function (migrations/admin/060). Writes go
-through the audited SQL functions of migrations/admin/061 (``admin_set_bundle_status``,
+join and therefore the ``admin_search_bundles`` SQL function (supabase_ddl.sql, section 060). Writes go
+through the audited SQL functions of supabase_ddl.sql, section 061 (``admin_set_bundle_status``,
 ``admin_set_all_bundles_status``, ``admin_set_bundle_tags``), which rotate APP_CACHE_KEY and write
 the audit row in the same transaction, as the portal did from the browser in three calls.
 """
@@ -103,7 +103,7 @@ class BundleAdminRepo(AdminBaseRepository):
         response = self._run(lambda: self.table.select(DETAIL_SELECT).eq("id", bundle_id).limit(1).execute())
         return response.data[0] if response.data else None
 
-    # ---------- writes (SQL: migrations/admin/061_bundles_admin.sql) ----------
+    # ---------- writes (SQL: supabase_ddl.sql, section 061_bundles_admin.sql) ----------
 
     def rename(self, bundle_id: str, bundle_name: str, ctx: AuditContext) -> Dict[str, Any]:
         """Audited update of ``bundle_name``; APP_CACHE_KEY rotates (the storefront shows the name)."""

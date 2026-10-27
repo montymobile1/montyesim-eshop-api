@@ -42,7 +42,7 @@ class AuditLogRepo(AdminBaseRepository):
     def search(self, page: PageParams, *, table: Optional[str] = None, operation: Optional[str] = None,
                changed_by: Optional[str] = None, changed_from: Optional[datetime] = None,
                changed_to: Optional[datetime] = None, setting_key: Optional[str] = None) -> AuditSearch:
-        """One page through ``admin_audit_log_search`` (migrations/admin/110_audit_search.sql), ordered
+        """One page through ``admin_audit_log_search`` (supabase_ddl.sql, section 110_audit_search.sql), ordered
         ``changed_at desc, id desc``. ``operation`` is matched against the normalised operation (legacy
         aliases mapped in SQL); ``changed_to`` is exclusive; ``setting_key`` keeps app_config rows where
         that key's value changed. ``facets_by_table`` counts every filter except ``table``."""

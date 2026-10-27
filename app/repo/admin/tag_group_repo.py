@@ -2,7 +2,7 @@
 
 - ``lookup``: MS-5077 (group dropdowns);
 - list, detail, create, edit, delete, status and reorder: MS-5085. The multi-row writes go through
-  the ``admin_*`` SQL functions of ``migrations/admin/070_groups.sql``, which write the audit row
+  the ``admin_*`` SQL functions of supabase_ddl.sql, section 070_groups.sql, which write the audit row
   and rotate ``APP_CACHE_KEY`` in the same transaction.
 """
 from typing import Any, Dict, List, Optional
@@ -25,7 +25,7 @@ def _tag_order(tag: Dict[str, Any]):
 
 class TagGroupAdminRepo(AdminBaseRepository):
     # tag_group_name_key: unique on tag_group.name (supabase_ddl.sql);
-    # unique_tag_name_per_group: unique tag(name, tag_group_id) (migrations/admin/020_constraints.sql)
+    # unique_tag_name_per_group: unique tag(name, tag_group_id) (supabase_ddl.sql, section 020_constraints.sql)
     UNIQUE_CONFLICTS = {"tag_group_name_key": "duplicate_group_name",
                         "unique_tag_name_per_group": "duplicate_tag_name"}
 
@@ -109,7 +109,7 @@ class TagGroupAdminRepo(AdminBaseRepository):
         except (TypeError, ValueError):
             return None
 
-    # ---------- writes (SQL: migrations/admin/070_groups.sql) ----------
+    # ---------- writes (SQL: supabase_ddl.sql, section 070_groups.sql) ----------
 
     def insert_group_with_tags(self, group: Dict[str, Any], tags: List[Dict[str, Any]], ctx: AuditContext,
                                rotate_cache: bool = True) -> Dict[str, Any]:

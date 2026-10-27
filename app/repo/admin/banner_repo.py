@@ -9,7 +9,7 @@ _STATUS_ACTIVE = {"active": True, "inactive": False}
 
 
 class BannerAdminRepo(AdminBaseRepository):
-    # banner_title_lower_key: unique index on lower(title), migrations/admin/020_constraints.sql
+    # banner_title_lower_key: unique index on lower(title), supabase_ddl.sql, section 020_constraints.sql
     UNIQUE_CONFLICTS = {"banner_title_lower_key": "duplicate_title"}
 
     def __init__(self):

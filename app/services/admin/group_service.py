@@ -1,7 +1,7 @@
 """Groups pages of the admin portal (MS-5085): list, detail, add, edit, delete, status, tag order.
 
 Tags belong to a group; the group and its tags are saved in one request and one transaction
-(SQL functions of ``migrations/admin/070_groups.sql``, audited, ``APP_CACHE_KEY`` rotated).
+(SQL functions of supabase_ddl.sql, section 070_groups.sql, audited, ``APP_CACHE_KEY`` rotated).
 
 Icons go through ``MediaStorageService`` (bucket ``media``, folder = the group name), as the
 portal uploads them today, but now in this order:

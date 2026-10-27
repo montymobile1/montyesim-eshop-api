@@ -1,7 +1,7 @@
 """TEOS-271: the per-user tables stay locked down in the schema files.
 
-Read from supabase_ddl.sql (a fresh environment) and from the migration under db/rls_user_tables
-(existing environments): every per-user table has ROW LEVEL SECURITY enabled and forced, the owned
+Read from supabase_ddl.sql, the only schema file (fresh environments load it whole, existing ones
+run its RLS section): every per-user table has ROW LEVEL SECURITY enabled and forced, the owned
 tables have their ``FOR SELECT TO authenticated`` policy on the owner column, the tables the old
 admin portal reads have the admin policy (``app_metadata.role``), there is no other policy, and
 nothing later in the file disables it again. A future table edit cannot silently drop the lock-down.
@@ -17,8 +17,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 DDL = ROOT / "supabase_ddl.sql"
-MIGRATION_UP = ROOT / "db" / "rls_user_tables" / "001_rls_user_tables.up.sql"
-MIGRATION_DOWN = ROOT / "db" / "rls_user_tables" / "001_rls_user_tables.down.sql"
 
 UID = "(select auth.uid())"
 #: table -> (policy name, USING expression) of its only policy
@@ -126,9 +124,9 @@ def rls_state(sql: str):
     return state
 
 
-@pytest.fixture(scope="module", params=[DDL, MIGRATION_UP], ids=["supabase_ddl", "migration"])
-def state(request):
-    return rls_state(request.param.read_text())
+@pytest.fixture(scope="module")
+def state():
+    return rls_state(DDL.read_text())
 
 
 @pytest.mark.parametrize("table", ALL_TABLES)
@@ -161,7 +159,7 @@ def test_scanner_sees_a_nested_comment_like_postgres():
 
 
 def test_a_later_disable_or_drop_is_caught():
-    sql = MIGRATION_UP.read_text() + """
+    sql = DDL.read_text() + """
         ALTER TABLE public.device DISABLE ROW LEVEL SECURITY;
         ALTER TABLE public.notification NO FORCE ROW LEVEL SECURITY;
         DROP POLICY user_order_select_own ON public.user_order;
@@ -172,8 +170,3 @@ def test_a_later_disable_or_drop_is_caught():
     assert not state["notification"]["forced"]
     assert "user_order_select_own" not in state["user_order"]["policies"]
     assert "device_insert" in state["device"]["policies"]
-
-
-def test_down_migration_undoes_the_up_migration():
-    state = rls_state(MIGRATION_UP.read_text() + "\n" + MIGRATION_DOWN.read_text())
-    assert all(not s["enabled"] and not s["forced"] and not s["policies"] for s in state.values())
