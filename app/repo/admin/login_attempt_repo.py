@@ -1,6 +1,6 @@
 """Shared counter store of the admin login rate limit (TEOS-109).
 
-Both calls are RPCs from db/admin_login_rate_limit/001_admin_login_attempt.up.sql, so every
+Both calls are RPCs from supabase_ddl.sql (section "admin login rate limit"), so every
 uvicorn worker and every instance counts the same attempts:
 
 - ``begin``: counts the attempts of the last ``window_seconds`` for the IP and for the email,

@@ -1,6 +1,6 @@
 """Read-only check of the admin portal accounts before the RLS migration (TEOS-268).
 
-After db/rls_user_tables, a user JWT reads other users' rows of user_order, user_wallet,
+Once the RLS section of supabase_ddl.sql is applied, a user JWT reads other users' rows of user_order, user_wallet,
 user_wallet_transaction, promotion_usage, device, users_copy and contact_us only when its
 ``app_metadata.role`` is ``admin`` or ``super_admin`` (the role the admin API also checks). The old
 admin portal reads those tables with the signed-in admin's JWT and never checked that role, so an
@@ -112,7 +112,7 @@ def report(candidates: List[Candidate], total: int, log: Callable[[str], None] =
     flagged = [c for c in candidates if c.flag != "ok"]
     if flagged:
         log(f"!!! {len(flagged)} flagged: set a role with --set-role admin|super_admin --email <email> "
-            f"before applying db/rls_user_tables, or confirm they are not portal admins")
+            f"before applying the RLS section of supabase_ddl.sql, or confirm they are not portal admins")
     return len(flagged)
 
 

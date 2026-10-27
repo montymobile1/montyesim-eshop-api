@@ -6,8 +6,9 @@ scopes every query in code (`where={"user_id": user.id}`). Clients also get the 
 client can query PostgREST directly with its own JWT. Before this change, `select * from user_order`
 with any user's JWT returned every user's orders.
 
-Migration: `db/rls_user_tables/001_rls_user_tables.up.sql` (down: `.down.sql`). The same block is at
-the end of `supabase_ddl.sql`, so a fresh environment comes up locked down.
+SQL: the last section of `supabase_ddl.sql`, from the header `Row level security on the per-user
+tables (TEOS-268)` to the end of the file. A fresh environment loaded from the file comes up locked
+down; an existing one runs that section (it is idempotent).
 
 ## What a request sees
 
@@ -37,13 +38,13 @@ This policy exists because the old admin portal (`montyesim-eshop-admin` main) r
 `export_referrals_data`) with the signed-in admin's JWT. It can go once every environment uses the
 admin API.
 
-## Safety checks in the migration
+## Safety checks in the SQL
 
 - The owner of every table above and of every SECURITY DEFINER function in public must be a superuser
-  or have BYPASSRLS. With FORCE, an owner subject to RLS would see no rows: the admin_* functions would
+  or have BYPASSRLS, else the section fails before changing anything. With FORCE, an owner subject to RLS would see no rows: the admin_* functions would
   return empty lists and the `users_copy` trigger on `auth.users` would make every sign-up fail.
 - Any other policy on these tables (for example the admin portal's `rls.sql`: `"select policy"
-  USING (true)`, `"insert policy" WITH CHECK (true)`) makes the migration fail and lists them.
+  USING (true)`, `"insert policy" WITH CHECK (true)`) makes the section fail and lists them.
   Permissive policies are OR-ed, so one `USING (true)` would undo the lock-down. Drop them first.
 
 ## Deploy checklist (per environment)
@@ -63,14 +64,17 @@ admin API.
    ```
    `postgres` must have `rolsuper` or `rolbypassrls`. Policies other than the `*_select_own` /
    `*_select_admin` ones must be reviewed and dropped. A public view would bypass RLS (none in the DDL).
-3. Apply `db/rls_user_tables/001_rls_user_tables.up.sql`.
+3. Run the RLS section of `supabase_ddl.sql` (its header to the end of the file) in one
+   transaction (`BEGIN; … COMMIT;`), then `NOTIFY pgrst, 'reload schema';`.
 4. Run the live isolation tests against that environment (below), or the retest steps of the PR.
 
-Rollback: `db/rls_user_tables/001_rls_user_tables.down.sql`.
+Rollback: drop the 15 `*_select_own` / `*_select_admin` policies, then `NO FORCE` and `DISABLE ROW
+LEVEL SECURITY` on the 11 tables, then `NOTIFY pgrst, 'reload schema';`. The statements, as they were
+written for #124: `git show 8df36d0:db/rls_user_tables/001_rls_user_tables.down.sql`.
 
 ## Tests
 
-- `tests/rls/test_rls_ddl_assertion.py` reads `supabase_ddl.sql` and the migration: RLS enabled and
+- `tests/rls/test_rls_ddl_assertion.py` reads `supabase_ddl.sql`: RLS enabled and
   forced, exactly the policies above, nothing disabled later, and no unterminated block comment
   (PostgreSQL nests `/* */`; one such comment used to hide the end of `supabase_ddl.sql`).
 - `tests/rls/test_rls_isolation_live.py` signs in two users, an empty user, an anonymous user, a
