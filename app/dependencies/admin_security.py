@@ -104,6 +104,13 @@ def _trusted_proxy_hops() -> int:
     return DEFAULT_TRUSTED_PROXY_HOPS
 
 
+def _trust_cf_connecting_ip() -> bool:
+    value = os.getenv("ADMIN_TRUST_CF_CONNECTING_IP")
+    if value is None or not value.strip():
+        return True
+    return value.strip().lower() not in ("0", "false", "no", "off")
+
+
 def _valid_ip(value: Optional[str]) -> Optional[str]:
     try:
         return str(ipaddress.ip_address((value or "").strip()))
@@ -112,11 +119,21 @@ def _valid_ip(value: Optional[str]) -> Optional[str]:
 
 
 def rate_limit_ip(request: Request) -> Optional[str]:
-    """Client IP the admin login rate limit counts by (TEOS-109). Unlike ``client_ip`` it cannot be
-    chosen by the caller: with ``ADMIN_TRUSTED_PROXY_HOPS`` = n (default 1, Render's proxy) it is the
-    n-th X-Forwarded-For entry counted from the RIGHT, i.e. the address the outermost trusted proxy
-    saw. Entries to the left of it, CF-Connecting-IP and X-Real-IP are client-controlled and ignored.
-    0 hops, too few entries or an entry that is not an IP: the TCP peer."""
+    """Client IP the admin login rate limit counts by (TEOS-109, TEOS-142). Unlike ``client_ip`` it
+    cannot be chosen by the caller.
+
+    1. CF-Connecting-IP, when ``ADMIN_TRUST_CF_CONNECTING_IP`` is on (default): Render is served
+       through Cloudflare, which sets this header to the real client IP and overwrites any value the
+       client sent. The rightmost X-Forwarded-For entry there is a Cloudflare edge address that
+       changes between requests, so counting by it never reached the per-IP limit (TEOS-142).
+    2. Otherwise, with ``ADMIN_TRUSTED_PROXY_HOPS`` = n (default 1) the n-th X-Forwarded-For entry
+       counted from the RIGHT, i.e. the address the outermost trusted proxy saw.
+    X-Real-IP and the X-Forwarded-For entries left of the trusted hop are client-controlled and
+    ignored. 0 hops, too few entries or an entry that is not an IP: the TCP peer."""
+    if _trust_cf_connecting_ip():
+        cf_ip = _valid_ip(request.headers.get("cf-connecting-ip"))
+        if cf_ip:
+            return cf_ip
     peer = request.client.host if request.client else None
     hops = _trusted_proxy_hops()
     if hops == 0:
