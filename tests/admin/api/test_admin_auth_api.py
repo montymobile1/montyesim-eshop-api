@@ -202,10 +202,9 @@ def test_client_ip_without_any_source_is_none():
     (None, {"X-Forwarded-For": "203.0.113.7"}, "203.0.113.7"),
     (None, {"X-Forwarded-For": "6.6.6.6, 203.0.113.7"}, "203.0.113.7"),
     (None, {"X-Forwarded-For": " 1.1.1.1 ,2.2.2.2 , 203.0.113.7 "}, "203.0.113.7"),
-    # client-sent headers that the old client_ip trusted are ignored
-    (None, {"CF-Connecting-IP": "1.1.1.1", "X-Real-IP": "2.2.2.2", "X-Forwarded-For": "203.0.113.7"},
-     "203.0.113.7"),
-    (None, {"CF-Connecting-IP": "1.1.1.1", "X-Real-IP": "2.2.2.2"}, "10.0.0.9"),
+    # X-Real-IP is client-controlled and ignored
+    (None, {"X-Real-IP": "2.2.2.2", "X-Forwarded-For": "203.0.113.7"}, "203.0.113.7"),
+    (None, {"X-Real-IP": "2.2.2.2"}, "10.0.0.9"),
     # two trusted hops (e.g. a CDN in front of Render)
     ("2", {"X-Forwarded-For": "6.6.6.6, 203.0.113.7, 172.16.0.1"}, "203.0.113.7"),
     ("2", {"X-Forwarded-For": "203.0.113.7"}, "10.0.0.9"),  # fewer entries than hops: TCP peer
@@ -221,6 +220,36 @@ def test_rate_limit_ip_trusts_only_the_configured_proxy_hops(monkeypatch, hops, 
         monkeypatch.setenv("ADMIN_TRUSTED_PROXY_HOPS", hops)
 
     assert rate_limit_ip(_request(headers)) == expected
+
+
+@pytest.mark.parametrize("trust_cf, headers, expected", [
+    # TEOS-142: behind Cloudflare the rightmost X-Forwarded-For entry is a changing edge address,
+    # so the Cloudflare-set CF-Connecting-IP wins over it and over X-Real-IP
+    (None, {"CF-Connecting-IP": "91.197.46.41", "X-Real-IP": "2.2.2.2",
+            "X-Forwarded-For": "91.197.46.41, 172.70.1.5"}, "91.197.46.41"),
+    (None, {"CF-Connecting-IP": "91.197.46.41"}, "91.197.46.41"),
+    ("true", {"CF-Connecting-IP": " 2001:DB8::1 "}, "2001:db8::1"),  # normalised
+    # not an IP: ignored, back to the X-Forwarded-For hop
+    (None, {"CF-Connecting-IP": "not-an-ip", "X-Forwarded-For": "6.6.6.6, 203.0.113.7"}, "203.0.113.7"),
+    # switched off (no Cloudflare in front): CF-Connecting-IP is client-controlled and ignored
+    ("false", {"CF-Connecting-IP": "1.1.1.1", "X-Forwarded-For": "203.0.113.7"}, "203.0.113.7"),
+    ("0", {"CF-Connecting-IP": "1.1.1.1"}, "10.0.0.9"),
+])
+def test_rate_limit_ip_prefers_cf_connecting_ip(monkeypatch, trust_cf, headers, expected):
+    if trust_cf is not None:
+        monkeypatch.setenv("ADMIN_TRUST_CF_CONNECTING_IP", trust_cf)
+
+    assert rate_limit_ip(_request(headers)) == expected
+
+
+def test_rate_limit_ip_counts_one_client_behind_changing_cloudflare_edges():
+    """TEOS-142: 27 failed logins from one IP arrived through different Cloudflare edges; all of them
+    must land in the same per-IP bucket."""
+    edges = ["172.70.1.5", "162.158.3.4", "172.71.9.12", "104.23.1.1"]
+    ips = {rate_limit_ip(_request({"CF-Connecting-IP": "91.197.46.41",
+                                   "X-Forwarded-For": f"91.197.46.41, {edge}"})) for edge in edges}
+
+    assert ips == {"91.197.46.41"}
 
 
 def test_rate_limit_ip_reads_every_x_forwarded_for_header():
