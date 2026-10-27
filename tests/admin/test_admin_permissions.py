@@ -19,9 +19,15 @@ def test_settings_and_audit_log_stay_super_admin_only(permission):
     assert permission in permissions_for(ROLE_SUPER_ADMIN)
 
 
-@pytest.mark.parametrize("permission", ["admin.users.read", "admin.promotions.write", "admin.banners.write"])
+@pytest.mark.parametrize("permission", ["admin.users.read", "admin.promotions.write", "admin.vouchers.write"])
 def test_admin_reads_pages_and_writes_catalog(permission):
     assert permission in permissions_for(ROLE_ADMIN)
+
+
+@pytest.mark.parametrize("permission", ["admin.banners.read", "admin.banners.write"])
+def test_banners_are_super_admin_only(permission):
+    assert permission not in permissions_for(ROLE_ADMIN)
+    assert permission in permissions_for(ROLE_SUPER_ADMIN)
 
 
 @pytest.mark.parametrize("role", [None, "", "user", "authenticated", "SUPER_ADMIN", 1, {"role": "admin"}])

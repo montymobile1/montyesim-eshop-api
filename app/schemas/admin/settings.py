@@ -13,7 +13,8 @@ Key rules (TEOS-134), all checked before anything is written:
   2026-10-21, for now);
 - ``APP_CACHE_KEY`` cannot be written (422 ``cache_key_forbidden``, the server rotates it);
 - :data:`PROTECTED_SETTING_KEYS` cannot be deleted -> 409 ``protected_key`` (the whole batch is refused);
-- known keys are validated by type (:data:`SETTING_VALUE_RULES`) -> 422 on the offending key;
+- known keys are validated by type (:data:`SETTING_VALUE_RULES`) -> 422 on the offending key, and a valid
+  typed value is saved normalised (:data:`SETTING_VALUE_NORMALISERS`, TEOS-218);
 - a NEW key must match :data:`NEW_KEY_PATTERN`; at most :data:`MAX_ITEMS` keys per save.
 """
 import re
@@ -129,6 +130,21 @@ def setting_value_error(key: str, value: str) -> Optional[str]:
     return rule(value) if rule else None
 
 
+#: TEOS-218: the form a VALID typed value is saved in (the rules above check the trimmed text).
+#: FORBIDDEN_COUNTRIES is saved as sent (spaces are already refused); untyped keys are never touched.
+SETTING_VALUE_NORMALISERS: Dict[str, Callable[[str], str]] = {
+    "TOP_COUNTRIES_COUNT": lambda value: str(int(value.strip())),
+    "WALLET_TOP_UP_ALERT_RECIPIENTS": lambda value: ",".join(part.strip() for part in value.split(",")),
+    VOUCHER_MAX_AMOUNT_KEY: lambda value: value.strip(),
+}
+
+
+def normalise_setting_value(key: str, value: str) -> str:
+    """``value`` as it is saved for ``key`` (call only once it passed :func:`setting_value_error`)."""
+    normalise = SETTING_VALUE_NORMALISERS.get(key)
+    return normalise(value) if normalise else value
+
+
 class AdminSettingItem(BaseModel):
     """One key to create or update. ``key``: 1-100 characters, no spaces; ``value``: up to 10 000."""
     key: str = Field(..., min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_.\-]+$")
@@ -168,6 +184,8 @@ class AdminSettingsUpdate(BaseModel):
             error = setting_value_error(item.key, item.value)
             if error:
                 raise ValueError(f"items.{index}.value: invalid_value, {item.key} {error}")
+            # TEOS-218: save (and compare for no_change) the normalised value, e.g. " 10 " -> "10"
+            item.value = normalise_setting_value(item.key, item.value)
         deleted_seen = set()
         for index, key in enumerate(self.deleted_keys):
             if not key or len(key) > 100:
@@ -178,12 +196,6 @@ class AdminSettingsUpdate(BaseModel):
                 raise ValueError(f"deleted_keys.{index}: duplicate_key {key}")
             deleted_seen.add(key)
         return self
-
-
-class AdminSettingsUpdateResult(BaseModel):
-    updated: List[str]
-    deleted: List[str]
-    cache_key_rotated: bool
 
 
 class AdminSettingRow(BaseModel):
@@ -197,6 +209,14 @@ class AdminSettingRow(BaseModel):
     is_secret: bool = False
     editable: bool = True
     deletable: bool = True
+
+
+class AdminSettingsUpdateResult(BaseModel):
+    """``saved``: the created / updated rows as stored, read back after the save (TEOS-217, TEOS-134 case 10)."""
+    updated: List[str]
+    deleted: List[str]
+    cache_key_rotated: bool
+    saved: List[AdminSettingRow] = Field(default_factory=list)
 
 
 class AdminActor(BaseModel):

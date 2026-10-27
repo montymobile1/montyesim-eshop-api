@@ -383,3 +383,46 @@ def test_delete_without_write_permission_is_403(api_client, service, as_reader):
 
 def test_delete_without_session_is_401(api_client, service):
     _failed(api_client.delete(f"{BASE}/{PROMO_ID}"), 401)
+
+
+# ---------- TEOS-228: amount is a JSON number, never a string ----------
+
+@pytest.mark.parametrize("amount", ["5", "5.5", True])
+def test_create_amount_not_a_json_number_is_422(api_client, service, as_admin, amount):
+    _failed(api_client.post(BASE, json={**CREATE, "amount": amount}), 422)
+    service.create.assert_not_called()
+
+
+@pytest.mark.parametrize("amount", ["5", "5.5", True])
+def test_update_amount_not_a_json_number_is_422(api_client, service, as_admin, amount):
+    _failed(api_client.put(f"{BASE}/{PROMO_ID}", json={"name": "Winter", "amount": amount}), 422)
+    service.update.assert_not_called()
+
+
+@pytest.mark.parametrize("amount", [5, 5.5, 1_000_000])
+def test_create_and_update_accept_a_numeric_amount(api_client, service, as_admin, amount):
+    service.create.return_value = ROW
+    service.update.return_value = ROW
+
+    assert api_client.post(BASE, json={**CREATE, "amount": amount}).status_code == 201
+    assert api_client.put(f"{BASE}/{PROMO_ID}", json={"name": "Winter", "amount": amount}).status_code == 200
+    assert service.create.call_args.args[0].amount == amount
+    assert service.update.call_args.args[1].amount == amount
+
+
+@pytest.mark.parametrize("amount", [0, -1, 1_000_001])
+def test_create_and_update_keep_the_amount_bounds(api_client, service, as_admin, amount):
+    _failed(api_client.post(BASE, json={**CREATE, "amount": amount}), 422)
+    _failed(api_client.put(f"{BASE}/{PROMO_ID}", json={"name": "Winter", "amount": amount}), 422)
+    service.create.assert_not_called()
+    service.update.assert_not_called()
+
+
+def test_create_and_update_still_accept_a_null_amount(api_client, service, as_admin):
+    service.create.return_value = {**ROW, "amount": None}
+    service.update.return_value = ROW
+
+    assert api_client.post(BASE, json={**CREATE, "amount": None}).status_code == 201
+    assert api_client.put(f"{BASE}/{PROMO_ID}", json={"name": "Winter", "amount": None}).status_code == 200
+    assert service.create.call_args.args[0].amount is None
+    assert service.update.call_args.args[1].amount is None

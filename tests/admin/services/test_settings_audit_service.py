@@ -283,3 +283,44 @@ def test_app_config_repo_search_selects_the_description_and_searches_the_key():
     query.or_.assert_not_called()  # secret-shaped rows are listed (user decision 2026-10-21)
     query.ilike.assert_called_once_with("key", "%countr%")
     query.eq.assert_not_called()
+
+
+# ---------------------------------------------------------------- TEOS-218 typed values saved normalised
+
+@pytest.mark.parametrize("key, sent, saved", [
+    ("TOP_COUNTRIES_COUNT", " 10 ", "10"), ("TOP_COUNTRIES_COUNT", "007", "7"),
+    ("WALLET_TOP_UP_ALERT_RECIPIENTS", " a@x.com , b@y.com ", "a@x.com,b@y.com"),
+    ("VOUCHER_MAX_AMOUNT", " 250.5 ", "250.5"),
+    ("FORBIDDEN_COUNTRIES", "US,IL", "US,IL"),
+    ("ANY_OTHER", "  keep my spaces  ", "  keep my spaces  "),
+])
+def test_update_body_keeps_the_normalised_typed_value(key, sent, saved):
+    body = AdminSettingsUpdate(items=[AdminSettingItem(key=key, value=sent)])
+    assert body.items[0].value == saved
+
+
+def test_update_saves_top_countries_count_trimmed():
+    service, settings = _service({"TOP_COUNTRIES_COUNT": {"key": "TOP_COUNTRIES_COUNT", "value": "8"}})
+    service.update(AdminSettingsUpdate(items=[AdminSettingItem(key="TOP_COUNTRIES_COUNT", value=" 10 ")]), CTX)
+    assert settings.upsert_settings.call_args.args[0] == [{"key": "TOP_COUNTRIES_COUNT", "value": "10"}]
+
+
+def test_update_saves_alert_recipients_trimmed():
+    key = "WALLET_TOP_UP_ALERT_RECIPIENTS"
+    service, settings = _service({key: {"key": key, "value": "old@x.com"}})
+    service.update(AdminSettingsUpdate(items=[AdminSettingItem(key=key, value=" a@x.com ,  b@y.com")]), CTX)
+    assert settings.upsert_settings.call_args.args[0] == [{"key": key, "value": "a@x.com,b@y.com"}]
+
+
+def test_update_saves_an_untyped_value_exactly_as_sent():
+    service, settings = _service({"MY_FLAG": {"key": "MY_FLAG", "value": "on"}})
+    service.update(AdminSettingsUpdate(items=[AdminSettingItem(key="MY_FLAG", value=" on ")]), CTX)
+    assert settings.upsert_settings.call_args.args[0] == [{"key": "MY_FLAG", "value": " on "}]
+
+
+def test_update_padded_value_equal_to_the_stored_one_is_no_change():
+    service, settings = _service({"TOP_COUNTRIES_COUNT": {"key": "TOP_COUNTRIES_COUNT", "value": "10"}})
+    with pytest.raises(AdminConflict) as caught:
+        service.update(AdminSettingsUpdate(items=[AdminSettingItem(key="TOP_COUNTRIES_COUNT", value=" 10 ")]), CTX)
+    assert caught.value.conflict_code == "no_change"
+    settings.upsert_settings.assert_not_called()

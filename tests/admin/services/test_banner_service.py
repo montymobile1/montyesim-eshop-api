@@ -213,6 +213,24 @@ def test_repo_maps_title_index_to_duplicate_title():
     assert err.value.conflict_code == "duplicate_title"
 
 
+@pytest.mark.parametrize("message, details", [
+    # TEOS-239: QA's unique lower(title) index has another name; the detail still names the column
+    ('duplicate key value violates unique constraint "banner_title_ci_idx"',
+     "Key (lower(title::text))=(spring sale) already exists."),
+    ('duplicate key value violates unique constraint "banner_title_key"', "Key (title)=(Spring Sale) already exists."),
+])
+def test_repo_maps_any_title_unique_index_to_duplicate_title(message, details):
+    repo = BannerAdminRepo.__new__(BannerAdminRepo)
+    repo.table_name = "banner"
+    repo.client = MagicMock()
+    repo.client.rpc.return_value.execute.side_effect = APIError({
+        "code": "23505", "message": message, "details": details, "hint": None})
+
+    with pytest.raises(AdminConflict) as err:
+        repo.insert_audited({"title": "Spring Sale"}, CTX)
+    assert err.value.conflict_code == "duplicate_title"
+
+
 def test_repo_search_and_facets_filters():
     repo = BannerAdminRepo.__new__(BannerAdminRepo)
     query = MagicMock()

@@ -104,12 +104,21 @@ def test_ban_audit_row_has_previous_banned_until_null_for_a_never_banned_user(sv
     assert kwargs["banned_until"] == "2027-01-01T00:00:00+00:00"
 
 
-def test_ban_audit_row_has_previous_banned_until_null_when_the_old_ban_lapsed(svc, repo, audit):
+def test_ban_audit_row_keeps_the_lapsed_ban_end_as_previous_banned_until(svc, repo, audit):
+    # TEOS-150 retest 2026-10-27: an earlier ban that already ended is still stored, not nulled
     repo.get.return_value = _user(banned_until="2020-01-01T00:00:00+00:00")
 
     svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
 
-    assert audit.log.call_args.kwargs["previous_banned_until"] is None
+    assert audit.log.call_args.kwargs["previous_banned_until"] == "2020-01-01T00:00:00+00:00"
+
+
+def test_ban_audit_row_keeps_a_lapsed_ban_end_given_as_datetime(svc, repo, audit):
+    repo.get.return_value = _user(banned_until=datetime(2021, 5, 4, 3, 2, 1, tzinfo=timezone.utc))
+
+    svc.ban(USER_ID, AdminUserBan(reason="fraud"), CTX)
+
+    assert audit.log.call_args.kwargs["previous_banned_until"] == "2021-05-04T03:02:01+00:00"
 
 
 def test_ban_revoke_retry_row_carries_the_running_ban_as_previous_banned_until(svc, repo, audit):

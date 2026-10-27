@@ -31,12 +31,12 @@ class AppConfigAdminRepo(AdminBaseRepository):
         """The value of one setting, None when the row is missing."""
         return (self.by_keys([key]).get(key) or {}).get("value")
 
-    def by_keys(self, keys: Iterable[str]) -> Dict[str, Dict[str, Any]]:
+    def by_keys(self, keys: Iterable[str], columns: str = COLUMNS) -> Dict[str, Dict[str, Any]]:
         """``{key: row}`` for the given keys; missing keys are absent."""
         unique = sorted({k for k in keys if k})
         if not unique:
             return {}
-        query = self.filters(self.table.select(COLUMNS), in_={"key": unique})
+        query = self.filters(self.table.select(columns), in_={"key": unique})
         rows = self._run(lambda: query.execute()).data or []
         return {row["key"]: row for row in rows}
 

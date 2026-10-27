@@ -134,7 +134,9 @@ def _current(**values):
 
 
 def test_put_sends_only_changed_values_and_returns_the_result(api_client, as_super, repos):
-    repos["settings"].by_keys.return_value = _current(OTP_EXPIRATION_TIME="5", SUPPORT_EMAIL="a@x.com")
+    # 1st read: the current values; 2nd read: the saved rows read back after the commit (TEOS-217)
+    repos["settings"].by_keys.side_effect = [_current(OTP_EXPIRATION_TIME="5", SUPPORT_EMAIL="a@x.com"),
+                                             _current(OTP_EXPIRATION_TIME="7")]
     repos["settings"].upsert_settings.return_value = {"updated": ["OTP_EXPIRATION_TIME"], "deleted": [],
                                                       "cache_key_rotated": False}
 
@@ -144,7 +146,13 @@ def test_put_sends_only_changed_values_and_returns_the_result(api_client, as_sup
                               headers={"X-Forwarded-For": "8.8.8.8"})
 
     assert response.status_code == 200
-    assert response.json()["data"] == {"updated": ["OTP_EXPIRATION_TIME"], "deleted": [], "cache_key_rotated": False}
+    data = response.json()["data"]
+    assert {k: data[k] for k in ("updated", "deleted", "cache_key_rotated")} == {
+        "updated": ["OTP_EXPIRATION_TIME"], "deleted": [], "cache_key_rotated": False}
+    # TEOS-217: the saved rows as stored
+    assert [(row["key"], row["value"]) for row in data["saved"]] == [("OTP_EXPIRATION_TIME", "7")]
+    assert repos["settings"].by_keys.call_args.args == (["OTP_EXPIRATION_TIME"],)
+    assert "description" in repos["settings"].by_keys.call_args.kwargs["columns"]
     items, deleted, ctx = repos["settings"].upsert_settings.call_args.args
     assert items == [{"key": "OTP_EXPIRATION_TIME", "value": "7"}]
     assert deleted == []
@@ -287,19 +295,21 @@ def test_put_secret_shaped_keys_are_saved_like_any_other_key(api_client, as_supe
     assert deleted == ["RESELLER_ID"]
 
 
-@pytest.mark.parametrize("key, value", [
-    ("TOP_COUNTRIES_COUNT", "1"), ("TOP_COUNTRIES_COUNT", "50"), ("FORBIDDEN_COUNTRIES", "IL,IR,KP"),
-    ("FORBIDDEN_COUNTRIES", ""), ("WALLET_TOP_UP_ALERT_RECIPIENTS", "a@x.com, ops@example.org"),
-    ("VOUCHER_MAX_AMOUNT", "2500.50"),
+@pytest.mark.parametrize("key, value, saved", [
+    ("TOP_COUNTRIES_COUNT", "1", "1"), ("TOP_COUNTRIES_COUNT", "50", "50"),
+    ("FORBIDDEN_COUNTRIES", "IL,IR,KP", "IL,IR,KP"), ("FORBIDDEN_COUNTRIES", "", ""),
+    # TEOS-218: typed values are saved normalised (each e-mail trimmed)
+    ("WALLET_TOP_UP_ALERT_RECIPIENTS", "a@x.com, ops@example.org", "a@x.com,ops@example.org"),
+    ("VOUCHER_MAX_AMOUNT", "2500.50", "2500.50"),
 ])
-def test_put_typed_values_are_accepted(api_client, as_super, repos, key, value):
+def test_put_typed_values_are_accepted(api_client, as_super, repos, key, value, saved):
     repos["settings"].by_keys.return_value = _current(**{key: "old"})
     repos["settings"].upsert_settings.return_value = {"updated": [key], "deleted": [], "cache_key_rotated": False}
 
     response = api_client.put(URL, json={"items": [{"key": key, "value": value}]})
 
     assert response.status_code == 200
-    assert repos["settings"].upsert_settings.call_args.args[0] == [{"key": key, "value": value}]
+    assert repos["settings"].upsert_settings.call_args.args[0] == [{"key": key, "value": saved}]
 
 
 @pytest.mark.parametrize("key", ["ABC_def", "AB", "A" * 65, "1ABC", "_ABC"])

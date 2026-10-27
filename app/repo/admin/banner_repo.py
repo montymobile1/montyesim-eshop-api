@@ -9,8 +9,14 @@ _STATUS_ACTIVE = {"active": True, "inactive": False}
 
 
 class BannerAdminRepo(AdminBaseRepository):
-    # banner_title_lower_key: unique index on lower(title), supabase_ddl.sql, section 020_constraints.sql
-    UNIQUE_CONFLICTS = {"banner_title_lower_key": "duplicate_title"}
+    # banner_title_lower_key: unique index on lower(title), migrations/admin/020_constraints.sql.
+    # TEOS-239: the migration keeps an existing unique lower(title) index under its own name, so the
+    # title column named in the 23505 detail ("Key (lower(title::text))=...") is matched too.
+    UNIQUE_CONFLICTS = {
+        "banner_title_lower_key": "duplicate_title",
+        "(lower(title": "duplicate_title",
+        "Key (title)=": "duplicate_title",
+    }
 
     def __init__(self):
         super().__init__(DatabaseTables.TABLE_BANNER)
