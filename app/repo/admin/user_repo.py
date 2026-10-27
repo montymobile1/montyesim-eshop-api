@@ -1,11 +1,11 @@
 """Users page data for the admin API (MS-5079).
 
 - ``UserAdminRepo``: the users list and detail through ``admin_search_users`` (users_copy joined
-  with auth.users in SQL, migrations/admin/080_users.sql), the wallet transactions through
+  with auth.users in SQL, supabase_ddl.sql, section 080_users.sql), the wallet transactions through
   ``admin_wallet_transactions`` (same file) and the referrals through
-  ``admin_referral_transactions`` (owned by the Referrals story, migrations/admin/090_wallet_referrals.sql);
+  ``admin_referral_transactions`` (owned by the Referrals story, supabase_ddl.sql, section 090_wallet_referrals.sql);
   the ban's session revoke through ``admin_revoke_user_sessions`` and the newest BAN audit row of a
-  user (TEOS-149, db/admin_revoke_user_sessions);
+  user (TEOS-149, supabase_ddl.sql, section "admin ban session revoke");
 - ``UserWalletAdminRepo``: the wallet row of one user (amount and currency).
 """
 from dataclasses import dataclass, field
@@ -76,7 +76,7 @@ class UserAdminRepo(AdminBaseRepository):
 
     def revoke_sessions(self, user_id: str) -> Dict[str, int]:
         """Deletes every session and refresh token of the user through ``admin_revoke_user_sessions``
-        (db/admin_revoke_user_sessions); ``{sessions, refresh_tokens}`` = how many were deleted."""
+        (supabase_ddl.sql); ``{sessions, refresh_tokens}`` = how many were deleted."""
         body = _unwrap(self.rpc("admin_revoke_user_sessions", {"p_user_id": str(user_id)}))
         if not isinstance(body.get("sessions"), int) or not isinstance(body.get("refresh_tokens"), int):
             raise ValueError("admin_revoke_user_sessions returned no counts")

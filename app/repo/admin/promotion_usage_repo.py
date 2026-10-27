@@ -23,7 +23,7 @@ class PromotionUsageAdminRepo(AdminBaseRepository):
     def search(self, page: PageParams, *, code: Optional[str] = None, user_id: Optional[str] = None,
                bundle_ids: Optional[List[str]] = None, created_from: Optional[datetime] = None,
                created_to: Optional[datetime] = None) -> UsageSearch:
-        """One page through ``admin_promotion_usage`` (migrations/admin/100_promotions.sql), ordered
+        """One page through ``admin_promotion_usage`` (supabase_ddl.sql, section 100_promotions.sql), ordered
         ``created_at desc, id desc``. ``code`` is matched literally; ``created_to`` is exclusive."""
         result = self.rpc("admin_promotion_usage", {
             "p_code": code,

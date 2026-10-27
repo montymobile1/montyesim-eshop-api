@@ -1,7 +1,7 @@
 """app_config for the admin Settings pages (MS-5091).
 
 Reads go through PostgREST; the save goes through ``admin_upsert_settings``
-(migrations/admin/120_settings.sql), which upserts, deletes, writes ONE audit row and rotates
+(supabase_ddl.sql, section 120_settings.sql), which upserts, deletes, writes ONE audit row and rotates
 APP_CACHE_KEY when FORBIDDEN_COUNTRIES changed, all in one transaction.
 """
 from typing import Any, Dict, Iterable, List, Optional

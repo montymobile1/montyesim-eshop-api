@@ -151,6 +151,8 @@ To set up the database, run the following command:
   psql -h <supabase-host> -U <username> -d <database-name> -f supabase_ddl.sql
 ```
 
+`supabase_ddl.sql` is the only schema file: there is no migrations folder. A change for existing databases is written as an idempotent section of that file (IF NOT EXISTS, CREATE OR REPLACE, guarded DO blocks); to apply it, run that section in one transaction, then `NOTIFY pgrst, 'reload schema';`.
+
 ## Running the Application
 
 Run the FastAPI server:
@@ -275,7 +277,11 @@ After applying, if the API still answers 502 with "Could not find the function",
 
 `ADMIN_MEDIA_BUCKET`, `ADMIN_MAX_UPLOAD_BYTES` (1 MB), `ADMIN_MAX_JSON_BYTES`, `ADMIN_EXPORT_ROW_CAP`, `ADMIN_LOGIN_RATE_LIMIT`, `ADMIN_TRUSTED_PROXY_HOPS`. Defaults and descriptions are in `.env.example`.
 
-The login rate limit is counted in the database, shared by every worker: apply `db/admin_login_rate_limit/001_admin_login_attempt.up.sql` before deploying (without it every admin login answers 502).
+The login rate limit is counted in the database, shared by every worker: the `admin_login_attempt` table and functions (section "admin login rate limit" of `supabase_ddl.sql`, part of the ADMIN API section) must be applied before deploying (without it every admin login answers 502).
+
+### Row level security on the per-user tables
+
+A user JWT against PostgREST (supabase-js, or a hand-made request with the anon key from `/configurations`) reads only that user's rows of the per-user tables; anon reads none. The API keeps the service key and is not affected. Tables, policies, the rollout checklist and how to run the live isolation tests: [docs/rls-user-tables.md](docs/rls-user-tables.md).
 
 ### Run the admin tests
 

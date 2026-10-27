@@ -31,7 +31,7 @@ def status_filters(status: str, now: Optional[str] = None) -> Dict[str, Any]:
 
 
 class VoucherAdminRepo(AdminBaseRepository):
-    # voucher_code_lower_key: migrations/admin/020_constraints.sql (case-insensitive);
+    # voucher_code_lower_key: supabase_ddl.sql, section 020_constraints.sql (case-insensitive);
     # voucher_code_key: the original case-sensitive unique constraint (supabase_ddl.sql).
     UNIQUE_CONFLICTS = {
         "voucher_code_lower_key": "duplicate_code",

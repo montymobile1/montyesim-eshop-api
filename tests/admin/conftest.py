@@ -48,7 +48,7 @@ class FakeClock:
 
 
 class FakeLoginAttemptStore:
-    """In-memory twin of admin_login_attempt_begin / _finish (db/admin_login_rate_limit): one
+    """In-memory twin of admin_login_attempt_begin / _finish (supabase_ddl.sql): one
     instance shared by several LoginRateLimiter instances behaves like the table shared by workers."""
 
     def __init__(self, clock: FakeClock):

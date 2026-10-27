@@ -1,6 +1,6 @@
 """promotion table for the admin API (MS-5050 list, MS-5052 add/edit).
 
-The list goes through ``admin_search_promotions`` (migrations/admin/100_promotions.sql): status tabs,
+The list goes through ``admin_search_promotions`` (supabase_ddl.sql, section 100_promotions.sql): status tabs,
 literal search on name or code, rule and bundle filters, the CSV ``bundle_code`` split server-side and
 the rule embedded. Single reads use a PostgREST embed with the same nested keys, so the service shapes
 both the same way. Writes go through the audited SQL helpers.

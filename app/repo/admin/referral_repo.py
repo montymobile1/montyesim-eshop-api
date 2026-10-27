@@ -1,6 +1,6 @@
 """Referral transactions for the admin API (MS-5056): user_order rows paid with a referral code,
 joined to promotion_usage and users_copy by the ``admin_referral_transactions`` SQL function
-(migrations/admin/090_wallet_referrals.sql). Read only."""
+(supabase_ddl.sql, section 090_wallet_referrals.sql). Read only."""
 from typing import Any, Dict, List
 
 from app.config.db import DatabaseTables

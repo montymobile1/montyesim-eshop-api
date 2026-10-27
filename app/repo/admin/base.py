@@ -181,7 +181,7 @@ class AdminBaseRepository(BaseRepository):
         """Calls a database function and returns its raw result."""
         return self._run(lambda: self.client.rpc(_column(function), params).execute()).data
 
-    # ---------- audited writes (SQL: migrations/admin/050_admin_audit_helpers.sql) ----------
+    # ---------- audited writes (SQL: supabase_ddl.sql, section 050_admin_audit_helpers.sql) ----------
 
     def insert_audited(self, row: Dict[str, Any], ctx: AuditContext, rotate_cache: bool = False) -> Dict[str, Any]:
         return self.rpc("admin_insert_audited", {

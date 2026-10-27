@@ -35,7 +35,7 @@ _NOT_SECRET = frozenset({"APP_CACHE_KEY", "CACHE_KEY"})
 
 STANDARD_OPERATIONS = ("INSERT", "UPDATE", "DELETE", "BAN", "UNBAN", "BULK")
 # Free-text operations written by the browser before the admin API. Same mapping as
-# admin_audit_operation() in migrations/admin/110_audit_search.sql.
+# admin_audit_operation() in supabase_ddl.sql, section 110_audit_search.sql.
 LEGACY_OPERATIONS = {
     "BAN USER": "BAN",
     "UNBAN USER": "UNBAN",

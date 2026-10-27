@@ -4,7 +4,7 @@
 - ``search``, ``get``, ``actions``, ``events`` and the audited writes: MS-5087 (rules page).
 
 ``promotion_rule.name`` ("action-event-max usage") is filled by a trigger; the column is added on
-older databases by ``migrations/admin/000_schema_drift.sql``. ``id_text`` (the uuid as text, searched
+older databases by supabase_ddl.sql, section 000_schema_drift.sql. ``id_text`` (the uuid as text, searched
 with ilike) comes from ``030_promotion_rule_id_text.sql``.
 """
 from typing import Any, Dict, List, Optional
@@ -20,7 +20,7 @@ RULE_SELECT = "*,promotion_rule_action(id,name),promotion_rule_event(id,name),pr
 
 
 class PromotionRuleAdminRepo(AdminBaseRepository):
-    # promotion_rule_action_event_max_usage_key: migrations/admin/020_constraints.sql
+    # promotion_rule_action_event_max_usage_key: supabase_ddl.sql, section 020_constraints.sql
     UNIQUE_CONFLICTS = {"promotion_rule_action_event_max_usage_key": "duplicate_rule"}
 
     def __init__(self):
