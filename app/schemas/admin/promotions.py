@@ -5,7 +5,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.schemas.admin.common import AdminPage
+from app.schemas.admin.common import AdminPage, StrictNumber
 
 PromotionStatus = Literal["all", "active", "inactive", "expired", "scheduled"]
 
@@ -46,7 +46,7 @@ class AdminPromotionCreate(BaseModel):
     name: str = Field(..., min_length=2, max_length=100)
     code: str = Field(..., pattern=PROMOTION_CODE_PATTERN)
     rule_id: UUID
-    amount: Optional[float] = Field(None, gt=0, le=MAX_AMOUNT)
+    amount: Optional[StrictNumber] = Field(None, gt=0, le=MAX_AMOUNT)  # TEOS-228: "5" is a 422
     valid_from: datetime
     valid_to: datetime
     bundle_codes: List[str] = Field(default_factory=list, max_length=MAX_BUNDLE_CODES)
@@ -87,7 +87,7 @@ class AdminPromotionUpdate(BaseModel):
     valid_to: Optional[datetime] = None
     code: Optional[str] = Field(None, pattern=PROMOTION_CODE_PATTERN)
     rule_id: Optional[UUID] = None
-    amount: Optional[float] = Field(None, gt=0, le=MAX_AMOUNT)
+    amount: Optional[StrictNumber] = Field(None, gt=0, le=MAX_AMOUNT)  # TEOS-228: "5" is a 422
     valid_from: Optional[datetime] = None
 
     model_config = ConfigDict(extra="forbid")

@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from app.config.admin_permissions import ROLE_ADMIN
+from app.config.admin_permissions import ROLE_ADMIN, ROLE_SUPER_ADMIN
 from app.dependencies.admin_security import AdminUser, admin_user
 from app.exceptions.admin import AdminConflict, AdminNotFound, AdminPayloadTooLarge
 from app.schemas.admin.common import AdminPage
@@ -30,6 +30,15 @@ def service(monkeypatch):
 
 @pytest.fixture
 def as_admin():
+    from app.main import esim_app
+    # banners are super admin only (2026-10-27)
+    esim_app.dependency_overrides[admin_user] = lambda: make_admin(ROLE_SUPER_ADMIN)
+    yield
+    esim_app.dependency_overrides.pop(admin_user, None)
+
+
+@pytest.fixture
+def as_plain_admin():
     from app.main import esim_app
     esim_app.dependency_overrides[admin_user] = lambda: make_admin(ROLE_ADMIN)
     yield
@@ -60,6 +69,14 @@ def _code(response):
 
 
 # ---------- list / get ----------
+
+def test_admin_role_has_no_banner_access(api_client, service, as_plain_admin):
+    assert api_client.get(BASE).status_code == 403
+    assert api_client.get(f"{BASE}/1").status_code == 403
+    assert api_client.delete(f"{BASE}/1").status_code == 403
+    service.list.assert_not_called()
+    service.delete.assert_not_called()
+
 
 def test_list_returns_rows_and_facets(api_client, service, as_admin):
     service.list.return_value = AdminPage(data=[ROW], total_count=1, facets={"all": 1, "active": 1, "inactive": 0})

@@ -17,7 +17,7 @@ from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.exceptions.admin import AdminConflict, AdminNotFound, AdminValidationError
-from app.repo.admin.app_config_repo import AppConfigAdminRepo
+from app.repo.admin.app_config_repo import LIST_COLUMNS, AppConfigAdminRepo
 from app.repo.admin.audit_log_repo import AuditLogRepo
 from app.repo.admin.base import AuditContext
 from app.repo.admin.users_copy_repo import UsersCopyAdminRepo
@@ -111,6 +111,15 @@ def history_row(row: Dict[str, Any], users: Dict[str, Dict[str, Any]]) -> AdminS
     )
 
 
+def _setting_row(row: Dict[str, Any]) -> AdminSettingRow:
+    """An app_config row as the list and the save return it."""
+    name = row.get("key") or ""
+    return AdminSettingRow(id=row.get("id"), key=name, value=row.get("value"),
+                           description=row.get("description"), created_at=row.get("created_at"),
+                           is_secret=False, editable=name not in READ_ONLY_SETTING_KEYS,
+                           deletable=name not in PROTECTED_SETTING_KEYS)
+
+
 class SettingsAdminService:
     def __init__(self, settings: Optional[AppConfigAdminRepo] = None, audit: Optional[AuditLogRepo] = None,
                  users: Optional[UsersCopyAdminRepo] = None):
@@ -123,14 +132,7 @@ class SettingsAdminService:
     def list(self, page: PageParams, *, key: Optional[str] = None, search: Optional[str] = None) -> AdminPage:
         """Every row with its real value, secret-shaped keys included (user decision 2026-10-21)."""
         result = self.settings.search(page, key=key, search=search)
-        rows = []
-        for row in result.rows:
-            name = row.get("key") or ""
-            rows.append(AdminSettingRow(id=row.get("id"), key=name, value=row.get("value"),
-                                        description=row.get("description"), created_at=row.get("created_at"),
-                                        is_secret=False, editable=name not in READ_ONLY_SETTING_KEYS,
-                                        deletable=name not in PROTECTED_SETTING_KEYS))
-        return AdminPage(data=rows, total_count=result.total)
+        return AdminPage(data=[_setting_row(row) for row in result.rows], total_count=result.total)
 
     # ---------- bulk save ----------
 
@@ -157,9 +159,13 @@ class SettingsAdminService:
         if isinstance(result, list):  # a scalar jsonb RPC result can arrive wrapped in a list
             result = result[0] if result else {}
         result = result or {}
-        return AdminSettingsUpdateResult(updated=list(result.get("updated") or []),
+        updated = list(result.get("updated") or [])
+        # TEOS-217: the saved rows as stored, read back after the commit
+        stored = self.settings.by_keys(updated, columns=LIST_COLUMNS) if updated else {}
+        return AdminSettingsUpdateResult(updated=updated,
                                     deleted=list(result.get("deleted") or []),
-                                    cache_key_rotated=bool(result.get("cache_key_rotated")))
+                                    cache_key_rotated=bool(result.get("cache_key_rotated")),
+                                    saved=[_setting_row(stored[key]) for key in updated if key in stored])
 
     # ---------- history ----------
 

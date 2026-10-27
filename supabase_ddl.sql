@@ -5979,7 +5979,8 @@ GRANT EXECUTE ON FUNCTION public.admin_wallet_transactions(uuid, integer, intege
                     %, _ and \ are escaped)
       p_from_email  promotion_usage.referred_to contains the text (case-insensitive, literal)
       p_date        user_order.created_at on that calendar day
-    Order: created_at DESC, id DESC (stable paging).
+    Order: created_at DESC, id DESC, then promotion_usage.id DESC (TEOS-234: a referral order has one usage
+    row per rewarded side with the same created_at and id, so the usage id makes the paging order unique).
     p_limit 1..1000 (the API lists at most 100 and exports in chunks of 1000), p_offset >= 0,
     else AD422.
 
@@ -6047,6 +6048,7 @@ BEGIN
                o.currency,
                o.modified_amount,
                o.order_status,
+               pu.id              AS usage_id,
                pu.user_id         AS referrer_id,
                pu.amount,
                pu.status,
@@ -6067,7 +6069,7 @@ BEGIN
           FROM filtered f
           LEFT JOIN public.users_copy ur ON ur.id = f.referrer_id
           LEFT JOIN public.users_copy ud ON ud.id = f.referred_id
-         ORDER BY f.created_at DESC, f.id DESC
+         ORDER BY f.created_at DESC, f.id DESC, f.usage_id DESC
          LIMIT p_limit OFFSET p_offset
     )
     SELECT jsonb_build_object(
@@ -6087,7 +6089,7 @@ BEGIN
                                             'referred',        CASE WHEN p.referred_id IS NULL THEN NULL
                                                                     ELSE jsonb_build_object('id', p.referred_id,
                                                                                             'email', coalesce(p.referred_to, p.referred_email)) END
-                                        ) ORDER BY p.created_at DESC, p.id DESC)
+                                        ) ORDER BY p.created_at DESC, p.id DESC, p.usage_id DESC)
                                    FROM page p), '[]'::jsonb),
                'total', (SELECT count(*) FROM filtered))
       INTO v_result;

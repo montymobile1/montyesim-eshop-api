@@ -108,15 +108,6 @@ def _parse(value: Any) -> Optional[datetime]:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def _active_ban_end(banned_until: Any, now: Optional[datetime] = None) -> Optional[str]:
-    """``banned_until`` as ISO text while that ban is still running; None when there is none, it is
-    unreadable or it already lapsed. BAN audit rows store it as ``previous_banned_until`` (TEOS-150)."""
-    until = _parse(banned_until)
-    if until is None or until <= (now or datetime.now(timezone.utc)):
-        return None
-    return _iso(banned_until)
-
-
 def remaining_ban_duration(previous_banned_until: Any, now: Optional[datetime] = None) -> Optional[str]:
     """GoTrue duration (``"<seconds>s"``) that re-applies a ban until ``previous_banned_until``;
     None when that date is unreadable or already in the past."""
@@ -208,7 +199,8 @@ class UserAdminService:
             if revoke_pending(last_ban):
                 return self._retry_revoke(user_id, row, last_ban, body, ctx)
             raise AdminConflict("already_banned", banned_until=row.get("banned_until"))
-        previous_banned_until = _active_ban_end(row.get("banned_until"))
+        # TEOS-150: the raw earlier value, also when that ban already ended (None when never banned)
+        previous_banned_until = _iso(row.get("banned_until"))
         duration = f"{body.hours}h"
         user = self._set_ban_duration(user_id, duration)
         banned_until = self._banned_until_after_ban(user_id, user, body.hours)
@@ -272,7 +264,7 @@ class UserAdminService:
             self.audit.log(ctx, AUTH_USERS_TABLE, OPERATION_BAN, record_id=user_id, rows_affected=0,
                            user_id=str(user_id), user_email=email, hours_banned=hours,
                            ban_duration=details.get("ban_duration"), banned_until=banned_until,
-                           previous_banned_until=_active_ban_end(row.get("banned_until")),
+                           previous_banned_until=banned_until,  # TEOS-150: raw value, as on unban
                            revoke_retry=True, retry_of_audit_id=last_ban.get("id"),
                            sessions_revoked=revoke_error is None, session_revoke_error=revoke_error)
         except Exception as exc:

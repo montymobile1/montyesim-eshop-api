@@ -13,16 +13,19 @@ ROLE_SUPER_ADMIN = "super_admin"
 # Areas every admin can view.
 _READ_AREAS = (
     "users", "orders", "bundles", "groups", "tags", "rules", "promotions",
-    "vouchers", "banners", "devices", "contact_us", "referrals",
+    "vouchers", "devices", "contact_us", "referrals",
 )
 # Areas every admin can create, edit and delete in.
-_WRITE_AREAS = ("bundles", "groups", "tags", "rules", "promotions", "vouchers", "banners")
+_WRITE_AREAS = ("bundles", "groups", "tags", "rules", "promotions", "vouchers")
 
 READ: FrozenSet[str] = frozenset(f"admin.{area}.read" for area in _READ_AREAS)
 WRITE: FrozenSet[str] = frozenset(f"admin.{area}.write" for area in _WRITE_AREAS)
 
 # Super admin only. Settings and the audit log stay super-admin only, as in the portal today.
+# Banners are super admin only too (user decision, 2026-10-27).
 SUPER_ONLY: FrozenSet[str] = frozenset({
+    "admin.banners.read",
+    "admin.banners.write",
     "admin.settings.read",
     "admin.settings.write",
     "admin.audit.read",
