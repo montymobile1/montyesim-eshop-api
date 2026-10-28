@@ -1,4 +1,5 @@
 """PromotionRuleAdminService and PromotionRuleAdminRepo (MS-5087) with the database mocked."""
+import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -129,14 +130,12 @@ def test_create_fk_failure_becomes_422(svc, repo):
         svc.create(_body(), CTX)
 
 
-def test_update_writes_patch_and_rereads(svc, repo):
-    repo.update_audited.return_value = _row(beneficiary=2)
-    repo.get.return_value = _row(beneficiary=2)
+def test_update_writes_only_beneficiary_and_rereads(svc, repo):
+    repo.get.side_effect = [_row(), _row(beneficiary=2)]
 
     result = svc.update(RULE_ID, _body(beneficiary=2), CTX)
 
-    repo.update_audited.assert_called_once_with(
-        RULE_ID, {"promotion_rule_action_id": 1, "promotion_rule_event_id": 1, "max_usage": 3, "beneficiary": 2}, CTX)
+    repo.update_audited.assert_called_once_with(RULE_ID, {"beneficiary": 2}, CTX)
     assert result["beneficiary"] == 2
 
 
@@ -146,15 +145,39 @@ def test_update_without_change_returns_current_row(svc, repo):
     assert svc.update(RULE_ID, _body(), CTX)["id"] == RULE_ID
 
 
-def test_update_duplicate_and_missing_propagate(svc, repo):
-    repo.update_audited.side_effect = AdminConflict("duplicate_rule")
-    with pytest.raises(AdminConflict) as err:
-        svc.update(RULE_ID, _body(), CTX)
-    assert err.value.conflict_code == "duplicate_rule"
+@pytest.mark.parametrize("field, value", [("promotion_rule_action_id", 2), ("promotion_rule_event_id", 2),
+                                          ("max_usage", 4)])
+def test_update_locked_field_changed_is_422_before_writing(svc, repo, field, value):
+    """TEOS-212: the edit dialog locks action, event and max_usage; the API refuses a different value."""
+    repo.get.return_value = _row()
 
-    repo.update_audited.side_effect = AdminNotFound("not_found")
+    with pytest.raises(AdminValidationError) as err:
+        svc.update(RULE_ID, _body(**{field: value}, beneficiary=2), CTX)
+
+    assert json.loads(err.value.details) == {"code": "rule_field_locked", "fields": [field]}
+    repo.update_audited.assert_not_called()
+
+
+def test_update_lists_every_locked_field_changed(svc, repo):
+    repo.get.return_value = _row()
+    with pytest.raises(AdminValidationError) as err:
+        svc.update(RULE_ID, _body(promotion_rule_action_id=2, promotion_rule_event_id=2, max_usage=9), CTX)
+    assert json.loads(err.value.details)["fields"] == ["promotion_rule_action_id", "promotion_rule_event_id",
+                                                       "max_usage"]
+
+
+def test_update_missing_is_404_before_writing(svc, repo):
+    repo.get.return_value = None
     with pytest.raises(AdminNotFound):
         svc.update(RULE_ID, _body(), CTX)
+    repo.update_audited.assert_not_called()
+
+
+def test_update_write_errors_propagate(svc, repo):
+    repo.get.return_value = _row()
+    repo.update_audited.side_effect = AdminNotFound("not_found")
+    with pytest.raises(AdminNotFound):
+        svc.update(RULE_ID, _body(beneficiary=2), CTX)
 
 
 def test_delete_audited(svc, repo):

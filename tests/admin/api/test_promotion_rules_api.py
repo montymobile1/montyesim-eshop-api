@@ -190,6 +190,15 @@ def test_update_duplicate_is_409(api_client, service, as_admin):
     assert _code(response) == "duplicate_rule"
 
 
+def test_update_locked_field_is_422_rule_field_locked(api_client, service, as_admin):
+    """TEOS-212: changing action, event or max_usage on edit is refused."""
+    service.update.side_effect = AdminValidationError(
+        json.dumps({"code": "rule_field_locked", "fields": ["max_usage"]}))
+    response = api_client.put(f"{BASE}/{RULE_ID}", json={**BODY, "max_usage": 4})
+    _failed(response, 422)
+    assert _code(response) == "rule_field_locked"
+
+
 def test_update_unknown_id_is_404(api_client, service, as_admin):
     service.update.side_effect = AdminNotFound("not_found")
     _failed(api_client.put(f"{BASE}/{RULE_ID}", json=BODY), 404)

@@ -5,8 +5,11 @@
 - actions and events: the two small reference tables;
 - create and edit: uniqueness by the database (unique ``(action, event, max_usage)``, 409
   ``duplicate_rule``) instead of a browser read-then-write (MS-5070); audited in the same transaction;
+- edit changes only ``beneficiary``: action, event and max_usage are locked as in the portal's edit dialog
+  (TEOS-212). Sending their current values is not a change; a different value is 422 ``rule_field_locked``;
 - delete: refused by the foreign key from ``promotion.rule_id`` (409 ``rule_in_use``).
 """
+import json
 from typing import Any, Dict, List, Optional
 
 from app.exceptions.admin import AdminConflict, AdminNotFound, AdminValidationError
@@ -23,6 +26,10 @@ def _promotion_count(row: Dict[str, Any]) -> int:
     if isinstance(embedded, list) and embedded and isinstance(embedded[0], dict):
         return int(embedded[0].get("count") or 0)
     return 0
+
+
+#: Columns fixed once the rule exists; the edit body must repeat their stored values (TEOS-212).
+LOCKED_ON_EDIT = ("promotion_rule_action_id", "promotion_rule_event_id", "max_usage")
 
 
 def shape_rule(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -99,10 +106,16 @@ class PromotionRuleAdminService:
         return self.get(row["id"])
 
     def update(self, rule_id: str, body: AdminPromotionRuleBody, ctx: AuditContext) -> Dict[str, Any]:
-        """200 (also when nothing changed). 404; 409 duplicate_rule; 422 unknown action or event."""
-        self._check_action_and_event(body)
+        """200 (also when nothing changed). 404; 422 ``rule_field_locked`` with ``fields`` when action,
+        event or max_usage differ from the stored rule (TEOS-212). Only ``beneficiary`` is written."""
+        current = self.repo.get(rule_id)
+        if current is None:
+            raise AdminNotFound("not_found")
+        changed = [field for field in LOCKED_ON_EDIT if getattr(body, field) != current.get(field)]
+        if changed:
+            raise AdminValidationError(json.dumps({"code": "rule_field_locked", "fields": changed}))
         try:
-            self._write(lambda: self.repo.update_audited(rule_id, body.model_dump(), ctx))
+            self._write(lambda: self.repo.update_audited(rule_id, {"beneficiary": body.beneficiary}, ctx))
         except AdminConflict as exc:
             if exc.conflict_code != "no_change":
                 raise

@@ -26,8 +26,16 @@ def _tag_order(tag: Dict[str, Any]):
 class TagGroupAdminRepo(AdminBaseRepository):
     # tag_group_name_key: unique on tag_group.name (supabase_ddl.sql);
     # unique_tag_name_per_group: unique tag(name, tag_group_id) (supabase_ddl.sql, section 020_constraints.sql)
-    UNIQUE_CONFLICTS = {"tag_group_name_key": "duplicate_group_name",
-                        "unique_tag_name_per_group": "duplicate_tag_name"}
+    # TEOS-186: the case-insensitive indexes tag_group_name_lower_key and tag_name_lower_per_group_key
+    # refuse two creates racing past the API check. An equivalent index under another name is matched
+    # on its 23505 detail ("Key (tag_group_id, lower(name::text))=..."); the tag key comes first,
+    # because the group key's "(lower(name" is part of it.
+    UNIQUE_CONFLICTS = {"tag_group_name_lower_key": "duplicate_group_name",
+                        "tag_name_lower_per_group_key": "duplicate_tag_name",
+                        "tag_group_name_key": "duplicate_group_name",
+                        "unique_tag_name_per_group": "duplicate_tag_name",
+                        "tag_group_id, lower(name": "duplicate_tag_name",
+                        "Key (lower(name": "duplicate_group_name"}
 
     def __init__(self):
         super().__init__(DatabaseTables.TABLE_TAG_GROUP)

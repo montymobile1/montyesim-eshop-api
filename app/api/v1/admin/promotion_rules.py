@@ -59,7 +59,8 @@ def create_rule(body: AdminPromotionRuleBody, request: Request,
 @router.put("/{rule_id}", response_model=Response[AdminPromotionRule])
 def update_rule(body: AdminPromotionRuleBody, request: Request, rule_id: UUID = RuleId,
                 user: AdminUser = Depends(require_permission(WRITE))) -> Response:
-    """200. 404; 409 `duplicate_rule`; 422 unknown action or event."""
+    """200. Only `beneficiary` changes; action, event and max_usage must repeat the stored values, else
+    422 `rule_field_locked` with `fields` (TEOS-212). 404 unknown id."""
     return ok(service.update(str(rule_id), body, audit_context(user, request)))
 
 

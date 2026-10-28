@@ -12,6 +12,7 @@ class AdminPromotionRuleBody(BaseModel):
     ``beneficiary``: 0 (none), 1 (sender), 2 (sender and receiver), as the ``promotion_rule_beneficiary_check``
     constraint allows. The rule name (``<action>-<event>-<max_usage>``) is filled by the database trigger.
     ``max_usage`` must be a JSON integer: "5" is a 422 instead of being converted (TEOS-211).
+    On PUT only ``beneficiary`` may change; the other three must be the stored values (TEOS-212).
     """
     promotion_rule_action_id: int = Field(..., ge=1)
     promotion_rule_event_id: int = Field(..., ge=1)
