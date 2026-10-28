@@ -233,3 +233,55 @@ def test_the_default_form_limit_is_50_mb(monkeypatch):
     from app.api.v1.admin.groups import _max_form_bytes
     monkeypatch.delenv("ADMIN_MAX_GROUP_FORM_BYTES", raising=False)
     assert _max_form_bytes() == 50 * 1024 * 1024
+
+
+# ---------- TEOS-191: each 413 tells the admin which limit was hit ----------
+
+def test_too_many_files_message_names_the_limit(api_client, service, as_admin):
+    tags = [{"client_key": f"k{i}", "name": f"t{i}"} for i in range(201)]
+    files = [(f"icon_k{i}", PNG) for i in range(201)]
+
+    body = api_client.post(BASE, data=_create(tags=tags), files=files).json()
+
+    assert body["title"] == "At most 200 new icons can be uploaded in one save."
+    assert body["developerMessage"] == "too many files: at most 200"
+
+
+def test_form_too_large_message_names_the_limit(api_client, service, as_admin, monkeypatch):
+    monkeypatch.setenv("ADMIN_MAX_GROUP_FORM_BYTES", str(2 * 1024))
+    big = ("icon.png", b"\x89PNG\r\n\x1a\n" + b"0" * 1500, "image/png")
+    files = [(f"icon_k{i}", big) for i in range(2)]
+    tags = [{"client_key": f"k{i}", "name": f"t{i}"} for i in range(2)]
+
+    body = api_client.post(BASE, data=_create(tags=tags), files=files).json()
+
+    assert body["title"] == ("The new icons are too large together (at most 2 KB in one save). "
+                             "Save the group with fewer new icons, then add the rest.")
+    assert body["developerMessage"] == "request body too large"
+
+
+def test_the_413_message_is_translated(api_client, service, as_admin):
+    tags = [{"client_key": f"k{i}", "name": f"t{i}"} for i in range(201)]
+    files = [(f"icon_k{i}", PNG) for i in range(201)]
+
+    body = api_client.post(BASE, data=_create(tags=tags), files=files, headers={"Accept-Language": "ar"}).json()
+
+    assert body["title"] == "يمكن رفع 200 أيقونة جديدة كحد أقصى في كل حفظ."
+
+
+def test_an_oversized_image_says_so_with_the_limit():
+    from app.exceptions.admin import AdminPayloadTooLarge
+    from app.services.admin.media_storage_service import MediaStorageService
+    storage = MediaStorageService.__new__(MediaStorageService)
+    storage.max_bytes = 1024 * 1024
+
+    with pytest.raises(AdminPayloadTooLarge) as raised:
+        storage.validate(b"0" * (1024 * 1024 + 1))
+    assert raised.value.name == "The image is larger than 1 MB."
+    assert raised.value.details == "file larger than 1048576 bytes"
+
+
+@pytest.mark.parametrize("size, label", [(50 * 1024 * 1024, "50 MB"), (512 * 1024, "512 KB"), (900, "900 bytes")])
+def test_size_label(size, label):
+    from app.exceptions.admin import size_label
+    assert size_label(size) == label

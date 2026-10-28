@@ -16,7 +16,8 @@ from starlette.responses import Response as HttpResponse
 from app.api.v1.admin._lookup import add_lookup_route
 from app.api.v1.admin._route import admin_router
 from app.dependencies.admin_security import AdminUser, require_permission
-from app.exceptions.admin import AdminPayloadTooLarge, AdminValidationError
+from app.config.constants import ErrorMessages
+from app.exceptions.admin import AdminPayloadTooLarge, AdminValidationError, size_label
 from app.schemas.admin.common import AdminPage, AdminStatusPatch, PageParams, ok, ok_page, page_params
 from app.schemas.admin.groups import (ICON_FIELD_PREFIX, MAX_ICON_FILES, PAYLOAD_FIELD, AdminGroup,
                                       AdminGroupCreate, AdminGroupDetail, AdminGroupStatus, AdminGroupUpdate,
@@ -75,7 +76,8 @@ async def _read_body(request: Request, max_bytes: int) -> None:
             too_large = True
             body = bytearray()
     if too_large:
-        raise AdminPayloadTooLarge("request body too large")
+        raise AdminPayloadTooLarge("request body too large", ErrorMessages.ADMIN_GROUP_FORM_TOO_LARGE,
+                                   size_label(max_bytes))
     request._body = bytes(body)
 
 
@@ -100,14 +102,16 @@ async def _group_form(request: Request, model: Type[M]) -> Tuple[M, Dict[str, by
     if unknown:
         raise AdminValidationError(f"unknown field(s): {', '.join(sorted(set(unknown)))}")
     if len(icons) > MAX_ICON_FILES:
-        raise AdminPayloadTooLarge(f"too many files: at most {MAX_ICON_FILES}")
+        raise AdminPayloadTooLarge(f"too many files: at most {MAX_ICON_FILES}", ErrorMessages.ADMIN_TOO_MANY_ICONS,
+                                   MAX_ICON_FILES)
     files: Dict[str, bytes] = {}
     total = len(payload or "")
     for key, value in icons.items():
         files[key] = service.read_image(value.file)
         total += len(files[key])
         if total > max_bytes:
-            raise AdminPayloadTooLarge("request body too large")
+            raise AdminPayloadTooLarge("request body too large", ErrorMessages.ADMIN_GROUP_FORM_TOO_LARGE,
+                                       size_label(max_bytes))
     if payload is None:
         raise AdminValidationError(f"{PAYLOAD_FIELD}: required (JSON text)")
     try:
