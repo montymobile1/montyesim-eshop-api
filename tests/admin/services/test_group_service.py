@@ -344,6 +344,25 @@ def test_repo_maps_unique_constraints(constraint, code):
     assert err.value.conflict_code == code
 
 
+@pytest.mark.parametrize("message, details, code", [
+    # TEOS-186: the case-insensitive indexes refuse a create that raced past the API check
+    ('duplicate key value violates unique constraint "tag_group_name_lower_key"',
+     "Key (lower(name::text))=(qa-race case0) already exists.", "duplicate_group_name"),
+    ('duplicate key value violates unique constraint "tag_name_lower_per_group_key"',
+     "Key (tag_group_id, lower(name::text))=(7, same) already exists.", "duplicate_tag_name"),
+    # the same indexes under another name: mapped on the detail, the tag key not taken for the group key
+    ('duplicate key value violates unique constraint "tag_group_name_ci_idx"',
+     "Key (lower(name::text))=(qa-race case0) already exists.", "duplicate_group_name"),
+    ('duplicate key value violates unique constraint "tag_name_ci_idx"',
+     "Key (tag_group_id, lower(name::text))=(7, same) already exists.", "duplicate_tag_name"),
+])
+def test_repo_maps_case_insensitive_name_indexes(message, details, code):
+    repo = _rpc_repo(APIError({"code": "23505", "message": message, "details": details, "hint": None}))
+    with pytest.raises(AdminConflict) as err:
+        repo.insert_group_with_tags({"name": "QA-race Case0", "type": 1, "group_category": "x"}, [], CTX)
+    assert err.value.conflict_code == code
+
+
 def test_repo_maps_linked_bundles_with_bundle_count():
     repo = _rpc_repo(APIError({"code": "AD409", "message": "linked_bundles",
                                "details": '{"code": "linked_bundles", "bundle_count": 4}', "hint": None}))

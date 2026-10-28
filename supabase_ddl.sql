@@ -3246,7 +3246,9 @@ $$;
   ---------------+-----------------------------------------+--------------------------------------------+-------------------
   bundle_tag     | (bundle_id, tag_id)                     | unique_bundle_tag                          | (upsert target)
   tag            | (name, tag_group_id)                    | unique_tag_name_per_group                  | duplicate_tag_name
-  app_config     | (key)                                   | app_config_key_key                         | -
+  tag            | (tag_group_id, lower(name))             | tag_name_lower_per_group_key (unique index)| duplicate_tag_name
+  tag_group      | lower(name)                             | tag_group_name_lower_key (unique index)    | duplicate_group_name
+  app_config    | (key)                                   | app_config_key_key                         | -
   banner         | lower(title)                            | banner_title_lower_key (unique index)      | duplicate_title
   voucher        | lower(code)                             | voucher_code_lower_key (unique index)      | duplicate_code
   promotion      | (name)                                  | promotion_name_key                         | duplicate_name
@@ -3354,6 +3356,62 @@ BEGIN
     IF NOT pg_temp.admin_mig_has_unique_cols('public.tag'::regclass, ARRAY['name', 'tag_group_id']) THEN
         ALTER TABLE public.tag
             ADD CONSTRAINT unique_tag_name_per_group UNIQUE (name, tag_group_id);
+    END IF;
+END
+$$;
+
+------------------------------------------------------------------------------
+-- TEOS-186: tag_group lower(name) and tag (tag_group_id, lower(name))
+-- The API refuses case-only duplicates before the insert, but two creates sent at the same moment
+-- both passed that check. These indexes make the database refuse the second one (23505 ->
+-- duplicate_group_name / duplicate_tag_name). The case-sensitive constraints above stay.
+------------------------------------------------------------------------------
+DO $$
+DECLARE
+    v_dups text;
+BEGIN
+    SELECT string_agg(format('(lower(name)=%L, ids=%s)', d.n, d.ids), '; ')
+      INTO v_dups
+      FROM (SELECT lower(name) AS n, array_agg(id ORDER BY id)::text AS ids
+              FROM public.tag_group
+             WHERE name IS NOT NULL
+             GROUP BY lower(name)
+            HAVING count(*) > 1
+             ORDER BY count(*) DESC
+             LIMIT 50) d;
+
+    IF v_dups IS NOT NULL THEN
+        RAISE EXCEPTION 'tag_group has duplicate names (case-insensitive), rename them before re-running: %', v_dups;
+    END IF;
+
+    IF NOT pg_temp.admin_mig_has_unique_expr('public.tag_group'::regclass, 'tag_group_name_lower_key',
+                                             ARRAY['lower((name)::text)', 'lower(name)']) THEN
+        CREATE UNIQUE INDEX tag_group_name_lower_key ON public.tag_group (lower(name));
+    END IF;
+END
+$$;
+
+DO $$
+DECLARE
+    v_dups text;
+BEGIN
+    SELECT string_agg(format('(tag_group_id=%s, lower(name)=%L, ids=%s)', d.tag_group_id, d.n, d.ids), '; ')
+      INTO v_dups
+      FROM (SELECT tag_group_id, lower(name) AS n, array_agg(id ORDER BY id)::text AS ids
+              FROM public.tag
+             WHERE name IS NOT NULL
+             GROUP BY tag_group_id, lower(name)
+            HAVING count(*) > 1
+             ORDER BY count(*) DESC
+             LIMIT 50) d;
+
+    IF v_dups IS NOT NULL THEN
+        RAISE EXCEPTION 'tag has duplicate names in a group (case-insensitive), rename them before re-running: %', v_dups;
+    END IF;
+
+    IF NOT pg_temp.admin_mig_has_unique_expr('public.tag'::regclass, 'tag_name_lower_per_group_key',
+                                             ARRAY['lower((name)::text)', 'lower(name)']) THEN
+        CREATE UNIQUE INDEX tag_name_lower_per_group_key ON public.tag (tag_group_id, lower(name));
     END IF;
 END
 $$;
@@ -4786,8 +4844,9 @@ GRANT EXECUTE ON FUNCTION public.admin_set_bundle_tags(uuid, uuid[], uuid, text,
                               another group or does not exist (DETAIL "tag_ids")
     AD422  incomplete_order   p_tag_ids does not list every tag of the group
     AD422  invalid_input      bad argument
-    Native errors propagate: 23505 tag_group_name_key (duplicate_group_name),
-    23505 unique_tag_name_per_group (duplicate_tag_name), 22P02 bad uuid (422).
+    Native errors propagate: 23505 tag_group_name_key / tag_group_name_lower_key
+    (duplicate_group_name), 23505 unique_tag_name_per_group / tag_name_lower_per_group_key
+    (duplicate_tag_name, TEOS-186), 22P02 bad uuid (422).
 
   Audit rows (admin_write_audit of 050_admin_audit_helpers.sql): table_name
   'tag_group', operation INSERT / UPDATE / DELETE, old_data and new_data =

@@ -175,3 +175,61 @@ def test_a_body_under_the_form_limit_is_accepted(api_client, service, as_admin, 
     monkeypatch.setenv("ADMIN_MAX_GROUP_FORM_BYTES", "100000")
 
     assert api_client.post(BASE, data=_create(), files={"icon_t1": PNG}).status_code == 201
+
+
+# ---------- TEOS-188 retest: the body is read to the end before the 413 ----------
+
+def _streamed_request(chunks, content_length=None):
+    """A Request whose body arrives in ``chunks``; ``sent`` records each chunk the API pulled."""
+    from starlette.requests import Request
+    headers = [] if content_length is None else [(b"content-length", str(content_length).encode())]
+    sent = []
+    messages = [{"type": "http.request", "body": chunk, "more_body": index < len(chunks) - 1}
+                for index, chunk in enumerate(chunks)]
+
+    async def receive():
+        message = messages.pop(0)
+        sent.append(message["body"])
+        return message
+
+    return Request({"type": "http", "method": "POST", "headers": headers}, receive), sent
+
+
+@pytest.mark.parametrize("content_length", [None, 30, 5], ids=["no length", "true length", "length too small"])
+def test_a_body_over_the_limit_is_drained_then_413(content_length):
+    import asyncio
+    from app.api.v1.admin.groups import _read_body
+    from app.exceptions.admin import AdminPayloadTooLarge
+    chunks = [b"x" * 10, b"x" * 10, b"x" * 10]
+    request, sent = _streamed_request(chunks, content_length)
+
+    with pytest.raises(AdminPayloadTooLarge):
+        asyncio.run(_read_body(request, 25))
+    assert sent == chunks  # every chunk was received before answering, so the proxy gets the 413
+
+
+def test_a_declared_length_over_the_limit_still_drains_the_body():
+    import asyncio
+    from app.api.v1.admin.groups import _read_body
+    from app.exceptions.admin import AdminPayloadTooLarge
+    chunks = [b"x" * 10, b"x" * 10]
+    request, sent = _streamed_request(chunks, content_length=10_000)
+
+    with pytest.raises(AdminPayloadTooLarge):
+        asyncio.run(_read_body(request, 25))
+    assert sent == chunks
+
+
+def test_a_body_at_the_limit_is_kept_for_the_form():
+    import asyncio
+    from app.api.v1.admin.groups import _read_body
+    request, _ = _streamed_request([b"x" * 15, b"x" * 10], content_length=25)
+
+    asyncio.run(_read_body(request, 25))
+    assert request._body == b"x" * 25
+
+
+def test_the_default_form_limit_is_50_mb(monkeypatch):
+    from app.api.v1.admin.groups import _max_form_bytes
+    monkeypatch.delenv("ADMIN_MAX_GROUP_FORM_BYTES", raising=False)
+    assert _max_form_bytes() == 50 * 1024 * 1024

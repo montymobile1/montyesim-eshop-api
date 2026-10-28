@@ -37,8 +37,8 @@ GroupId = Path(..., ge=1, description="group id")
 M = TypeVar("M", bound=BaseModel)
 
 #: Whole multipart body of a group create or edit, 413 above (TEOS-188). Each icon is also limited to
-#: ADMIN_MAX_UPLOAD_BYTES. The story gives no figure: 20 MB is a default to confirm with product.
-DEFAULT_MAX_GROUP_FORM_BYTES = 20 * 1024 * 1024
+#: ADMIN_MAX_UPLOAD_BYTES. 50 MB: user decision, 2026-10-28 (the story gives no figure).
+DEFAULT_MAX_GROUP_FORM_BYTES = 50 * 1024 * 1024
 
 
 def _max_form_bytes() -> int:
@@ -56,15 +56,36 @@ def _validation_text(exc: ValidationError) -> str:
     return "; ".join(parts) or "invalid payload"
 
 
+async def _read_body(request: Request, max_bytes: int) -> None:
+    """Reads the whole body; 413 once it is all received when it is over ``max_bytes`` (declared length or
+    bytes counted, so a missing or wrong Content-Length is caught too).
+
+    TEOS-188: answering 413 while the client was still sending made the proxy return a 502 page, so an
+    oversized body is drained (and dropped) to the end first. A body within the limit is kept for
+    ``request.form()``, which reads ``request._body`` instead of the consumed stream. Done here, after
+    the permission dependency, and not in a middleware: only group create and edit take this limit."""
+    length = request.headers.get("content-length")
+    too_large = bool(length and length.isdigit() and int(length) > max_bytes)
+    body = bytearray()
+    async for chunk in request.stream():
+        if too_large:
+            continue
+        body.extend(chunk)
+        if len(body) > max_bytes:
+            too_large = True
+            body = bytearray()
+    if too_large:
+        raise AdminPayloadTooLarge("request body too large")
+    request._body = bytes(body)
+
+
 async def _group_form(request: Request, model: Type[M]) -> Tuple[M, Dict[str, bytes]]:
     """``payload`` parsed as ``model`` plus ``{client_key: bytes}`` of the ``icon_*`` files.
 
     413 before any upload when the body is over the form limit (declared length or bytes read) or holds
     more than ``MAX_ICON_FILES`` files (TEOS-187, TEOS-188)."""
     max_bytes = _max_form_bytes()
-    length = request.headers.get("content-length")
-    if length and length.isdigit() and int(length) > max_bytes:
-        raise AdminPayloadTooLarge("request body too large")
+    await _read_body(request, max_bytes)
     form = await request.form()
     payload: Optional[str] = None
     icons: Dict[str, UploadFile] = {}
