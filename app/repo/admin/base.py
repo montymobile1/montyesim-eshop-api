@@ -63,8 +63,11 @@ def _column(name: str) -> str:
 
 class AdminBaseRepository(BaseRepository):
     #: Unique-constraint name fragment -> 409 code returned to the portal, e.g.
-    #: {"promotion_code_key": "duplicate_code"}. Unlisted duplicates return "duplicate".
+    #: {"promotion_code_key": "duplicate_code"}. Unlisted duplicates return UNIQUE_DEFAULT_CONFLICT.
     UNIQUE_CONFLICTS: Dict[str, str] = {}
+    #: 409 code of a 23505 that names no constraint in UNIQUE_CONFLICTS. A table with a single unique key
+    #: sets its own code here, so an index with another name on a database still maps (TEOS-239).
+    UNIQUE_DEFAULT_CONFLICT: str = "duplicate"
     #: AD422 DETAIL codes returned as the JSON ``{"code": ..., ...}`` developerMessage (like the 409s)
     #: instead of the plain MESSAGE text, e.g. {"inactive_group_tag"} (TEOS-168). Unlisted codes keep
     #: the text, so no existing 422 changes.
@@ -236,11 +239,12 @@ class AdminBaseRepository(BaseRepository):
         return AdminUpstreamError("DATABASE_ERROR")
 
     def _unique_conflict(self, text: str) -> AdminConflict:
-        """23505: the conflict code of the first known constraint named in ``text``, else ``duplicate``."""
+        """23505: the conflict code of the first known constraint named in ``text``, else
+        ``UNIQUE_DEFAULT_CONFLICT``."""
         for fragment, conflict_code in self.UNIQUE_CONFLICTS.items():
             if fragment in text:
                 return AdminConflict(conflict_code)
-        return AdminConflict("duplicate")
+        return AdminConflict(self.UNIQUE_DEFAULT_CONFLICT)
 
     def _map_admin_error(self, code: str, message: str, detail: Dict[str, Any]) -> Exception:
         """The AD404 / AD409 / AD422 errors raised by the admin_* SQL functions."""
