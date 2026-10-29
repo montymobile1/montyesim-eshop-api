@@ -218,6 +218,10 @@ def test_repo_maps_title_index_to_duplicate_title():
     ('duplicate key value violates unique constraint "banner_title_ci_idx"',
      "Key (lower(title::text))=(spring sale) already exists."),
     ('duplicate key value violates unique constraint "banner_title_key"', "Key (title)=(Spring Sale) already exists."),
+    # TEOS-239 retest: an index with an unknown name and expression, or no detail at all
+    ('duplicate key value violates unique constraint "banner_uq_ci"',
+     "Key (lower(btrim((title)::text)))=(spring sale) already exists."),
+    ('duplicate key value violates unique constraint "banner_uq_ci"', None),
 ])
 def test_repo_maps_any_title_unique_index_to_duplicate_title(message, details):
     repo = BannerAdminRepo.__new__(BannerAdminRepo)
@@ -228,6 +232,10 @@ def test_repo_maps_any_title_unique_index_to_duplicate_title(message, details):
 
     with pytest.raises(AdminConflict) as err:
         repo.insert_audited({"title": "Spring Sale"}, CTX)
+    assert err.value.conflict_code == "duplicate_title"
+    # edit takes the same mapping (TEOS-239: PUT to another banner's title)
+    with pytest.raises(AdminConflict) as err:
+        repo.update_audited(1, {"title": "Spring Sale"}, CTX)
     assert err.value.conflict_code == "duplicate_title"
 
 

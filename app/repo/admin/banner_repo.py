@@ -17,6 +17,9 @@ class BannerAdminRepo(AdminBaseRepository):
         "(lower(title": "duplicate_title",
         "Key (title)=": "duplicate_title",
     }
+    # TEOS-239 retest: QA's title index matched none of the names above. The title is the banner's only
+    # unique key (id is a serial), so any duplicate on this table is a title conflict.
+    UNIQUE_DEFAULT_CONFLICT = "duplicate_title"
 
     def __init__(self):
         super().__init__(DatabaseTables.TABLE_BANNER)
