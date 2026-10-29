@@ -21,7 +21,8 @@ from loguru import logger
 from PIL import Image
 
 from app.config.config import supabase_client
-from app.exceptions.admin import AdminPayloadTooLarge, AdminUpstreamError, AdminValidationError
+from app.config.constants import ErrorMessages
+from app.exceptions.admin import AdminPayloadTooLarge, AdminUpstreamError, AdminValidationError, size_label
 from app.repo.admin.storage_cleanup_queue_repo import StorageCleanupQueueRepo
 
 DEFAULT_BUCKET = "media"
@@ -90,7 +91,8 @@ class MediaStorageService:
         if not data:
             raise AdminValidationError("empty_file")
         if len(data) > self.max_bytes:
-            raise AdminPayloadTooLarge(f"file larger than {self.max_bytes} bytes")
+            raise AdminPayloadTooLarge(f"file larger than {self.max_bytes} bytes",
+                                       ErrorMessages.ADMIN_IMAGE_TOO_LARGE, size_label(self.max_bytes))
         content_type = detect_image_type(data)
         if content_type is None:
             raise AdminValidationError("unsupported_image_type")

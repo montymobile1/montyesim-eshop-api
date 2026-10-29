@@ -10,6 +10,7 @@ from typing import Any
 
 from app.config.constants import ErrorMessages
 from app.exceptions import CustomException
+from app.i18n import translate
 
 
 class AdminError(CustomException):
@@ -47,8 +48,24 @@ class AdminConflict(AdminError):
 
 
 class AdminPayloadTooLarge(AdminError):
+    """413. ``name`` with ``limit`` gives the admin a message naming the limit that was hit (TEOS-191): the
+    text is translated in the request's language here, with ``{limit}`` filled in, because the shared
+    handler in ``main.py`` only translates a bare key."""
     status_code = 413
     default_name = ErrorMessages.ADMIN_PAYLOAD_TOO_LARGE
+
+    def __init__(self, details: str, name: ErrorMessages | str | None = None, limit: Any = None):
+        if name is not None and limit is not None:
+            name = translate(name).format(limit=limit)
+        super().__init__(details=details, name=name)
+
+
+def size_label(size: int) -> str:
+    """``50 MB`` / ``512 KB`` / ``900 bytes`` for a byte limit, as the admin messages show it."""
+    for unit, factor in (("MB", 1024 * 1024), ("KB", 1024)):
+        if size >= factor and size % factor == 0:
+            return f"{size // factor} {unit}"
+    return f"{size} bytes"
 
 
 class AdminValidationError(AdminError):

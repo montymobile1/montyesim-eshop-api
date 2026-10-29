@@ -710,13 +710,6 @@ delete
 , insert, references,
 select, trigger, truncate,
 update
-    on bundle to anon;
-
-grant
-delete
-, insert, references,
-select, trigger, truncate,
-update
     on bundle to authenticated;
 
 grant
@@ -749,13 +742,6 @@ grant select, update, usage on sequence tag_group_id_seq to anon;
 grant select, update, usage on sequence tag_group_id_seq to authenticated;
 
 grant select, update, usage on sequence tag_group_id_seq to service_role;
-
-grant
-delete
-, insert, references,
-select, trigger, truncate,
-update
-    on tag_group to anon;
 
 grant
 delete
@@ -796,13 +782,6 @@ delete
 , insert, references,
 select, trigger, truncate,
 update
-    on tag to anon;
-
-grant
-delete
-, insert, references,
-select, trigger, truncate,
-update
     on tag to authenticated;
 
 grant
@@ -835,13 +814,6 @@ grant select, update, usage on sequence bundle_tag_id_seq to anon;
 grant select, update, usage on sequence bundle_tag_id_seq to authenticated;
 
 grant select, update, usage on sequence bundle_tag_id_seq to service_role;
-
-grant
-delete
-, insert, references,
-select, trigger, truncate,
-update
-    on bundle_tag to anon;
 
 grant
 delete
@@ -2616,60 +2588,6 @@ INSERT INTO "public"."promotion_rule_event" ("id", "name")
 VALUES ('1', 'CREATE_ORDER'),
        ('2', 'CREATE_ACCOUNT');
 
-
-CREATE
-POLICY "Enable read access for all users" ON "storage"."objects"
-AS PERMISSIVE FOR
-SELECT
-    TO public
-    USING (true);
-
-CREATE
-POLICY "Enable insert for all users" ON "storage"."objects"
-AS PERMISSIVE FOR INSERT
-TO public
-WITH CHECK (true);
-
-CREATE
-POLICY "Enable update for all users" ON "storage"."objects"
-AS PERMISSIVE FOR
-UPDATE
-    TO public
-    USING (true)
-WITH CHECK (true);
-
-CREATE
-POLICY "Enable delete for all users" ON "storage"."objects"
-AS PERMISSIVE FOR DELETE
-TO public
-USING (true);
-
-CREATE
-POLICY "Enable read access for all users" ON "storage"."buckets"
-AS PERMISSIVE FOR
-SELECT
-    TO public
-    USING (true);
-
-CREATE
-POLICY "Enable insert for all users " ON "storage"."buckets"
-AS PERMISSIVE FOR INSERT
-TO public
-WITH CHECK (true);
-
-CREATE
-POLICY "Enable update for all users" ON "storage"."buckets"
-AS PERMISSIVE FOR
-UPDATE
-    TO public
-    USING (true)
-WITH CHECK (true);
-
-CREATE
-POLICY "Enable delete for all users" ON "storage"."buckets"
-AS PERMISSIVE FOR DELETE
-TO public
-USING (true);
 
 
 DO
