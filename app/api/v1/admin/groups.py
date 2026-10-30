@@ -178,7 +178,9 @@ def update_group(request: Request, group_id: int = GroupId,
                  form: Tuple[AdminGroupUpdate, Dict[str, bytes]] = Depends(update_form)) -> Response:
     """200 group with tags. 404; 409 ``duplicate_group_name`` / ``duplicate_tag_name`` / ``linked_bundles``
     (a deleted tag is assigned to a bundle: ``{"code":"linked_bundles","bundle_count":n,"tag_ids":[...],
-    "tags":[{"id","name","bundle_count"}]}``, TEOS-196); 422 tag of another group, unknown icon, bad payload."""
+    "tags":[{"id","name","bundle_count"}]}``, TEOS-196) / ``guard_failed`` (another admin changed an edited
+    tag's icon meanwhile; nothing saved, reload and retry: TEOS-292); 422 tag of another group, unknown icon,
+    bad payload."""
     payload, files = form
     return ok(service.update(group_id, payload, files, audit_context(user, request)))
 
