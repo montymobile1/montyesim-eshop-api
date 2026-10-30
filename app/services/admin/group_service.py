@@ -8,7 +8,9 @@ portal uploads them today, but now in this order:
 - create / edit: upload the new icons, then the transaction; when it fails every file just
   uploaded is removed (``remove_staged``), so nothing is left behind (MS-5070 for groups);
 - edit: the replaced and removed icons, and the icons of the deleted tags, are removed only after
-  the commit (``remove_after_commit``);
+  the commit (``remove_after_commit``); every edited tag is guarded on the icon read before the
+  upload, so of two admins editing at once the second gets 409 ``guard_failed`` and its upload is
+  removed instead of left orphaned (TEOS-292);
 - delete: the usage check runs inside the transaction (409 ``linked_bundles`` with the number of
   bundles) and the icons are removed only after a successful delete. Fixes MS-5064, where the
   portal deleted the icons first and then found out the group was in use.
@@ -198,15 +200,22 @@ class GroupAdminService:
                     icon = cur.get("icon")
                 data = build_tag_data(group["name"], tag.name, str(cur["id"]), icon, tag.alternative_country,
                                       tag.data, existing=cur.get("data"), is_new=False)
-                updated_rows.append({"id": str(cur["id"]), "name": tag.name, "icon": icon, "data": data})
-            for tag_id in deleted_ids:
-                to_remove.append(self.media.path_from_url(existing[tag_id].get("icon")))
+                # TEOS-292: the icon read above must still be stored (else 409 guard_failed and the staged
+                # upload is removed below), so the file removed after the commit is the one replaced
+                updated_rows.append({"id": str(cur["id"]), "name": tag.name, "icon": icon, "data": data,
+                                     "expected_icon": cur.get("icon")})
             result = self.repo.edit_tag_group(group_id, group, new_rows, updated_rows,
                                               [str(existing[tag_id]["id"]) for tag_id in deleted_ids], ctx,
                                               rotate_cache=ROTATE_CACHE)
         except Exception:
             self.media.remove_staged([stored.path for stored in uploaded.values()])
             raise
+        # TEOS-292: the icons of the deleted tags as the database deleted them (another admin may have
+        # replaced one meanwhile); the icons read before the edit when the database does not return them
+        deleted_rows = (result or {}).get("deleted_tags")
+        if deleted_rows is None:
+            deleted_rows = [existing[tag_id] for tag_id in deleted_ids]
+        to_remove.extend(self.media.path_from_url(row.get("icon")) for row in deleted_rows)
         fresh = {stored.path for stored in uploaded.values()}
         paths = [path for path in to_remove if path and path not in fresh]
         if paths:
