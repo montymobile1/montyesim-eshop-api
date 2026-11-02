@@ -8,7 +8,9 @@ portal uploads them today, but now in this order:
 - create / edit: upload the new icons, then the transaction; when it fails every file just
   uploaded is removed (``remove_staged``), so nothing is left behind (MS-5070 for groups);
 - edit: the replaced and removed icons, and the icons of the deleted tags, are removed only after
-  the commit (``remove_after_commit``);
+  the commit (``remove_after_commit``); every edited tag is guarded on the icon read before the
+  upload, so of two admins editing at once the second gets 409 ``guard_failed`` and its upload is
+  removed instead of left orphaned (TEOS-292);
 - delete: the usage check runs inside the transaction (409 ``linked_bundles`` with the number of
   bundles) and the icons are removed only after a successful delete. Fixes MS-5064, where the
   portal deleted the icons first and then found out the group was in use.
@@ -25,7 +27,7 @@ from app.repo.admin.tag_group_repo import TagGroupAdminRepo
 from app.repo.admin.tag_repo import TagAdminRepo
 from app.schemas.admin.common import AdminPage, PageParams
 from app.schemas.admin.groups import (AdminGroupCreate, AdminGroupTagInput, AdminGroupUpdate,
-                                      normalize_alternative_country)
+                                      AdminGroupUpdatedTag, normalize_alternative_country)
 from app.services.admin.media_storage_service import MediaStorageService, StoredMedia
 
 #: Every group write rotates APP_CACHE_KEY: add, edit, reorder, delete and the status switch.
@@ -156,14 +158,7 @@ class GroupAdminService:
 
         updated_ids = [tag.id.lower() for tag in payload.updated_tags]
         deleted_ids = [tag_id.lower() for tag_id in payload.deleted_tag_ids]
-        if len(set(updated_ids)) != len(updated_ids):
-            raise AdminValidationError("updated_tags: duplicated id")
-        foreign = [tag_id for tag_id in updated_ids + deleted_ids if tag_id not in existing]
-        if foreign:
-            raise AdminValidationError(f"tag_not_in_group: {', '.join(foreign)}")
-        both = set(updated_ids) & set(deleted_ids)
-        if both:
-            raise AdminValidationError(f"a tag cannot be updated and deleted: {', '.join(sorted(both))}")
+        self._check_tag_ids(existing, updated_ids, deleted_ids)
 
         new_keys = {tag.client_key for tag in payload.new_tags}
         files = {key.lower() if key.lower() in existing else key: data for key, data in files.items()}
@@ -183,30 +178,21 @@ class GroupAdminService:
                 uploaded[key] = self.media.upload(group["name"], data)
             new_rows = [self._new_tag_row(group["name"], tag, uploaded.get(tag.client_key))
                         for tag in payload.new_tags]
-            updated_rows = []
-            for tag in payload.updated_tags:
-                tag_id = tag.id.lower()
-                cur = existing[tag_id]
-                stored = uploaded.get(tag_id)
-                if stored is not None:
-                    icon = stored.url
-                    to_remove.append(self.media.path_from_url(cur.get("icon")))
-                elif tag.remove_icon:
-                    icon = None
-                    to_remove.append(self.media.path_from_url(cur.get("icon")))
-                else:
-                    icon = cur.get("icon")
-                data = build_tag_data(group["name"], tag.name, str(cur["id"]), icon, tag.alternative_country,
-                                      tag.data, existing=cur.get("data"), is_new=False)
-                updated_rows.append({"id": str(cur["id"]), "name": tag.name, "icon": icon, "data": data})
-            for tag_id in deleted_ids:
-                to_remove.append(self.media.path_from_url(existing[tag_id].get("icon")))
+            updated_rows = [self._updated_tag_row(group["name"], tag, existing[tag.id.lower()],
+                                                  uploaded.get(tag.id.lower()), to_remove)
+                            for tag in payload.updated_tags]
             result = self.repo.edit_tag_group(group_id, group, new_rows, updated_rows,
                                               [str(existing[tag_id]["id"]) for tag_id in deleted_ids], ctx,
                                               rotate_cache=ROTATE_CACHE)
         except Exception:
             self.media.remove_staged([stored.path for stored in uploaded.values()])
             raise
+        # TEOS-292: the icons of the deleted tags as the database deleted them (another admin may have
+        # replaced one meanwhile); the icons read before the edit when the database does not return them
+        deleted_rows = (result or {}).get("deleted_tags")
+        if deleted_rows is None:
+            deleted_rows = [existing[tag_id] for tag_id in deleted_ids]
+        to_remove.extend(self.media.path_from_url(row.get("icon")) for row in deleted_rows)
         fresh = {stored.path for stored in uploaded.values()}
         paths = [path for path in to_remove if path and path not in fresh]
         if paths:
@@ -264,6 +250,35 @@ class GroupAdminService:
         icon = stored.url if stored is not None else None
         return {"id": tag_id, "name": tag.name, "icon": icon,
                 "data": build_tag_data(group_name, tag.name, tag_id, icon, tag.alternative_country, tag.data)}
+
+    @staticmethod
+    def _check_tag_ids(existing: Dict[str, Dict[str, Any]], updated_ids: List[str], deleted_ids: List[str]) -> None:
+        if len(set(updated_ids)) != len(updated_ids):
+            raise AdminValidationError("updated_tags: duplicated id")
+        foreign = [tag_id for tag_id in updated_ids + deleted_ids if tag_id not in existing]
+        if foreign:
+            raise AdminValidationError(f"tag_not_in_group: {', '.join(foreign)}")
+        both = set(updated_ids) & set(deleted_ids)
+        if both:
+            raise AdminValidationError(f"a tag cannot be updated and deleted: {', '.join(sorted(both))}")
+
+    def _updated_tag_row(self, group_name: str, tag: AdminGroupUpdatedTag, cur: Dict[str, Any],
+                         stored: Optional[StoredMedia], to_remove: List[Optional[str]]) -> Dict[str, Any]:
+        """The row of an edited tag; the icon it replaces or removes is appended to ``to_remove``."""
+        if stored is not None:
+            icon = stored.url
+            to_remove.append(self.media.path_from_url(cur.get("icon")))
+        elif tag.remove_icon:
+            icon = None
+            to_remove.append(self.media.path_from_url(cur.get("icon")))
+        else:
+            icon = cur.get("icon")
+        data = build_tag_data(group_name, tag.name, str(cur["id"]), icon, tag.alternative_country,
+                              tag.data, existing=cur.get("data"), is_new=False)
+        # TEOS-292: the icon read above must still be stored (else 409 guard_failed and the staged
+        # upload is removed), so the file removed after the commit is the one replaced
+        return {"id": str(cur["id"]), "name": tag.name, "icon": icon, "data": data,
+                "expected_icon": cur.get("icon")}
 
     def _icon_paths(self, tags: Iterable[Dict[str, Any]]) -> List[str]:
         paths = [self.media.path_from_url(tag.get("icon")) for tag in tags]

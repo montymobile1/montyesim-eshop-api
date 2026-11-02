@@ -57,8 +57,10 @@ def _ddl(name):
     return (ROOT / name).read_text(encoding="utf-8").replace("\r\n", "\n")
 
 
-def _function(text, name):
-    start = text.index(f"CREATE OR REPLACE FUNCTION public.{name}(")
+def _function(text, name, last=False):
+    """The function's text; ``last``: its last copy (a file run top to bottom keeps that one, TEOS-292)."""
+    marker = f"CREATE OR REPLACE FUNCTION public.{name}("
+    start = text.rindex(marker) if last else text.index(marker)
     return text[start:text.index("\n$$;\n", start) + len("\n$$;")]
 
 
@@ -128,7 +130,7 @@ INDEX_LINE = "CREATE INDEX IF NOT EXISTS bundle_tag_tag_id_idx ON public.bundle_
 @needs_new_change_ddl
 @pytest.mark.parametrize("name", GROUP_OBJECTS)
 def test_new_change_ddl_holds_the_same_function_as_supabase_ddl(name):
-    assert _function(_ddl(NEW_CHANGE_DDL), name) == _function(_admin_section(), name)
+    assert _function(_ddl(NEW_CHANGE_DDL), name, last=True) == _function(_admin_section(), name)
 
 
 @pytest.mark.parametrize("signature", SIGNATURES)

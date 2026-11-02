@@ -224,7 +224,8 @@ def test_update_replaces_removes_and_deletes_icons_after_commit(svc, repo, media
     assert updated_rows[0] == {"id": T1, "name": "Middle East", "icon": NEW.url,
                                "data": {"guid": T1, "icon": NEW.url, "zone_name": "Middle East",
                                         "region_code": "Middle_East", "region_name": "Middle East",
-                                        "alternative_country": None}}
+                                        "alternative_country": None},
+                               "expected_icon": _tag()["icon"]}
     assert updated_rows[1]["icon"] is None and updated_rows[1]["data"]["icon"] is None
     media.remove_staged.assert_not_called()
     removed = media.remove_after_commit.call_args.args[0]

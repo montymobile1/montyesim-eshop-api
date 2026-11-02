@@ -4729,10 +4729,13 @@ GRANT EXECUTE ON FUNCTION public.admin_set_bundle_tags(uuid, uuid[], uuid, text,
                          p_new_tags jsonb, p_updated_tags jsonb, p_deleted_tag_ids uuid[],
                          p_actor uuid, p_ip text DEFAULT NULL, p_reason text DEFAULT NULL,
                          p_rotate_cache boolean DEFAULT true)
-      -> jsonb {group, tags}
-         p_updated_tags = [{id, name, icon, data}, ...] (icon null clears it);
+      -> jsonb {group, tags, deleted_tags}
+         p_updated_tags = [{id, name, icon, data, expected_icon?}, ...] (icon null clears it);
          tag_translation.data is kept in sync for the updated tags, and the
          translations of the deleted tags are removed (as edit_tag_group did).
+         TEOS-292: an updated tag sent with "expected_icon" must still have that icon once
+         the group is locked (else AD409 guard_failed, nothing changed); deleted_tags =
+         [{id, icon}] of the tags deleted, as they were under the lock.
 
     admin_delete_group(p_id bigint, p_actor uuid, p_ip text DEFAULT NULL,
                        p_reason text DEFAULT NULL, p_rotate_cache boolean DEFAULT true)
@@ -4758,6 +4761,9 @@ GRANT EXECUTE ON FUNCTION public.admin_set_bundle_tags(uuid, uuid[], uuid, text,
                               "tags": [{id, name, bundle_count}] of the linked deleted
                               tags (TEOS-196).
                               Nothing is changed (fixes MS-5064).
+    AD409  guard_failed       edit: an updated tag's icon is no longer its
+                              "expected_icon" (another admin changed it meanwhile);
+                              DETAIL has "tags": [{id, expected, actual}] (TEOS-292).
     AD422  tag_not_in_group   an updated / deleted / reordered tag belongs to
                               another group or does not exist (DETAIL "tag_ids")
     AD422  incomplete_order   p_tag_ids does not list every tag of the group
@@ -4957,6 +4963,8 @@ DECLARE
     v_bundle_count integer;
     v_linked_ids   jsonb;
     v_linked       jsonb;
+    v_stale        jsonb;
+    v_deleted_rows jsonb  := '[]'::jsonb;
     v_inserted     integer := 0;
     v_updated      integer := 0;
     v_removed      integer := 0;
@@ -4990,6 +4998,24 @@ BEGIN
             DETAIL  = jsonb_build_object('code', 'tag_not_in_group', 'group_id', p_id, 'tag_ids', to_jsonb(v_bad))::text;
     END IF;
 
+    -- TEOS-292: the icon the API read before uploading must still be stored (the group lock serialises
+    -- two edits); otherwise the API would remove the wrong file and orphan the other admin's upload.
+    SELECT jsonb_agg(jsonb_build_object('id', tg.id::text, 'expected', t.value -> 'expected_icon',
+                                        'actual', tg.icon) ORDER BY tg.id)
+      INTO v_stale
+      FROM jsonb_array_elements(v_updated_tags) AS t(value)
+      JOIN public.tag AS tg ON tg.id = (t.value ->> 'id')::uuid AND tg.tag_group_id = p_id
+     WHERE t.value ? 'expected_icon'
+       AND tg.icon IS DISTINCT FROM (t.value ->> 'expected_icon');
+
+    IF v_stale IS NOT NULL THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD409',
+            MESSAGE = 'guard_failed',
+            DETAIL  = jsonb_build_object('code', 'guard_failed', 'table', 'tag', 'id', p_id::text,
+                                         'tags', v_stale)::text;
+    END IF;
+
     -- a tag assigned to a bundle cannot be deleted (bundle_tag.tag_id has no cascade).
     -- bundle_count = distinct bundles (TEOS-176); the 409 also names the linked tags (TEOS-196).
     SELECT count(DISTINCT bt.bundle_id) INTO v_bundle_count
@@ -5020,6 +5046,11 @@ BEGIN
      WHERE id = p_id;
 
     IF cardinality(v_deleted) > 0 THEN
+        -- TEOS-292: the icons actually deleted (read under the lock), so the API removes those files
+        SELECT coalesce(jsonb_agg(jsonb_build_object('id', t.id::text, 'icon', t.icon) ORDER BY t.id), '[]'::jsonb)
+          INTO v_deleted_rows
+          FROM public.tag AS t
+         WHERE t.id = ANY (v_deleted) AND t.tag_group_id = p_id;
         DELETE FROM public.tag_translation WHERE tag_id = ANY (v_deleted);
         DELETE FROM public.tag WHERE id = ANY (v_deleted) AND tag_group_id = p_id;
         GET DIAGNOSTICS v_removed = ROW_COUNT;
@@ -5063,7 +5094,7 @@ BEGIN
                            'tags_inserted', v_inserted, 'tags_updated', v_updated,
                            'deleted_tag_ids', to_jsonb(v_deleted), 'cache_key_rotated', v_rotated));
 
-    RETURN v_new;
+    RETURN v_new || jsonb_build_object('deleted_tags', v_deleted_rows);
 END;
 $$;
 
