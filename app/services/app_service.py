@@ -1,7 +1,7 @@
+import html
 import os
 from typing import List
 
-import bleach
 import httpx
 from fastapi import Request
 from loguru import logger
@@ -149,16 +149,18 @@ class AppService:
                 PageContentResponse(page_title="", page_content="", page_intro=""), 1)
 
     async def contact_us(self, contact_us_request: ContactUsRequest):
+        # TEOS-165: the message is stored as the customer typed it (the admin portal renders it as text);
+        # it is HTML-escaped only where it becomes HTML: the support email below.
         response = self.__contact_us_repo.create({
             "email": contact_us_request.email,
-            "content": bleach.clean(contact_us_request.content),
+            "content": contact_us_request.content,
         })
         if not response:
             raise CustomException(code=400, details="Bad Request", name=ErrorMessages.MESSAGE_WAS_NOT_SUBMITTED)
         content = f"""
             <h1>Received New Email Message</h1>
-            <p><b>From</b>: {contact_us_request.email}</p>
-            <p><b>Content</b>: {contact_us_request.content}</p>
+            <p><b>From</b>: {html.escape(contact_us_request.email)}</p>
+            <p><b>Content</b>: {html.escape(contact_us_request.content)}</p>
             <p><b>Sent from</b>: {get_config("BASE_URL", "-")}</p>
         """
         try:

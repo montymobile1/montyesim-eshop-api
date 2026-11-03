@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.v1.admin import router as admin_routes
 from app.api.v1.application import router as app_routes
 from app.api.v1.authentication import router as auth_routes
 from app.api.v1.bundles import router as bundle_routes
@@ -27,3 +28,6 @@ router.include_router(promotion_router, prefix="/promotion", tags=["Promotion"])
 # Additive namespace for the external MCP service. Every route inside it is gated by the
 # MCP feature flags; no legacy route above is affected by their position.
 router.include_router(mcp_user_bundle_routes, prefix="/mcp/user", tags=["MCP"])
+# Additive namespace for the admin portal. Its routes use their own route class (admin/_route.py)
+# and their own auth (admin_security.py); no route above is affected.
+router.include_router(admin_routes, prefix="/admin", tags=["Admin"])

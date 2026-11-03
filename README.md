@@ -151,6 +151,8 @@ To set up the database, run the following command:
   psql -h <supabase-host> -U <username> -d <database-name> -f supabase_ddl.sql
 ```
 
+`supabase_ddl.sql` is the only schema file: there is no migrations folder. A change for existing databases is written as an idempotent section of that file (IF NOT EXISTS, CREATE OR REPLACE, guarded DO blocks); to apply it, run that section in one transaction, then `NOTIFY pgrst, 'reload schema';`.
+
 ## Running the Application
 
 Run the FastAPI server:
@@ -247,6 +249,44 @@ Or use a process manager like **Gunicorn** with **Uvicorn**:
 
 ```sh
   gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:esim_app
+```
+
+## Admin API
+
+The admin portal (admin-open-source) calls this backend under `/api/v1/admin`. The code lives only in admin folders (`app/api/v1/admin/`, `app/services/admin/`, `app/repo/admin/`, `app/schemas/admin/`, `tests/admin/`) and the admin section of `supabase_ddl.sql`; the existing endpoints are unchanged.
+
+- **Auth:** `POST /api/v1/admin/auth/login` with `{email, password}` returns an access and a refresh token. Send `Authorization: Bearer <access_token>` on every other admin call; no `X-Device-ID`. The role is read from `app_metadata.role` of the Supabase user: `admin` or `super_admin`. `GET /api/v1/admin/auth/me` returns the role and the permission list.
+- **Permissions:** each route needs one `admin.<area>.<action>` permission. The role-to-permission table is `app/config/admin_permissions.py`. 401 means no or invalid session, 403 means a missing permission.
+- **Lists:** `page` (from 1) and `page_size` (default 20, max 100); `search` is literal. The response is the usual envelope with `data = {data: [...], total_count, facets?, totals?}`. An unknown query parameter returns 422.
+- **Errors:** the usual failed envelope; `responseCode` is the HTTP status. For 409 the `developerMessage` is a JSON string with a machine code, for example `{"code":"duplicate_code"}`. Database or storage failures return 502.
+- **Interactive docs:** `/docs`, routes under the admin tag.
+
+### Set up the database for the admin API
+
+Every SQL object the admin API needs is in `supabase_ddl.sql`, in the section that starts with `ADMIN API (MS-5017)` at the end of the file. That section is idempotent: on an existing database, run it alone, in one transaction, after review. Then give one account a role (the user must sign in again):
+
+```sql
+UPDATE auth.users
+   SET raw_app_meta_data = coalesce(raw_app_meta_data, '{}'::jsonb) || '{"role":"super_admin"}'::jsonb
+ WHERE email = 'user@example.com';   -- or "admin"
+```
+
+After applying, if the API still answers 502 with "Could not find the function", reload the PostgREST schema cache: `NOTIFY pgrst, 'reload schema';`.
+
+### Admin settings (.env)
+
+`ADMIN_MEDIA_BUCKET`, `ADMIN_MAX_UPLOAD_BYTES` (1 MB), `ADMIN_MAX_JSON_BYTES`, `ADMIN_EXPORT_ROW_CAP`, `ADMIN_LOGIN_RATE_LIMIT`, `ADMIN_TRUSTED_PROXY_HOPS`. Defaults and descriptions are in `.env.example`.
+
+The login rate limit is counted in the database, shared by every worker: the `admin_login_attempt` table and functions (section "admin login rate limit" of `supabase_ddl.sql`, part of the ADMIN API section) must be applied before deploying (without it every admin login answers 502).
+
+### Row level security on the per-user tables
+
+A user JWT against PostgREST (supabase-js, or a hand-made request with the anon key from `/configurations`) reads only that user's rows of the per-user tables; anon reads none. The API keeps the service key and is not affected. Tables, policies, the rollout checklist and how to run the live isolation tests: [docs/rls-user-tables.md](docs/rls-user-tables.md).
+
+### Run the admin tests
+
+```powershell
+$env:PYTHONPATH="."; .\.venv\Scripts\python.exe -m pytest tests/admin -q -p no:cacheprovider
 ```
 
 ## Contributing

@@ -182,3 +182,7 @@ test.py
 *.key
 *.pdf
 CredDev/
+
+# Admin API: SQL migrations and story records are kept locally only (team leader review, 2026-10-21).
+/migrations/
+/adminDocs/

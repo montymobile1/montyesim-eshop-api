@@ -28,6 +28,7 @@ google-resumable-media>=2.7.2
 
 # HTTP & Networking
 httpx==0.28.1
+python-multipart==0.0.20
 aiohttp>=3.13.5
 requests==2.33.0
 urllib3==2.6.3
@@ -54,6 +55,7 @@ loguru==0.7.3
 qrcode==8.1
 pillow==12.2.0
 orjson==3.11.7
+openpyxl==3.1.5
 email_validator==2.2.0
 pytz==2026.1.post1
 
@@ -64,6 +66,7 @@ stripe==12.4.0
 pytest==8.3.5
 pytest-asyncio==0.25.3
 pytest-cov==6.0.0
+pytest-mock==3.14.0
 coverage==7.6.12
 
 # Type stubs (dev dependencies)
