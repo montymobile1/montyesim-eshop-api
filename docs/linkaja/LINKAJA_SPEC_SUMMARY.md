@@ -106,7 +106,7 @@ and hash and send those exact bytes.
 | `merchantId` | M | |
 | `terminalId` | O | |
 | `amount.value` / `amount.currency` | M | `"NNNN.00"` string, `IDR` |
-| **`urlParams[]`** `.url` / `.type` / `.isDeeplink` | M | **plural** (v1.1 rename, p.2); PDF `type` `PAY_RETURN`; `isDeeplink` `Y`/`N`. One entry. LinkAja confirmed its `url` is **our notify URL** (`LINKAJA_NOTIFY_URL`) and the format **`type` `partnerApplink`, `isDeeplink` `Y`** (see below). |
+| **`urlParams[]`** `.url` / `.type` / `.isDeeplink` | M | **plural** (v1.1 rename, p.2); `type` **`PAY_RETURN`**; `isDeeplink` `Y`/`N`. One entry. LinkAja confirmed its `url` is **our notify URL** (`LINKAJA_NOTIFY_URL`), `isDeeplink` `N`. |
 | `additionalInfo.trxDate` | M | `YYYYMMDDHHMMSS` |
 | `additionalInfo.terminalName` | O | |
 | `additionalInfo.items[]` `.id` / `.name` / `.unitPrice` / `.qty` | M | `id` unique per `partnerReferenceNo` |
@@ -115,16 +115,10 @@ Response (p.12-13): `responseCode` `2005400`, `responseMessage`, `appRedirectUrl
 (conditional, LinkAja's reference).
 
 **Postman vs PDF:** [PM-PAY] sends `urlParam` / `partnerApplink`. The sandbox accepts both
-(OBSERVED 2026-09-28 and 2026-10-01). The code sends the PDF's plural `urlParams` with the collection's
-`partnerApplink` type.
+(OBSERVED 2026-09-28 and 2026-10-01). The code sends the PDF form.
 
 **Notify URL:** the PDF has no dedicated field. LinkAja confirmed (2026-10) that the notify URL goes in
-`urlParams[0].url`. The code sends `LINKAJA_NOTIFY_URL` there.
-
-**Customer return (2026-11-04):** LinkAja confirmed `urlParams` / `type` `partnerApplink` / `isDeeplink` `Y`.
-OBSERVED on dev: with that format LinkAja sent the customer back to our URL (GET), which redirected to the
-frontend. `PAY_RETURN` did not. Defaults: `LINKAJA_URL_PARAM_TYPE=partnerApplink`,
-`LINKAJA_URL_PARAM_IS_DEEPLINK=Y`.
+`urlParams[0].url`, type `PAY_RETURN`, `isDeeplink` `N`. The code sends `LINKAJA_NOTIFY_URL` there.
 
 OBSERVED (sandbox): a UUID `partnerReferenceNo` is accepted; a duplicate `partnerReferenceNo` is accepted and
 yields a second `referenceNo` (the [PDF] §5.2 `409xx01 Duplicate partnerReferenceNo` applies once the first one
@@ -231,6 +225,6 @@ The notify route answers with these for service code 56: `2005600` success, `401
 | 2 | Notify URL: sent in `urlParams[0].url` (LinkAja's answer). Still open: the `EndpointUrl` used in the signature | Answered; `EndpointUrl` open |
 | 3 | Dev test account to pay the 5-minute applink URL, or a joint session | **Blocking** for the end-to-end test |
 | 4 | Notify retry: LinkAja confirmed there is **no retry**. Pending orders are reconciled by polling Inquiry Status (`LinkAjaReconciliationService`) | Answered |
-| 5 | `urlParams`/`partnerApplink`/`Y` (confirmed by LinkAja, works on dev) and `serviceCode 55`: confirmation that production uses the same | Nice to have |
+| 5 | `urlParams`/`PAY_RETURN` and `serviceCode 55` are the spec values; dev accepts them. Confirmation for production | Nice to have |
 | 6 | Production base URL, production key exchange (our 2048-bit public key) | Before go-live |
 | 7 | Source IPs of the notify, if our QA host is firewalled | Before the test |
