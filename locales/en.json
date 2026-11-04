@@ -100,5 +100,14 @@
   "ADMIN_TOO_MANY_ATTEMPTS": "Too many sign-in attempts. Please try again later.",
   "ADMIN_UPSTREAM_ERROR": "A service the admin portal depends on failed. Please try again.",
   "ADMIN_LOGIN_FAILED": "Invalid email or password.",
-  "ADMIN_ROLE_REQUIRED": "This account is not allowed to use the admin portal."
+  "ADMIN_ROLE_REQUIRED": "This account is not allowed to use the admin portal.",
+  "ADMIN_CURRENT_PASSWORD_INVALID": "The current password is incorrect.",
+  "ADMIN_PASSWORD_REUSED": "The new password must be different from the current one.",
+  "ADMIN_PASSWORD_WEAK": "This password was refused as too weak. Choose a different one.",
+  "ADMIN_RESET_LINK_INVALID": "This reset link is invalid or has expired. Ask a super admin to send a new one.",
+  "ADMIN_RESET_EMAIL_FAILED": "The reset email could not be sent. Please try again later.",
+  "ADMIN_RESET_EMAIL_RATE_LIMITED": "Too many reset emails were sent. Please try again later.",
+  "ADMIN_RESET_NOT_CONFIGURED": "Password reset is not configured on the server.",
+  "ADMIN_CANNOT_TARGET_SELF": "You can't do this on your own account.",
+  "ADMIN_ACCOUNT_NOT_FOUND": "Admin not found."
 }

@@ -7,6 +7,7 @@ fills its own router file; this file only gains one include line per new area.
 (TEOS-163): they come from shared dependencies and ``AdminRoute``, so no route declares them itself.
 """
 from app.api.v1.admin._route import admin_router
+from app.api.v1.admin.admins import router as admins_router
 from app.api.v1.admin.audit_log import router as audit_log_router
 from app.api.v1.admin.auth import router as auth_router
 from app.api.v1.admin.banners import router as banners_router
@@ -52,3 +53,4 @@ router.include_router(banners_router, prefix="/banners", responses=ADMIN_ERROR_R
 router.include_router(settings_router, prefix="/settings", responses=ADMIN_ERROR_RESPONSES)
 router.include_router(audit_log_router, prefix="/audit-log", responses=ADMIN_ERROR_RESPONSES)
 router.include_router(referrals_router, prefix="/referrals", responses=ADMIN_ERROR_RESPONSES)
+router.include_router(admins_router, prefix="/admins", responses=ADMIN_ERROR_RESPONSES)
