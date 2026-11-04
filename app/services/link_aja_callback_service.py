@@ -36,6 +36,14 @@ for the reconciliation job (`LinkAjaReconciliationService`): it applies a
 status inquiry answer to a pending order through the same atomic claim, so a
 notify and the job can never both provision the same order.
 
+## approvalCode
+
+LinkAja's `approvalCode` is required to request a refund (§4.5). It is stored
+on the order under `bundle_data.linkaja_payment` (see `order_data.py`): by the
+claim when the notify or inquiry carries it, and otherwise by the first later
+notify or inquiry that does (`record_approval_code`). Once set it is never
+overwritten.
+
 ## Response contract
 
 The notify route answers in LinkAja's format, not our API envelope: on success
@@ -71,11 +79,13 @@ from app.services.integration.link_aja import (
     LinkAjaException,
     LinkAjaNotifyAck,
     LinkAjaOrderNotFoundException,
+    LinkAjaProviderException,
     LinkAjaPaymentStatus,
     LinkAjaService,
     LinkAjaStatusResult,
     is_provisioning_status,
     read_order_data,
+    with_approval_code,
 )
 from app.services.task_executor import TaskExecutor
 
@@ -167,6 +177,7 @@ class LinkAjaCallbackService:
         if order.payment_status == OrderStatusEnum.SUCCESS:
             logger.info(f"[LinkAja] duplicate notify for order {order.id}: payment already "
                         f"successful, not provisioning again")
+            self.record_approval_code(order, approval_code)
             return LinkAjaNotifyAck(approval_code=approval_code)
 
         # 3. Only a verified SUCCESS may provision. Everything else - PENDING,
@@ -181,9 +192,15 @@ class LinkAjaCallbackService:
         # 5. Atomically claim the order. This is the real duplicate guard: the
         #    UPDATE ... WHERE payment_status = 'pending' is atomic in Postgres,
         #    so of two concurrent success notifies exactly one matches a row.
-        if not self.__claim_for_provisioning(order=order, provider_reference=result.provider_reference):
+        if not self.__claim_for_provisioning(order=order, provider_reference=result.provider_reference,
+                                             approval_code=approval_code):
             logger.info(f"[LinkAja] concurrent duplicate notify for order {order.id}: "
                         f"another notify already claimed it")
+            # The winner may have been an inquiry without an approval code; re-read so a
+            # code it did store is never overwritten.
+            claimed_order = self.__user_order_repo.get_by_id(order.id)
+            if claimed_order:
+                self.record_approval_code(claimed_order, approval_code)
             return LinkAjaNotifyAck(approval_code=approval_code)
 
         # 6. Provision AFTER the response: LinkAja commits the payment on our
@@ -230,13 +247,62 @@ class LinkAjaCallbackService:
                          f"LinkAja amount; not provisioning, needs manual review")
             return False
 
-        if not self.__claim_for_provisioning(order=order, provider_reference=status.provider_reference):
+        if not self.__claim_for_provisioning(order=order, provider_reference=status.provider_reference,
+                                             approval_code=status.approval_code):
             logger.info(f"[LinkAja] reconciliation: order {order.id} was already claimed")
             return False
 
         logger.info(f"[LinkAja] reconciliation: order {order.id} paid per status inquiry; provisioning")
         self.__schedule_provisioning(order=order)
         return True
+
+    def record_approval_code(self, order: UserOrderModel, approval_code: Optional[str]) -> bool:
+        """Store LinkAja's approvalCode on an already-successful order that has none yet.
+
+        Only `bundle_data` is written, guarded on `payment_status = success`, so this can
+        never change payment state. Returns True when the code was written.
+        """
+        bundle_data = self.__bundle_data_with_approval_code(order, approval_code)
+        if bundle_data is None:
+            return False
+        updated = self.__user_order_repo.update_by(
+            where={"id": order.id, "payment_status": OrderStatusEnum.SUCCESS},
+            data={"bundle_data": bundle_data})
+        if updated:
+            order.bundle_data = bundle_data
+            logger.info(f"[LinkAja] recorded approvalCode for order {order.id}")
+        return bool(updated)
+
+    def record_approval_code_from_status(self, order: UserOrderModel, status: LinkAjaStatusResult) -> bool:
+        """Apply the approvalCode of a status inquiry answer to a successful order.
+
+        The inquiry must report the order paid and, when both are known, name the same
+        LinkAja transaction as the one stored on the order.
+        """
+        if order.payment_type != PaymentTypeEnum.LINK_AJA or order.payment_status != OrderStatusEnum.SUCCESS:
+            return False
+        if not is_provisioning_status(status.status):
+            return False
+        if (status.provider_reference and order.payment_intent_code
+                and status.provider_reference != order.payment_intent_code):
+            logger.error(f"[LinkAja] approvalCode inquiry: provider reference mismatch for order {order.id}")
+            return False
+        return self.record_approval_code(order, status.approval_code)
+
+    async def ensure_approval_code(self, order: UserOrderModel) -> str:
+        """The order's approvalCode, asking LinkAja for it when it is not stored yet.
+
+        For the refund flow (§4.5 requires it): raises rather than returning an empty
+        code, so a refund is never sent without one.
+        """
+        quote = read_order_data(order.bundle_data)
+        if quote and quote.approval_code:
+            return quote.approval_code
+        status = await self.__link_aja_service.get_payment_status(order.id)
+        if self.record_approval_code_from_status(order, status):
+            return read_order_data(order.bundle_data).approval_code
+        raise LinkAjaProviderException(
+            details=f"No LinkAja approvalCode is available for order {order.id}")
 
     # ------------------------------------------------------------------
     # Steps
@@ -325,29 +391,37 @@ class LinkAjaCallbackService:
                   "order_status": OrderStatusEnum.FAILURE,
                   "callback_time": self.__now()})
 
-    def __claim_for_provisioning(self, order: UserOrderModel, provider_reference: Optional[str]) -> bool:
+    def __claim_for_provisioning(self, order: UserOrderModel, provider_reference: Optional[str],
+                                 approval_code: Optional[str] = None) -> bool:
         """Atomically transition payment_status pending -> success.
 
         Returns True for the caller that won the claim, False for duplicates.
         `order_status` is deliberately left alone: `BundleService.buy_bundle`
         owns it, and setting it here would mask a provisioning failure.
+        The approvalCode, when known, is stored in the same conditional UPDATE.
         """
+        now = self.__now()
         data = {
             "payment_status": OrderStatusEnum.SUCCESS,
-            "payment_time": self.__now(),
-            "callback_time": self.__now(),
+            "payment_time": now,
+            "callback_time": now,
         }
         if provider_reference and not order.payment_intent_code:
             data["payment_intent_code"] = provider_reference
+        bundle_data = self.__bundle_data_with_approval_code(order, approval_code)
+        if bundle_data is not None:
+            data["bundle_data"] = bundle_data
 
         claimed = self.__user_order_repo.update_by(
             where={"id": order.id, "payment_status": OrderStatusEnum.PENDING},
             data=data)
 
         if claimed:
-            # Keep the in-memory model consistent with what we just persisted,
-            # since BundleService re-persists it from this object.
-            order.payment_status = OrderStatusEnum.SUCCESS
+            # Keep the in-memory model consistent with what we just persisted.
+            # BundleService no longer writes these columns back for a LinkAja order
+            # (CLAIM_OWNED_ORDER_FIELDS), but it reads the model for emails.
+            for field, value in data.items():
+                setattr(order, field, value)
         return bool(claimed)
 
     def __schedule_provisioning(self, order: UserOrderModel) -> None:
@@ -420,6 +494,22 @@ class LinkAjaCallbackService:
                 code=400, name=ErrorMessages.REQUEST_FAILED,
                 details=f"Order {order.id} has no stored bundle data to provision")
         return BundleDTO.model_validate_json(order.bundle_data)
+
+    @staticmethod
+    def __bundle_data_with_approval_code(order: UserOrderModel, approval_code: Optional[str]) -> Optional[str]:
+        """`order.bundle_data` with the approvalCode added, or None when there is nothing to
+        write: no code, no stored quote, or a code already stored (never overwritten)."""
+        if not approval_code:
+            return None
+        quote = read_order_data(order.bundle_data)
+        if quote is None:
+            return None
+        if quote.approval_code:
+            if quote.approval_code != approval_code:
+                logger.warning(f"[LinkAja] order {order.id} already has a different approvalCode; "
+                               f"keeping the stored one")
+            return None
+        return with_approval_code(order.bundle_data, approval_code)
 
     @staticmethod
     def __now() -> str:

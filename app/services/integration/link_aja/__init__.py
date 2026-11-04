@@ -34,7 +34,14 @@ from .exceptions import (
     LinkAjaOrderNotFoundException,
     LinkAjaProviderException,
 )
-from .order_data import ORDER_DATA_KEY, LinkAjaOrderData, embed_order_data, read_order_data
+from .order_data import (
+    CLAIM_OWNED_ORDER_FIELDS,
+    ORDER_DATA_KEY,
+    LinkAjaOrderData,
+    embed_order_data,
+    read_order_data,
+    with_approval_code,
+)
 from .return_url import frontend_return_url, notify_url_for_order, valid_order_id
 from .service import NOTIFY_SUCCESS_CODE, NOTIFY_SUCCESS_MESSAGE, LinkAjaService
 from .token_cache import TokenCache, reset_token_caches
@@ -59,10 +66,12 @@ __all__ = [
     "NOTIFY_SUCCESS_MESSAGE",
     "TokenCache",
     "reset_token_caches",
+    "CLAIM_OWNED_ORDER_FIELDS",
     "ORDER_DATA_KEY",
     "LinkAjaOrderData",
     "embed_order_data",
     "read_order_data",
+    "with_approval_code",
     "frontend_return_url",
     "notify_url_for_order",
     "valid_order_id",

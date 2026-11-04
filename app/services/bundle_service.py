@@ -25,6 +25,7 @@ from app.schemas.response import Response, ResponseHelper
 from app.services.cache_service import CacheService
 from app.services.currency_service import CurrencyService
 from app.services.grouping_service import GroupingService
+from app.services.integration.link_aja import CLAIM_OWNED_ORDER_FIELDS
 from app.services.promotion_service import PromotionService
 from app.services.task_executor import TaskExecutor
 
@@ -208,14 +209,16 @@ class BundleService:
         user_order.order_status = OrderStatusEnum.SUCCESS
         if esim_hub_order is None:
             user_order.order_status = OrderStatusEnum.FAILURE
-            self.__user_order_repo.update_by({"id": user_order.id}, data=user_order.model_dump(exclude={"id"}))
+            self.__user_order_repo.update_by({"id": user_order.id},
+                                             data=self.__order_update_data(user_order, payment_type))
             logger.info(f"error creating esim hub profile for order {user_order.id}")
             await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="failed",
                                                                   rule_id=rule_id, order_id=order_id)
             return BadRequestException("Payment failed")
         else:
             user_order.esim_order_id = esim_hub_order.orderId
-        self.__user_order_repo.update_by({"id": user_order.id}, data=user_order.model_dump(exclude={"id"}))
+        self.__user_order_repo.update_by({"id": user_order.id},
+                                         data=self.__order_update_data(user_order, payment_type))
         user_profile = self.__user_profile_repo.create({
             "user_id": user_id,
             "user_order_id": user_order.id,
@@ -265,6 +268,18 @@ class BundleService:
         except Exception as e:
             logger.error(f"error while dispatching esim purchase admin email: {str(e)}")
         return ResponseHelper.success_response()
+
+    @staticmethod
+    def __order_update_data(user_order: UserOrderModel, payment_type: str) -> dict:
+        """Columns `buy_bundle` writes back from the in-memory order.
+
+        A LinkAja order was already claimed (pending -> success) before provisioning, and
+        the claim owns these columns, so a stale in-memory copy must not overwrite them.
+        """
+        exclude = {"id"}
+        if payment_type == PaymentTypeEnum.LINK_AJA:
+            exclude |= CLAIM_OWNED_ORDER_FIELDS
+        return user_order.model_dump(exclude=exclude)
 
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,
                             payment_status: str, payment_type: str = PaymentTypeEnum.CARD):
