@@ -10,7 +10,9 @@ gating, provisioning after the acknowledgement) and the backward compatibility
 of the shared response contract.
 
 Where the Postman collection and the spec disagree, the spec wins, and these
-tests pin the spec's values (urlParams / PAY_RETURN, serviceCode 55).
+tests pin the spec's values (urlParams, serviceCode 55). The one exception is
+the urlParams type: LinkAja confirmed "partnerApplink" with isDeeplink "Y"
+(the spec's PAY_RETURN does not send the customer back).
 
 No test in this file performs a real network call.
 """
@@ -375,19 +377,25 @@ def test_notify_settings_are_read_from_the_environment():
     with patch.dict(os.environ, {"LINKAJA_NOTIFY_PUBLIC_KEY": " pem ",
                                  "LINKAJA_NOTIFY_PUBLIC_KEY_PATH": "/k.pem",
                                  "LINKAJA_NOTIFY_ENDPOINT_URL": "/bi/applink/v1.0/debit/notify",
-                                 "LINKAJA_URL_PARAM_IS_DEEPLINK": "Y"}):
+                                 "LINKAJA_URL_PARAM_TYPE": " PAY_RETURN ",
+                                 "LINKAJA_URL_PARAM_IS_DEEPLINK": "N"}):
         config = LinkAjaConfig.from_env()
     assert config.notify_public_key == "pem"
     assert config.notify_public_key_path == "/k.pem"
     assert config.notify_endpoint_url == "/bi/applink/v1.0/debit/notify"
-    assert config.url_param_is_deeplink == "Y"
+    assert config.url_param_type == "PAY_RETURN"
+    assert config.url_param_is_deeplink == "N"
 
 
-def test_is_deeplink_defaults_to_n():
+def test_url_param_defaults_to_partner_applink_and_deeplink_y():
+    """The format LinkAja confirmed: type partnerApplink, isDeeplink Y. Unset or blank = default."""
     with patch.dict(os.environ, {}, clear=True):
-        assert LinkAjaConfig.from_env().url_param_is_deeplink == "N"
-    with patch.dict(os.environ, {"LINKAJA_URL_PARAM_IS_DEEPLINK": "  "}):
-        assert LinkAjaConfig.from_env().url_param_is_deeplink == "N"
+        config = LinkAjaConfig.from_env()
+    assert (config.url_param_type, config.url_param_is_deeplink) == ("partnerApplink", "Y")
+    with patch.dict(os.environ, {"LINKAJA_URL_PARAM_TYPE": "  ", "LINKAJA_URL_PARAM_IS_DEEPLINK": "  "}):
+        config = LinkAjaConfig.from_env()
+    assert (config.url_param_type, config.url_param_is_deeplink) == ("partnerApplink", "Y")
+    assert (LinkAjaConfig().url_param_type, LinkAjaConfig().url_param_is_deeplink) == ("partnerApplink", "Y")
 
 
 def test_configuration_error_never_contains_secret_values():
@@ -2149,12 +2157,13 @@ async def test_create_payment_without_rate_makes_no_http_call():
 # ---------------------------------------------------------------------------
 
 # Body of "Create Applink Payment", spec v1.1 §4.2 (p.11-12): `urlParams` (plural,
-# the v1.1 rename on p.2) with type PAY_RETURN. The Postman collection's
-# `urlParam` / `partnerApplink` are superseded. Values are our merchant's.
+# the v1.1 rename on p.2; the Postman collection's `urlParam` is superseded) with
+# the type LinkAja confirmed, "partnerApplink", and isDeeplink "Y" (the spec's
+# PAY_RETURN does not send the customer back). Values are our merchant's.
 _SPEC_CREATE_PAYMENT_BODY = {
     "partnerReferenceNo": "dsfhbvdf", "merchantId": "MERCHANT-TEST", "terminalId": "MERCHANT-TEST",
     "amount": {"value": "29880.00", "currency": "IDR"},
-    "urlParams": [{"url": _NOTIFY_URL + "?order_id=dsfhbvdf", "type": "PAY_RETURN", "isDeeplink": "N"}],
+    "urlParams": [{"url": _NOTIFY_URL + "?order_id=dsfhbvdf", "type": "partnerApplink", "isDeeplink": "Y"}],
     "additionalInfo": {"trxDate": "20260901135300", "terminalName": "TERMINAL-TEST",
                        "items": [{"id": "1", "name": "MERCHANT-TEST", "unitPrice": "29880.00", "qty": "1"}]},
 }
@@ -2191,20 +2200,21 @@ def test_create_payment_body_matches_the_spec():
         body = service._build_create_payment_body(request)
     assert body == _SPEC_CREATE_PAYMENT_BODY
     assert "urlParam" not in body                          # the pre-v1.1 name is gone
-    assert body["urlParams"][0]["type"] == "PAY_RETURN"    # not partnerApplink
+    assert body["urlParams"][0]["type"] == "partnerApplink"    # not the spec's PAY_RETURN
+    assert body["urlParams"][0]["isDeeplink"] == "Y"
 
 
 def test_url_params_carry_the_notify_url_not_the_success_url():
     """LinkAja confirmed: urlParams[0].url is our notify endpoint (LINKAJA_NOTIFY_URL)."""
     service = LinkAjaService(config=_full_config(success_url="https://www.google.com/"))
     body = service._build_create_payment_body(_payment_request())
-    assert body["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "PAY_RETURN", "isDeeplink": "N"}]
+    assert body["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "partnerApplink", "isDeeplink": "Y"}]
 
 
-def test_create_payment_is_deeplink_is_configurable():
-    service = LinkAjaService(config=_full_config(url_param_is_deeplink="Y"))
+def test_create_payment_url_param_type_and_deeplink_are_configurable():
+    service = LinkAjaService(config=_full_config(url_param_type="PAY_RETURN", url_param_is_deeplink="N"))
     body = service._build_create_payment_body(_payment_request())
-    assert body["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "PAY_RETURN", "isDeeplink": "Y"}]
+    assert body["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "PAY_RETURN", "isDeeplink": "N"}]
 
 
 @pytest.mark.asyncio
@@ -2241,7 +2251,7 @@ async def test_create_payment_end_to_end_request_shape_and_signatures():
     sent = _json.loads(content)
     assert sent["partnerReferenceNo"] == "order-1"
     assert sent["amount"] == {"value": "175840.00", "currency": "IDR"}
-    assert sent["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "PAY_RETURN", "isDeeplink": "N"}]
+    assert sent["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "partnerApplink", "isDeeplink": "Y"}]
 
 
 @pytest.mark.parametrize("payload", [

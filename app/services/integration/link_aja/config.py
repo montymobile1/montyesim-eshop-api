@@ -33,8 +33,12 @@ TRUTHY = ("true", "1", "yes", "on")
 DEFAULT_CONNECT_TIMEOUT = 10.0
 DEFAULT_READ_TIMEOUT = 30.0
 
-# urlParams[].isDeeplink: our notify URL is a plain web URL, not an app deeplink.
-DEFAULT_IS_DEEPLINK = "N"
+# urlParams[] entry of payment creation. LinkAja confirmed (and the dev sandbox
+# showed, variant E) that it only sends the customer back to our URL with type
+# "partnerApplink" and isDeeplink "Y". Both are configurable in case production
+# differs: LINKAJA_URL_PARAM_TYPE / LINKAJA_URL_PARAM_IS_DEEPLINK.
+DEFAULT_URL_PARAM_TYPE = "partnerApplink"
+DEFAULT_IS_DEEPLINK = "Y"
 
 # EndpointUrl forms of the notify string-to-sign (§5.1.3) that can be tried.
 # The spec does not say which one LinkAja signs, and our urlParams URL carries
@@ -99,12 +103,13 @@ class LinkAjaConfig:
     private_key_path: str = ""
     # Sent as User-Agent on payment creation (the collection sends "ios").
     user_agent: str = ""
-    # urlParams[].isDeeplink on payment creation (spec p.11: "Y"/"N").
+    # urlParams[].type and .isDeeplink on payment creation (see DEFAULT_URL_PARAM_TYPE).
+    url_param_type: str = DEFAULT_URL_PARAM_TYPE
     url_param_is_deeplink: str = DEFAULT_IS_DEEPLINK
     # USD -> IDR rate. BUSINESS DECISION: see amount.py. Blank fails closed.
     usd_to_idr_rate: str = ""
     # Public URL of our notify endpoint. LinkAja calls it after the payment, and
-    # it is sent to them as urlParams[0].url (type PAY_RETURN) with
+    # it is sent to them as urlParams[0].url (type url_param_type) with
     # "?order_id=<order id>" appended. LinkAja uses the same URL to send the
     # customer back (a GET), which redirects to frontend_return_url.
     notify_url: str = ""
@@ -162,6 +167,7 @@ class LinkAjaConfig:
             private_key=_env("LINKAJA_PRIVATE_KEY"),
             private_key_path=_env("LINKAJA_PRIVATE_KEY_PATH"),
             user_agent=_env("LINKAJA_USER_AGENT"),
+            url_param_type=_env("LINKAJA_URL_PARAM_TYPE", DEFAULT_URL_PARAM_TYPE) or DEFAULT_URL_PARAM_TYPE,
             url_param_is_deeplink=_env("LINKAJA_URL_PARAM_IS_DEEPLINK", DEFAULT_IS_DEEPLINK) or DEFAULT_IS_DEEPLINK,
             usd_to_idr_rate=_env("LINKAJA_USD_TO_IDR_RATE"),
             notify_url=_env("LINKAJA_NOTIFY_URL"),
