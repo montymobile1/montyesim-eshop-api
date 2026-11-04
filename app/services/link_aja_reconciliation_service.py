@@ -17,11 +17,22 @@ several app instances (several schedulers) is safe for the same reason.
 
 * Started only when `LINKAJA_ENABLED` is true at startup, and each run checks
   the flag again; a deployment without LinkAja never runs it.
+* `LINKAJA_RECONCILE_ENABLED=false` keeps the job from starting on a deployment
+  that should not poll (e.g. a local instance sharing QA's database). Unset or
+  any other value keeps today's behaviour: the job runs.
 * Only orders aged between `LINKAJA_RECONCILE_MIN_AGE_SECONDS` (to give the
   notify a chance first) and `LINKAJA_RECONCILE_MAX_AGE_SECONDS` are queried.
 * "Not found" means "not paid yet" (§5.4) and leaves the order pending; only an
   explicit failed / canceled / expired status records a failure.
 * A failure for one order is logged and the run moves on to the next.
+
+## approvalCode backfill
+
+LinkAja may answer an inquiry for a paid order without an `approvalCode` and
+return it only later. After the pending pass, each run therefore re-asks for
+recent successful LinkAja orders that still have no stored code (within
+`LINKAJA_RECONCILE_MAX_AGE_SECONDS`) and records it. That pass only ever writes
+the code: it never provisions and never changes payment state.
 """
 
 import asyncio
@@ -46,6 +57,8 @@ DEFAULT_BATCH_SIZE = 100
 
 JOB_ID = "linkaja_reconcile_pending"
 
+_FALSY = ("false", "0", "no", "off")
+
 
 def _env_int(name: str, default: int) -> int:
     raw = (os.getenv(name) or "").strip()
@@ -64,6 +77,11 @@ def _parse_created_at(raw: Optional[str]) -> Optional[datetime]:
     except ValueError:
         return None
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def is_reconciliation_enabled() -> bool:
+    """LINKAJA_RECONCILE_ENABLED: only an explicit false/0/no/off disables the job."""
+    return (os.getenv("LINKAJA_RECONCILE_ENABLED") or "").strip().lower() not in _FALSY
 
 
 class LinkAjaReconciliationService:
@@ -129,10 +147,61 @@ class LinkAjaReconciliationService:
                 logger.error(f"[LinkAja] reconciliation failed for order {order.id}: {exc}")
         return claimed
 
+    def orders_missing_approval_code(self) -> List[UserOrderModel]:
+        """Recent successful LinkAja orders whose stored quote has no approvalCode yet."""
+        max_age = timedelta(seconds=_env_int("LINKAJA_RECONCILE_MAX_AGE_SECONDS", DEFAULT_MAX_AGE_SECONDS))
+        batch = _env_int("LINKAJA_RECONCILE_BATCH_SIZE", DEFAULT_BATCH_SIZE)
+        now = self.__clock()
+
+        orders = self.__user_order_repo.list(
+            where={"payment_type": PaymentTypeEnum.LINK_AJA, "payment_status": OrderStatusEnum.SUCCESS},
+            limit=batch, order_by="created_at", desc=True)
+
+        due = []
+        for order in orders:
+            if order.payment_status != OrderStatusEnum.SUCCESS:
+                continue
+            created_at = _parse_created_at(order.created_at)
+            quote = read_order_data(order.bundle_data)
+            if created_at is None or quote is None or quote.approval_code:
+                continue
+            if now - created_at <= max_age:
+                due.append(order)
+        return due
+
+    async def backfill_approval_codes(self) -> int:
+        """One backfill pass. Returns how many approval codes were recorded."""
+        if not is_link_aja_enabled():
+            return 0
+        try:
+            self.__link_aja_service.ensure_payments_available()
+        except Exception as exc:
+            logger.error(f"[LinkAja] approvalCode backfill skipped: {exc}")
+            return 0
+
+        orders = self.orders_missing_approval_code()
+        if not orders:
+            return 0
+        logger.info(f"[LinkAja] approvalCode backfill: checking {len(orders)} paid order(s)")
+
+        recorded = 0
+        for order in orders:
+            try:
+                status = await self.__link_aja_service.get_payment_status(order.id)
+                if self.__callback_service.record_approval_code_from_status(order, status):
+                    recorded += 1
+            except Exception as exc:
+                logger.error(f"[LinkAja] approvalCode backfill failed for order {order.id}: {exc}")
+        return recorded
+
+    async def run_once(self) -> None:
+        await self.reconcile_pending()
+        await self.backfill_approval_codes()
+
     def run(self) -> None:
         """Scheduler entry point: the scheduler thread has no event loop."""
         try:
-            asyncio.run(self.reconcile_pending())
+            asyncio.run(self.run_once())
         except Exception as exc:
             logger.error(f"[LinkAja] reconciliation run failed: {exc}")
 
@@ -140,6 +209,9 @@ class LinkAjaReconciliationService:
 def start_link_aja_reconciliation() -> Optional[BackgroundScheduler]:
     """Start the job when LinkAja is enabled; return None (and do nothing) otherwise."""
     if not is_link_aja_enabled():
+        return None
+    if not is_reconciliation_enabled():
+        logger.info("[LinkAja] reconciliation job not started: LINKAJA_RECONCILE_ENABLED is false")
         return None
     service = LinkAjaReconciliationService()
     scheduler = BackgroundScheduler()
