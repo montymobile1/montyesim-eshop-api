@@ -109,5 +109,17 @@
   "ADMIN_RESET_EMAIL_RATE_LIMITED": "تم إرسال عدد كبير من رسائل إعادة التعيين. يرجى المحاولة لاحقًا.",
   "ADMIN_RESET_NOT_CONFIGURED": "إعادة تعيين كلمة المرور غير مهيأة على الخادم.",
   "ADMIN_CANNOT_TARGET_SELF": "لا يمكنك القيام بذلك على حسابك الخاص.",
-  "ADMIN_ACCOUNT_NOT_FOUND": "لم يتم العثور على المشرف."
+  "ADMIN_ACCOUNT_NOT_FOUND": "لم يتم العثور على المشرف.",
+  "ADMIN_DEVICE_CODE_INVALID": "الرمز غير صحيح.",
+  "ADMIN_DEVICE_CODE_EXPIRED": "انتهت صلاحية هذا الرمز. اطلب رمزاً جديداً.",
+  "ADMIN_DEVICE_CHALLENGE_CLOSED": "خطوة تسجيل الدخول هذه لم تعد صالحة. سجّل الدخول مرة أخرى.",
+  "ADMIN_DEVICE_TOO_MANY_ATTEMPTS": "عدد كبير جداً من الرموز الخاطئة. سجّل الدخول مرة أخرى.",
+  "ADMIN_DEVICE_RESEND_TOO_SOON": "انتظر قليلاً قبل طلب رمز جديد.",
+  "ADMIN_DEVICE_RESEND_LIMIT": "لا يمكن إرسال المزيد من الرموز لعملية تسجيل الدخول هذه. سجّل الدخول مرة أخرى.",
+  "ADMIN_DEVICE_CODE_LIMIT": "تم طلب عدد كبير جداً من الرموز. حاول مرة أخرى لاحقاً.",
+  "ADMIN_DEVICE_EMAIL_FAILED": "تعذّر إرسال الرمز. حاول مرة أخرى لاحقاً.",
+  "ADMIN_DEVICE_MISMATCH": "تم طلب هذا الرمز من متصفح آخر. سجّل الدخول مرة أخرى.",
+  "ADMIN_DEVICE_REVOKED": "تم تسجيل خروج هذا الجهاز.",
+  "ADMIN_DEVICE_SESSION_REQUIRED": "انتهت جلستك. سجّل الدخول مرة أخرى.",
+  "ADMIN_DEVICE_NOT_FOUND": "لم يتم العثور على الجهاز."
 }

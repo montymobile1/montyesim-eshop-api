@@ -109,5 +109,17 @@
   "ADMIN_RESET_EMAIL_RATE_LIMITED": "Too many reset emails were sent. Please try again later.",
   "ADMIN_RESET_NOT_CONFIGURED": "Password reset is not configured on the server.",
   "ADMIN_CANNOT_TARGET_SELF": "You can't do this on your own account.",
-  "ADMIN_ACCOUNT_NOT_FOUND": "Admin not found."
+  "ADMIN_ACCOUNT_NOT_FOUND": "Admin not found.",
+  "ADMIN_DEVICE_CODE_INVALID": "The code is wrong.",
+  "ADMIN_DEVICE_CODE_EXPIRED": "This code has expired. Ask for a new one.",
+  "ADMIN_DEVICE_CHALLENGE_CLOSED": "This sign-in step is no longer valid. Sign in again.",
+  "ADMIN_DEVICE_TOO_MANY_ATTEMPTS": "Too many wrong codes. Sign in again.",
+  "ADMIN_DEVICE_RESEND_TOO_SOON": "Wait a moment before asking for a new code.",
+  "ADMIN_DEVICE_RESEND_LIMIT": "No more codes can be sent for this sign-in. Sign in again.",
+  "ADMIN_DEVICE_CODE_LIMIT": "Too many codes were requested. Try again later.",
+  "ADMIN_DEVICE_EMAIL_FAILED": "We couldn't send the code. Try again later.",
+  "ADMIN_DEVICE_MISMATCH": "This code was requested from another browser. Sign in again.",
+  "ADMIN_DEVICE_REVOKED": "This device was signed out.",
+  "ADMIN_DEVICE_SESSION_REQUIRED": "Your session has ended. Sign in again.",
+  "ADMIN_DEVICE_NOT_FOUND": "Device not found."
 }

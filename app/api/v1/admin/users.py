@@ -28,7 +28,9 @@ add_lookup_route(router, "users", READ, min_search_length=2)
 service = UserAdminService()
 
 UserId = Path(..., description="user id (uuid)")
-SearchParam = Query(None, max_length=100, description="part of the email, matched literally")
+SearchParam = Query(None, max_length=100,
+                    description="part of the email or of the phone number, matched literally; a search made only of "
+                                "digits, spaces and + ( ) . - also matches the phone digits alone")
 
 
 @router.get("", response_model=Response[AdminPage[AdminUserRow]])

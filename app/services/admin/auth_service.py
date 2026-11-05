@@ -8,10 +8,15 @@ revoked immediately and the request is refused with 403.
 TEOS-307 adds the admin's own password change (current password checked, every other session signed
 out) and the last step of a password reset sent from the Admins page (the reset link's session sets
 the new password, then every session of the account is signed out).
+
+TEOS-255 trusted devices (adminDocs ``TEOS-255-256-api-contract.md``): after the password, a browser that is
+not a trusted device of the admin gets no session but an email code (``DeviceChallengeService``); the session
+comes from ``verify_device``. Every portal session is tied to an ``admin_devices`` row (``TrustedDeviceService``):
+the refresh must come from that browser, and the password actions revoke the other devices.
 """
 import os
 from datetime import datetime, timezone
-from typing import Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Tuple, Union
 
 from gotrue.errors import AuthApiError, AuthError, AuthRetryableError, AuthUnknownError
 from loguru import logger
@@ -19,12 +24,17 @@ from loguru import logger
 from app.config.admin_permissions import permissions_for
 from app.config.config import supabase_client
 from app.config.constants import ErrorMessages
-from app.dependencies.admin_security import AdminUser, is_email_link_token
+from app.dependencies.admin_security import (AdminUser, audit_refused_session, device_session_error, is_email_link_token,
+                                             is_recovery_session, token_iat, token_session_id)
 from app.exceptions.admin import (AdminError, AdminForbidden, AdminRateLimited, AdminUnauthorized,
-                                  AdminUpstreamError, AdminValidationError)
+                                  AdminUpstreamError, AdminValidationError, coded)
 from app.repo.admin.base import AuditContext
 from app.repo.admin.login_attempt_repo import OUTCOME_ABORTED, OUTCOME_SUCCESS, LoginAttemptRepo
 from app.schemas.admin.auth import AdminPasswordChanged, AdminPasswordReset, AdminProfile, AdminSession
+from app.schemas.admin.trusted_devices import AdminCodeResent, AdminDeviceInfo, AdminLoginChallenge
+from app.services.admin.device_challenge_service import DeviceChallengeService
+from app.services.admin.device_hash import device_hash
+from app.services.admin.trusted_device_service import REASON_PASSWORD_CHANGE, REASON_PASSWORD_RESET
 
 DEFAULT_LOGIN_RATE_LIMIT = "5/300"  # failed attempts / seconds, per IP and per email
 AUTH_SERVICE_UNAVAILABLE = "AUTH_SERVICE_UNAVAILABLE"
@@ -41,6 +51,9 @@ AUTH_USERS_TABLE = "auth.users"
 OPERATION_UPDATE = "UPDATE"
 ACTION_PASSWORD_CHANGE = "password_change"
 ACTION_PASSWORD_RESET = "password_reset"
+# TEOS-255
+SESSION_ID_MISSING = "SESSION_ID_MISSING"
+DEVICE_LOOKUP_FAILED = "DEVICE_LOOKUP_FAILED"
 
 
 def _default_session_revoker(user_id: str) -> Dict[str, int]:
@@ -53,6 +66,11 @@ def _default_session_revoker(user_id: str) -> Dict[str, int]:
 def _default_audit():
     from app.services.admin.audit_service import AuditService
     return AuditService()
+
+
+def _default_device_service():
+    from app.services.admin.trusted_device_service import TrustedDeviceService
+    return TrustedDeviceService()
 
 
 def password_update_error(exc: AuthError) -> AdminError:
@@ -161,13 +179,31 @@ class LoginRateLimiter:
 class AdminAuthService:
     def __init__(self, client_factory: Callable = supabase_client, rate_limiter: Optional[LoginRateLimiter] = None,
                  session_revoker: Callable[[str], Dict[str, int]] = _default_session_revoker,
-                 audit_factory: Callable = _default_audit):
+                 audit_factory: Callable = _default_audit,
+                 device_service_factory: Callable = _default_device_service,
+                 challenge_service: Optional[DeviceChallengeService] = None):
         self._client_factory = client_factory
         self._rate_limiter = rate_limiter or LoginRateLimiter.from_env()
         self._session_revoker = session_revoker
         self._audit_factory = audit_factory
+        self._device_service_factory = device_service_factory
+        self._device_service = None
+        self.challenges = challenge_service or DeviceChallengeService(client_factory=client_factory,
+                                                                      audit_factory=audit_factory)
 
-    def login(self, email: str, password: str, ip: Optional[str]) -> AdminSession:
+    @property
+    def devices(self):
+        """The ``TrustedDeviceService``, created lazily so importing the router opens no database client."""
+        if self._device_service is None:
+            self._device_service = self._device_service_factory()
+        return self._device_service
+
+    def login(self, email: str, password: str, ip: Optional[str], device: Optional[AdminDeviceInfo] = None,
+              user_agent: Optional[str] = None) -> Union[AdminSession, AdminLoginChallenge]:
+        """Password check (rate limited, unchanged), role check (403), then TEOS-255: a trusted device of the
+        admin gets the session; any other browser gets no session but an email code (``AdminLoginChallenge``)."""
+        if device is None:
+            raise AdminValidationError("device: Field required")
         email = email.strip()
         # recorded before Supabase is asked; it stays counted unless the credentials were accepted
         attempt_id = self._rate_limiter.begin(ip, email)
@@ -186,9 +222,56 @@ class AdminAuthService:
         if not response or not response.session or not response.user:
             raise self._login_failed()
         self._rate_limiter.succeeded(attempt_id)
-        return self._admin_session(client, response.session, response.user)
+        session, user = response.session, response.user
+        role, permissions = self._require_admin_role(client, session, user)
+        admin_id = str(user.id)
+        try:
+            trusted = self.devices.find_trusted(admin_id, device_hash(device))
+            if trusted:
+                session_id = self._session_id(session.access_token)
+                row = self.devices.signed_in_trusted(trusted, session_id, ip, device) or trusted
+                self.devices.record_token(str(row["id"]), token_iat(session.access_token))
+            else:
+                row = None
+        except Exception:
+            self._revoke(client, session.access_token)  # never hand out a session without its device row
+            raise
+        if row is not None:  # signed_in_trusted writes the device_signed_in audit row
+            return self._session_model(session, user, role, permissions, device_id=str(row["id"]))
+        # not a trusted device: the password session is never handed out, the email code decides
+        self._revoke(client, session.access_token)
+        return self.challenges.start(admin_id, user.email or email, device, ip, user_agent)
 
-    def refresh(self, refresh_token: str) -> AdminSession:
+    def verify_device(self, challenge_id: str, code: str, trust_device: bool, device_name: Optional[str],
+                      device: AdminDeviceInfo, ip: Optional[str]) -> AdminSession:
+        """TEOS-255: the email code of a login challenge. Errors: see ``DeviceChallengeService.verify``; 403 when
+        the account lost its admin role meanwhile. The device row is created / updated (trusted 30 days when
+        ``trust_device``) and holds the new session."""
+        verified = self.challenges.verify(challenge_id, code, device, ip)
+        client = self._client_factory()
+        session, user = verified.session, verified.user
+        role, permissions = self._require_admin_role(client, session, user)
+        admin_id = str(user.id)
+        try:
+            session_id = self._session_id(session.access_token)
+            row = self.devices.register_verified(admin_id, user.email, verified.challenge.get("device_hash")
+                                                 or device_hash(device), device, session_id, ip, trust_device,
+                                                 device_name, AuditContext(actor_id=admin_id, ip=ip))
+            self.devices.record_token(str(row["id"]), token_iat(session.access_token))
+        except Exception:
+            self._revoke(client, session.access_token)
+            raise
+        return self._session_model(session, user, role, permissions, device_id=str(row["id"]))
+
+    def resend_code(self, challenge_id: str, ip: Optional[str]) -> AdminCodeResent:
+        """TEOS-255: a new email code for a login challenge (see ``DeviceChallengeService.resend``)."""
+        return self.challenges.resend(challenge_id, ip)
+
+    def refresh(self, refresh_token: str, device: Optional[AdminDeviceInfo] = None,
+                ip: Optional[str] = None) -> AdminSession:
+        """New tokens from a refresh token. TEOS-255: the refreshed session must still have an active device row
+        and ``device`` must be that row's browser, else 401 (``device_revoked`` / ``device_session_required``)
+        and the refreshed session is signed out."""
         client = self._client_factory()
         try:
             response = client.auth.refresh_session(refresh_token)
@@ -199,10 +282,27 @@ class AdminAuthService:
             raise AdminUnauthorized(INVALID_REFRESH_TOKEN)
         if not response or not response.session or not response.user:
             raise AdminUnauthorized(INVALID_REFRESH_TOKEN)
-        if is_email_link_token(response.session.access_token):
+        session, user = response.session, response.user
+        if is_recovery_session(session.access_token):
             # TEOS-307: a reset link's session never becomes a portal session
             raise AdminUnauthorized(INVALID_REFRESH_TOKEN)
-        return self._admin_session(client, response.session, response.user)
+        role, permissions = self._require_admin_role(client, session, user)
+        row = self._session_device(token_session_id(session.access_token))
+        error = device_session_error(row, str(user.id))
+        if error is None and (device is None or device_hash(device) != row.get("device_hash")):
+            logger.info("admin refresh refused: another browser than the session's device")
+            error = coded(AdminUnauthorized, "device_session_required", ErrorMessages.ADMIN_DEVICE_SESSION_REQUIRED)
+        if error is not None:
+            audit_refused_session(row, str(user.id), ip)
+            self._revoke(client, session.access_token)
+            raise error
+        try:  # the API's own new token: newer tokens of this session are refused (refreshed outside the API)
+            self.devices.record_token(str(row["id"]), token_iat(session.access_token))
+        except Exception:
+            self._revoke(client, session.access_token)
+            raise
+        self.devices.touch(str(row["id"]), ip)  # last use for the Devices page; never raises
+        return self._session_model(session, user, role, permissions, device_id=str(row["id"]))
 
     # ---------- TEOS-307: passwords ----------
 
@@ -247,7 +347,9 @@ class AdminAuthService:
         others_signed_out = self._sign_out_others(client, session.access_token)
         self._audit_password(ctx, user.id, user.email, ACTION_PASSWORD_CHANGE,
                              other_sessions_signed_out=others_signed_out)
+        self._devices_after_password_change(user, session.access_token, ctx)
         new_session = self._admin_session(client, session, response.user)
+        new_session.device_id = user.device_id
         return AdminPasswordChanged(**new_session.model_dump(), other_sessions_signed_out=others_signed_out)
 
     def complete_password_reset(self, access_token: str, new_password: str, ip: Optional[str]) -> AdminPasswordReset:
@@ -257,6 +359,12 @@ class AdminAuthService:
         Then every session of the account is signed out, the link's session included, so the reset link
         works once and the admin signs in again with the new password."""
         if not is_email_link_token(access_token):
+            raise self._reset_link_invalid()
+        if self._session_device(token_session_id(access_token)) is not None:
+            # TEOS-255: a portal session (verify-device, amr otp / magiclink) has a device row, active or revoked;
+            # a reset link's session never has one. Without this a signed-in admin could set a new password
+            # without the current one.
+            logger.info("admin password reset refused: the token is a portal session")
             raise self._reset_link_invalid()
         client = self._client_factory()
         try:
@@ -277,9 +385,28 @@ class AdminAuthService:
         except AuthError as exc:
             raise password_update_error(exc)
         signed_out = self._sign_out_everywhere(user_id)
-        self._audit_password(AuditContext(actor_id=user_id, ip=ip), user_id, user.email, ACTION_PASSWORD_RESET,
-                             sessions_signed_out=signed_out)
+        ctx = AuditContext(actor_id=user_id, ip=ip)
+        self._audit_password(ctx, user_id, user.email, ACTION_PASSWORD_RESET, sessions_signed_out=signed_out)
+        self._devices_call("password reset", lambda: self.devices.revoke_all(user_id, REASON_PASSWORD_RESET, ctx))
         return AdminPasswordReset(sessions_signed_out=signed_out)
+
+    def _devices_after_password_change(self, user: AdminUser, new_access_token: str, ctx: AuditContext) -> None:
+        """TEOS-255 (D10): every OTHER device is revoked; the caller's row moves to the new session and stays
+        trusted. The password is already changed, so a failure here is logged, never raised."""
+        self._devices_call("password change", lambda: self.devices.revoke_all(
+            str(user.id), REASON_PASSWORD_CHANGE, ctx, except_device_id=user.device_id))
+        new_session_id = token_session_id(new_access_token)
+        if user.device_id and new_session_id:
+            self._devices_call("password change", lambda: self.devices.move_session(user.device_id, new_session_id))
+            self._devices_call("password change", lambda: self.devices.record_token(
+                user.device_id, token_iat(new_access_token)))
+
+    @staticmethod
+    def _devices_call(what: str, call: Callable[[], Any]) -> None:
+        try:
+            call()
+        except Exception as exc:
+            logger.error(f"admin {what}: trusted devices update failed: {type(exc).__name__}: {exc}")
 
     @staticmethod
     def _sign_out_others(client, access_token: str) -> bool:
@@ -318,7 +445,8 @@ class AdminAuthService:
         return AdminError(RESET_LINK_INVALID, name=ErrorMessages.ADMIN_RESET_LINK_INVALID)
 
     def logout(self, user: AdminUser) -> None:
-        """Ends the caller's session only ("local"), so the same account stays signed in elsewhere."""
+        """Ends the caller's session only ("local"), so the same account stays signed in elsewhere. TEOS-255: the
+        device row keeps its trust but no longer holds a session."""
         client = self._client_factory()
         try:
             client.auth.admin.sign_out(user.token, "local")
@@ -327,6 +455,8 @@ class AdminAuthService:
                 logger.error(f"admin logout: Supabase Auth failed: {type(exc).__name__}")
                 raise AdminUpstreamError(AUTH_SERVICE_UNAVAILABLE)
             logger.info("admin logout: session already ended")
+        if user.session_id:
+            self._devices_call("logout", lambda: self.devices.clear_session(user.session_id))
 
     @staticmethod
     def me(user: AdminUser) -> AdminProfile:
@@ -337,21 +467,51 @@ class AdminAuthService:
         return AdminUnauthorized(ErrorMessages.ADMIN_LOGIN_FAILED.value, name=ErrorMessages.ADMIN_LOGIN_FAILED)
 
     def _admin_session(self, client, session, user) -> AdminSession:
+        role, permissions = self._require_admin_role(client, session, user)
+        return self._session_model(session, user, role, permissions)
+
+    def _require_admin_role(self, client, session, user) -> Tuple[str, frozenset]:
+        """The account's admin role and permissions; 403 (and the fresh session signed out) when it has none."""
         role = (user.app_metadata or {}).get("role")
         permissions = permissions_for(role)
         if not permissions:
             self._revoke(client, session.access_token)
             raise AdminForbidden(ErrorMessages.ADMIN_ROLE_REQUIRED.value, name=ErrorMessages.ADMIN_ROLE_REQUIRED)
+        return role, permissions
+
+    @staticmethod
+    def _session_model(session, user, role: str, permissions, device_id: Optional[str] = None) -> AdminSession:
         return AdminSession(
             access_token=session.access_token,
             refresh_token=session.refresh_token,
             expires_in=int(session.expires_in or 0),
             user=AdminProfile(id=str(user.id), email=user.email, role=role, permissions=sorted(permissions)),
+            device_id=device_id,
         )
+
+    @staticmethod
+    def _session_id(access_token: str) -> str:
+        session_id = token_session_id(access_token)
+        if not session_id:
+            logger.error("admin sign-in: the Supabase access token has no session_id claim")
+            raise AdminUpstreamError(SESSION_ID_MISSING)
+        return session_id
+
+    def _session_device(self, session_id: Optional[str]) -> Optional[Dict[str, Any]]:
+        """The device row of a session (``TrustedDeviceService.session_device``); 502 when the store fails."""
+        if not session_id:
+            return None
+        try:
+            return self.devices.session_device(session_id)
+        except AdminError:
+            raise
+        except Exception as exc:
+            logger.error(f"admin device lookup failed: {type(exc).__name__}")
+            raise AdminUpstreamError(DEVICE_LOOKUP_FAILED)
 
     @staticmethod
     def _revoke(client, access_token: str) -> None:
         try:
             client.auth.admin.sign_out(access_token, "local")
-        except Exception as exc:  # the 403 must still be returned; the session expires on its own
-            logger.error(f"could not revoke non-admin session: {type(exc).__name__}")
+        except Exception as exc:  # the error must still be returned; the session expires on its own
+            logger.error(f"could not sign out the session: {type(exc).__name__}")

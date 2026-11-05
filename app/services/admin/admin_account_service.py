@@ -8,8 +8,9 @@
   ``ADMIN_PASSWORD_RESET_URL``. Nothing changes on the account until the admin sets the new password there
   (``POST /auth/reset-password``), which then signs out every session of the account.
 - revoke access: the admin role is removed (the account is kept: it may also be an app customer) and every
-  session of the account is signed out. The audit row is written after the change; when it cannot be
-  written the role is put back and 502 is returned, like a ban.
+  session of the account is signed out, and every trusted device row is revoked (TEOS-255). The audit
+  row is written after the change; when it cannot be written the role is put back and 502 is returned,
+  like a ban.
 
 A super admin cannot reset or revoke their own account (409 ``cannot_target_self``): their own password is
 changed from the Profile page. That also keeps at least one super admin.
@@ -56,6 +57,12 @@ def _reset_url() -> Optional[str]:
     return (os.getenv("ADMIN_PASSWORD_RESET_URL") or "").strip() or None
 
 
+def _default_device_revoker(user_id: str, ctx: AuditContext) -> int:
+    """TEOS-255: every trusted device row of the account revoked (reason ``access_revoked``)."""
+    from app.services.admin.trusted_device_service import REASON_ACCESS_REVOKED, TrustedDeviceService
+    return TrustedDeviceService().revoke_all(user_id, REASON_ACCESS_REVOKED, ctx)
+
+
 def _is_rate_limited(exc: AuthError) -> bool:
     return (getattr(exc, "status", None) == 429
             or getattr(exc, "code", None) in ("over_email_send_rate_limit", "over_request_rate_limit"))
@@ -65,11 +72,13 @@ class AdminAccountService:
     def __init__(self, client_factory: Callable = supabase_client,
                  session_revoker: Callable[[str], Dict[str, int]] = _default_session_revoker,
                  audit_factory: Callable = _default_audit,
-                 reset_url: Callable[[], Optional[str]] = _reset_url):
+                 reset_url: Callable[[], Optional[str]] = _reset_url,
+                 device_revoker: Callable[[str, AuditContext], int] = _default_device_revoker):
         self._client_factory = client_factory
         self._session_revoker = session_revoker
         self._audit_factory = audit_factory
         self._reset_url = reset_url
+        self._device_revoker = device_revoker
 
     # ---------- list ----------
 
@@ -162,6 +171,10 @@ class AdminAccountService:
             logger.error(f"admin revoke access: could not revoke the sessions of {user_id}: {type(exc).__name__}")
             signed_out = False
         try:
+            self._device_revoker(user_id, ctx)
+        except Exception as exc:  # TEOS-255: the role is gone, the per-request check refuses the account anyway
+            logger.error(f"admin revoke access: could not revoke the devices of {user_id}: {type(exc).__name__}")
+        try:
             self._audit_factory().log(ctx, AUTH_USERS_TABLE, OPERATION_UPDATE, record_id=user_id, rows_affected=1,
                                       old={"role": previous_role}, new={"role": None},
                                       action=ACTION_ACCESS_REVOKED, user_id=user_id,
@@ -183,6 +196,11 @@ class AdminAccountService:
         """The admin account ``admin_id``, never the caller's own."""
         if ctx.actor_id and str(admin_id).lower() == str(ctx.actor_id).lower():
             raise AdminConflict(CANNOT_TARGET_SELF, name=ErrorMessages.ADMIN_CANNOT_TARGET_SELF)
+        return self.admin_account(admin_id)
+
+    def admin_account(self, admin_id: str) -> Any:
+        """The admin account ``admin_id`` (the caller's own included). 404 ``admin_not_found`` when the
+        account is unknown or has no admin role; 502 when Supabase Auth fails."""
         try:
             response = self._client_factory().auth.admin.get_user_by_id(str(admin_id))
         except AuthError as exc:

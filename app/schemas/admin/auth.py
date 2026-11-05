@@ -1,7 +1,9 @@
 """Admin authentication DTOs."""
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Literal, Optional
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
+
+from app.schemas.admin.trusted_devices import AdminDeviceInfo
 
 #: TEOS-307 password rules, the same in the portal (yup): 12+ characters, at most 72 bytes (bcrypt, which
 #: Supabase Auth uses, ignores anything after 72 bytes), an upper-case letter, a lower-case letter, a digit
@@ -34,12 +36,14 @@ AdminNewPassword = Annotated[str, Field(..., max_length=256), AfterValidator(che
 class AdminLoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=1, max_length=256)
+    device: AdminDeviceInfo  # TEOS-255: the browser, to recognise a trusted device
 
     model_config = ConfigDict(extra="forbid")
 
 
 class AdminRefreshRequest(BaseModel):
     refresh_token: str = Field(..., min_length=1, max_length=4096)
+    device: AdminDeviceInfo  # TEOS-255: must be the browser of the session's device row
 
     model_config = ConfigDict(extra="forbid")
 
@@ -70,10 +74,12 @@ class AdminProfile(BaseModel):
 
 
 class AdminSession(BaseModel):
+    status: Literal["signed_in"] = "signed_in"  # TEOS-255: vs AdminLoginChallenge "verification_required"
     access_token: str
     refresh_token: str
     expires_in: int
     user: AdminProfile
+    device_id: Optional[str] = None  # TEOS-255: the admin_devices row of this browser
 
 
 class AdminPasswordChanged(AdminSession):

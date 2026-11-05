@@ -17,6 +17,7 @@ from app.schemas.admin.common import PageParams
 from app.services.admin.admin_account_service import AdminAccountService
 from app.services.admin.auth_service import AdminAuthService, LoginRateLimiter
 from tests.admin.conftest import FakeClock, FakeLoginAttemptStore, make_admin, make_auth_user, make_session
+from tests.admin.services.test_trusted_devices_signin import FakeDevices
 
 ADMIN_ID = "11111111-1111-1111-1111-111111111111"
 OTHER_ID = "22222222-2222-2222-2222-222222222222"
@@ -25,8 +26,8 @@ WRONG = AuthApiError("Invalid login credentials", 400, "invalid_credentials")
 
 
 def token(*methods):
-    return jwt.encode({"sub": ADMIN_ID, "amr": [{"method": m, "timestamp": 1} for m in methods]}, "k",
-                      algorithm="HS256")
+    return jwt.encode({"sub": ADMIN_ID, "session_id": "sess-1", "amr": [{"method": m, "timestamp": 1} for m in methods]},
+                      "k", algorithm="HS256")
 
 
 class FakeAudit:
@@ -61,11 +62,16 @@ def revoked():
 
 
 @pytest.fixture
-def auth(client, store, audit, revoked):
+def devices():
+    return FakeDevices()
+
+
+@pytest.fixture
+def auth(client, store, audit, revoked, devices):
     limiter = LoginRateLimiter(max_failures=5, window_seconds=300, store_factory=lambda: store)
     return AdminAuthService(client_factory=lambda: client, rate_limiter=limiter,
                             session_revoker=lambda uid: revoked.append(uid) or {"sessions": 1, "refresh_tokens": 1},
-                            audit_factory=lambda: audit)
+                            audit_factory=lambda: audit, device_service_factory=lambda: devices)
 
 
 CTX = AuditContext(actor_id=ADMIN_ID, ip="1.2.3.4")
@@ -181,7 +187,7 @@ def test_change_password_audit_failure_does_not_fail_the_change(client, store):
     _signed_in(client)
     service = AdminAuthService(client_factory=lambda: client,
                                rate_limiter=LoginRateLimiter(5, 300, store_factory=lambda: store),
-                               audit_factory=lambda: FakeAudit(fail=True))
+                               audit_factory=lambda: FakeAudit(fail=True), device_service_factory=FakeDevices)
 
     assert service.change_password(make_admin(), "Old-Passw0rd!x", GOOD, "1.2.3.4", CTX).access_token == "new-access"
 
@@ -236,8 +242,11 @@ def test_reset_password_of_an_account_without_admin_role_is_403(auth, client):
     client.auth.admin.update_user_by_id.assert_not_called()
 
 
-def test_email_link_session_is_refused_on_admin_routes(supabase_auth):
+def test_email_link_session_is_refused_on_admin_routes(supabase_auth, monkeypatch):
     supabase_auth.get_user.return_value = SimpleNamespace(user=make_auth_user(ROLE_SUPER_ADMIN))
+    devices = FakeDevices()
+    devices.add(session_id="sess-1")  # TEOS-255: even a session with a device row
+    monkeypatch.setattr("app.dependencies.admin_security.session_device_lookup", devices.session_device)
 
     with pytest.raises(AdminUnauthorized) as err:
         resolve_admin(token("recovery"))
@@ -263,7 +272,7 @@ def _user(user_id, email, role, **extra):
 
 @pytest.fixture
 def accounts(client, audit, revoked):
-    return AdminAccountService(client_factory=lambda: client, audit_factory=lambda: audit,
+    return AdminAccountService(client_factory=lambda: client, device_revoker=lambda *a, **k: 0, audit_factory=lambda: audit,
                                session_revoker=lambda uid: revoked.append(uid) or {"sessions": 1, "refresh_tokens": 0},
                                reset_url=lambda: "https://admin.example.com/reset-password")
 
@@ -337,7 +346,7 @@ def test_reset_and_revoke_of_a_non_admin_are_404(accounts, client, found):
 
 def test_reset_without_the_portal_url_is_502_and_sends_nothing(client, audit):
     client.auth.admin.get_user_by_id.return_value = SimpleNamespace(user=_user(OTHER_ID, "amy@x.com", ROLE_ADMIN))
-    service = AdminAccountService(client_factory=lambda: client, audit_factory=lambda: audit, reset_url=lambda: None)
+    service = AdminAccountService(client_factory=lambda: client, device_revoker=lambda *a, **k: 0, audit_factory=lambda: audit, reset_url=lambda: None)
 
     with pytest.raises(AdminUpstreamError) as err:
         service.send_password_reset(OTHER_ID, CTX)
@@ -374,7 +383,7 @@ def test_revoke_removes_the_role_signs_out_and_audits(accounts, client, audit, r
 
 def test_revoke_audit_failure_puts_the_role_back(client, revoked):
     client.auth.admin.get_user_by_id.return_value = SimpleNamespace(user=_user(OTHER_ID, "amy@x.com", ROLE_ADMIN))
-    service = AdminAccountService(client_factory=lambda: client, audit_factory=lambda: FakeAudit(fail=True),
+    service = AdminAccountService(client_factory=lambda: client, device_revoker=lambda *a, **k: 0, audit_factory=lambda: FakeAudit(fail=True),
                                   session_revoker=lambda uid: {"sessions": 0, "refresh_tokens": 0})
 
     with pytest.raises(AdminUpstreamError):
@@ -389,6 +398,6 @@ def test_revoke_when_sessions_cannot_be_deleted_still_removes_the_role(client, a
     def fail(uid):
         raise RuntimeError("db down")
 
-    service = AdminAccountService(client_factory=lambda: client, audit_factory=lambda: audit, session_revoker=fail)
+    service = AdminAccountService(client_factory=lambda: client, device_revoker=lambda *a, **k: 0, audit_factory=lambda: audit, session_revoker=fail)
 
     assert service.revoke_access(OTHER_ID, CTX).sessions_signed_out is False

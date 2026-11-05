@@ -15,6 +15,7 @@ from app.api.v1.admin.bundles import router as bundles_router
 from app.api.v1.admin.contact_us import router as contact_us_router
 from app.api.v1.admin.devices import router as devices_router
 from app.api.v1.admin.groups import router as groups_router
+from app.api.v1.admin.me_devices import router as me_devices_router
 from app.api.v1.admin.orders import router as orders_router
 from app.api.v1.admin.promotion_rules import router as promotion_rules_router
 from app.api.v1.admin.promotions import router as promotions_router
@@ -54,3 +55,4 @@ router.include_router(settings_router, prefix="/settings", responses=ADMIN_ERROR
 router.include_router(audit_log_router, prefix="/audit-log", responses=ADMIN_ERROR_RESPONSES)
 router.include_router(referrals_router, prefix="/referrals", responses=ADMIN_ERROR_RESPONSES)
 router.include_router(admins_router, prefix="/admins", responses=ADMIN_ERROR_RESPONSES)
+router.include_router(me_devices_router, prefix="/me", responses=ADMIN_ERROR_RESPONSES)
