@@ -4,9 +4,14 @@ The portal never talks to Supabase directly: it posts email/password here and re
 Supabase session plus the admin's role and permissions. Only accounts whose
 ``app_metadata.role`` is an admin role get a session; any other account's fresh session is
 revoked immediately and the request is refused with 403.
+
+TEOS-307 adds the admin's own password change (current password checked, every other session signed
+out) and the last step of a password reset sent from the Admins page (the reset link's session sets
+the new password, then every session of the account is signed out).
 """
 import os
-from typing import Callable, Optional
+from datetime import datetime, timezone
+from typing import Callable, Dict, Optional
 
 from gotrue.errors import AuthApiError, AuthError, AuthRetryableError, AuthUnknownError
 from loguru import logger
@@ -14,15 +19,55 @@ from loguru import logger
 from app.config.admin_permissions import permissions_for
 from app.config.config import supabase_client
 from app.config.constants import ErrorMessages
-from app.dependencies.admin_security import AdminUser
-from app.exceptions.admin import AdminForbidden, AdminRateLimited, AdminUnauthorized, AdminUpstreamError
+from app.dependencies.admin_security import AdminUser, is_email_link_token
+from app.exceptions.admin import (AdminError, AdminForbidden, AdminRateLimited, AdminUnauthorized,
+                                  AdminUpstreamError, AdminValidationError)
+from app.repo.admin.base import AuditContext
 from app.repo.admin.login_attempt_repo import OUTCOME_ABORTED, OUTCOME_SUCCESS, LoginAttemptRepo
-from app.schemas.admin.auth import AdminProfile, AdminSession
+from app.schemas.admin.auth import AdminPasswordChanged, AdminPasswordReset, AdminProfile, AdminSession
 
 DEFAULT_LOGIN_RATE_LIMIT = "5/300"  # failed attempts / seconds, per IP and per email
 AUTH_SERVICE_UNAVAILABLE = "AUTH_SERVICE_UNAVAILABLE"
 RATE_LIMIT_STORE_UNAVAILABLE = "RATE_LIMIT_STORE_UNAVAILABLE"
 INVALID_REFRESH_TOKEN = "INVALID_REFRESH_TOKEN"
+# TEOS-307 machine codes (developerMessage)
+CURRENT_PASSWORD_INVALID = "current_password_invalid"
+SAME_PASSWORD = "same_password"
+WEAK_PASSWORD = "weak_password"
+RESET_LINK_INVALID = "reset_link_invalid"
+PASSWORD_UPDATE_FAILED = "PASSWORD_UPDATE_FAILED"
+#: audit rows of password actions: table ``auth.users``, operation UPDATE, ``action`` in the details
+AUTH_USERS_TABLE = "auth.users"
+OPERATION_UPDATE = "UPDATE"
+ACTION_PASSWORD_CHANGE = "password_change"
+ACTION_PASSWORD_RESET = "password_reset"
+
+
+def _default_session_revoker(user_id: str) -> Dict[str, int]:
+    """Every session and refresh token of the account deleted (TEOS-149 ``admin_revoke_user_sessions``)."""
+    from app.repo.admin.user_repo import UserAdminRepo
+    from app.services.admin.user_service import revoke_user_sessions
+    return revoke_user_sessions(UserAdminRepo(), user_id)
+
+
+def _default_audit():
+    from app.services.admin.audit_service import AuditService
+    return AuditService()
+
+
+def password_update_error(exc: AuthError) -> AdminError:
+    """The admin error for a refused ``update_user_by_id(password)``: Supabase's own password rules (same
+    password, weak or leaked password) -> 422 with a clear message; anything else -> 502."""
+    code = getattr(exc, "code", None)
+    if code == SAME_PASSWORD:
+        return AdminValidationError(SAME_PASSWORD, name=ErrorMessages.ADMIN_PASSWORD_REUSED)
+    if code == WEAK_PASSWORD:
+        return AdminValidationError(WEAK_PASSWORD, name=ErrorMessages.ADMIN_PASSWORD_WEAK)
+    if _is_upstream_failure(exc):
+        logger.error(f"admin password: Supabase Auth failed: {type(exc).__name__}")
+        return AdminUpstreamError(AUTH_SERVICE_UNAVAILABLE)
+    logger.error(f"admin password: update refused: {type(exc).__name__} {code}")
+    return AdminUpstreamError(PASSWORD_UPDATE_FAILED)
 
 
 def _parse_rate_limit(value: Optional[str]) -> tuple[int, int]:
@@ -114,9 +159,13 @@ class LoginRateLimiter:
 
 
 class AdminAuthService:
-    def __init__(self, client_factory: Callable = supabase_client, rate_limiter: Optional[LoginRateLimiter] = None):
+    def __init__(self, client_factory: Callable = supabase_client, rate_limiter: Optional[LoginRateLimiter] = None,
+                 session_revoker: Callable[[str], Dict[str, int]] = _default_session_revoker,
+                 audit_factory: Callable = _default_audit):
         self._client_factory = client_factory
         self._rate_limiter = rate_limiter or LoginRateLimiter.from_env()
+        self._session_revoker = session_revoker
+        self._audit_factory = audit_factory
 
     def login(self, email: str, password: str, ip: Optional[str]) -> AdminSession:
         email = email.strip()
@@ -150,7 +199,123 @@ class AdminAuthService:
             raise AdminUnauthorized(INVALID_REFRESH_TOKEN)
         if not response or not response.session or not response.user:
             raise AdminUnauthorized(INVALID_REFRESH_TOKEN)
+        if is_email_link_token(response.session.access_token):
+            # TEOS-307: a reset link's session never becomes a portal session
+            raise AdminUnauthorized(INVALID_REFRESH_TOKEN)
         return self._admin_session(client, response.session, response.user)
+
+    # ---------- TEOS-307: passwords ----------
+
+    def change_password(self, user: AdminUser, current_password: str, new_password: str, ip: Optional[str],
+                        ctx: AuditContext) -> AdminPasswordChanged:
+        """The signed-in admin's own password change.
+
+        The current password is checked with a fresh sign-in, counted by the login rate limit like a login
+        (429 once the IP or the email is at the limit). 400 ``current_password_invalid`` when it is wrong
+        (not 401: the portal must not take it for an expired session); 422 ``same_password`` when the new
+        password is the current one; 422 ``weak_password`` when Supabase refuses it. Then the password is
+        set and every OTHER session of the account is signed out, the caller's old one included: the
+        caller gets the session of the check, already valid with the new password."""
+        if new_password == current_password:
+            raise AdminValidationError(SAME_PASSWORD, name=ErrorMessages.ADMIN_PASSWORD_REUSED)
+        email = (user.email or "").strip()
+        attempt_id = self._rate_limiter.begin(ip, email)
+        check_client = self._client_factory()
+        try:
+            response = check_client.auth.sign_in_with_password({"email": email, "password": current_password})
+        except AuthError as exc:
+            if _is_upstream_failure(exc):
+                logger.error(f"admin change password: Supabase Auth failed: {type(exc).__name__}")
+                self._rate_limiter.aborted(attempt_id)
+                raise AdminUpstreamError(AUTH_SERVICE_UNAVAILABLE)
+            raise self._current_password_invalid()
+        except Exception:
+            self._rate_limiter.aborted(attempt_id)
+            raise
+        if (not response or not response.session or not response.user
+                or str(response.user.id).lower() != str(user.id).lower()):
+            raise self._current_password_invalid()
+        self._rate_limiter.succeeded(attempt_id)
+        session = response.session
+        # a client that signed in sends the user's token on its admin calls: use a fresh one
+        client = self._client_factory()
+        try:
+            client.auth.admin.update_user_by_id(str(user.id), {"password": new_password})
+        except AuthError as exc:
+            self._revoke(client, session.access_token)  # the check session is never handed out
+            raise password_update_error(exc)
+        others_signed_out = self._sign_out_others(client, session.access_token)
+        self._audit_password(ctx, user.id, user.email, ACTION_PASSWORD_CHANGE,
+                             other_sessions_signed_out=others_signed_out)
+        new_session = self._admin_session(client, session, response.user)
+        return AdminPasswordChanged(**new_session.model_dump(), other_sessions_signed_out=others_signed_out)
+
+    def complete_password_reset(self, access_token: str, new_password: str, ip: Optional[str]) -> AdminPasswordReset:
+        """Last step of a reset sent from the Admins page: ``access_token`` is the session of the reset email
+        link. 400 ``reset_link_invalid`` when it is not an email link session or it is invalid, expired or
+        already used; 403 when the account is no longer an admin; 422 ``same_password`` / ``weak_password``.
+        Then every session of the account is signed out, the link's session included, so the reset link
+        works once and the admin signs in again with the new password."""
+        if not is_email_link_token(access_token):
+            raise self._reset_link_invalid()
+        client = self._client_factory()
+        try:
+            response = client.auth.get_user(jwt=access_token)
+        except AuthError as exc:
+            if _is_upstream_failure(exc):
+                logger.error(f"admin password reset: Supabase Auth failed: {type(exc).__name__}")
+                raise AdminUpstreamError(AUTH_SERVICE_UNAVAILABLE)
+            raise self._reset_link_invalid()
+        user = getattr(response, "user", None)
+        if user is None:
+            raise self._reset_link_invalid()
+        if not permissions_for((user.app_metadata or {}).get("role")):
+            raise AdminForbidden(ErrorMessages.ADMIN_ROLE_REQUIRED.value, name=ErrorMessages.ADMIN_ROLE_REQUIRED)
+        user_id = str(user.id)
+        try:
+            client.auth.admin.update_user_by_id(user_id, {"password": new_password})
+        except AuthError as exc:
+            raise password_update_error(exc)
+        signed_out = self._sign_out_everywhere(user_id)
+        self._audit_password(AuditContext(actor_id=user_id, ip=ip), user_id, user.email, ACTION_PASSWORD_RESET,
+                             sessions_signed_out=signed_out)
+        return AdminPasswordReset(sessions_signed_out=signed_out)
+
+    @staticmethod
+    def _sign_out_others(client, access_token: str) -> bool:
+        try:
+            client.auth.admin.sign_out(access_token, "others")
+            return True
+        except Exception as exc:
+            logger.error(f"admin change password: could not sign out the other sessions: {type(exc).__name__}")
+            return False
+
+    def _sign_out_everywhere(self, user_id: str) -> bool:
+        try:
+            deleted = self._session_revoker(user_id)
+            logger.info(f"admin password reset: sessions of {user_id} revoked: {deleted}")
+            return True
+        except Exception as exc:
+            logger.error(f"admin password reset: could not revoke the sessions of {user_id}: {type(exc).__name__}")
+            return False
+
+    def _audit_password(self, ctx: AuditContext, user_id: str, email: Optional[str], action: str, **details) -> None:
+        """One audit row. The password is already changed and cannot be put back, so a failed audit insert
+        is logged, not raised."""
+        try:
+            self._audit_factory().log(ctx, AUTH_USERS_TABLE, OPERATION_UPDATE, record_id=user_id, rows_affected=1,
+                                      action=action, user_id=str(user_id), user_email=email,
+                                      changed_at=datetime.now(timezone.utc).isoformat(), **details)
+        except Exception as exc:
+            logger.error(f"admin {action}: audit insert failed: {type(exc).__name__}: {exc}")
+
+    @staticmethod
+    def _current_password_invalid() -> AdminError:
+        return AdminError(CURRENT_PASSWORD_INVALID, name=ErrorMessages.ADMIN_CURRENT_PASSWORD_INVALID)
+
+    @staticmethod
+    def _reset_link_invalid() -> AdminError:
+        return AdminError(RESET_LINK_INVALID, name=ErrorMessages.ADMIN_RESET_LINK_INVALID)
 
     def logout(self, user: AdminUser) -> None:
         """Ends the caller's session only ("local"), so the same account stays signed in elsewhere."""

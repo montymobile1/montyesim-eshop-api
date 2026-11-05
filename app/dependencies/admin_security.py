@@ -45,11 +45,38 @@ def _verify_signature(token: str) -> None:
     jwt.decode(token, secret, algorithms=["HS256"], audience="authenticated")
 
 
+#: TEOS-307: sign-in methods of a session opened from an email link (password reset, magic link, email
+#: code). Such a session proves the inbox, not the password: it may only set a new password
+#: (``POST /auth/reset-password``) and is refused on every other admin route.
+EMAIL_LINK_METHODS: FrozenSet[str] = frozenset({"recovery", "otp", "magiclink"})
+
+
+def token_auth_methods(token: str) -> FrozenSet[str]:
+    """The ``amr`` methods of a Supabase access token (how its session was opened); empty when the token
+    cannot be read. The claims are read without checking the signature: callers still validate the token
+    with Supabase Auth, this only says what kind of session it is."""
+    try:
+        claims = jwt.decode(token, options={"verify_signature": False})
+    except jwt.PyJWTError:
+        return frozenset()
+    amr = claims.get("amr")
+    if not isinstance(amr, list):
+        return frozenset()
+    return frozenset(entry.get("method") for entry in amr
+                     if isinstance(entry, dict) and isinstance(entry.get("method"), str))
+
+
+def is_email_link_token(token: str) -> bool:
+    """True when the token's session was opened only from an email link (see ``EMAIL_LINK_METHODS``)."""
+    methods = token_auth_methods(token)
+    return bool(methods) and methods <= EMAIL_LINK_METHODS
+
+
 def resolve_admin(token: str) -> AdminUser:
     """Validate ``token`` with Supabase Auth and return the admin it belongs to.
 
-    Raises AdminUnauthorized (401) for a missing, invalid, expired or revoked session and
-    AdminForbidden (403) when the account has no admin role.
+    Raises AdminUnauthorized (401) for a missing, invalid, expired or revoked session or a session opened
+    from an email link (TEOS-307), and AdminForbidden (403) when the account has no admin role.
     """
     if not token:
         raise AdminUnauthorized("BEARER_TOKEN_REQUIRED")
@@ -62,6 +89,10 @@ def resolve_admin(token: str) -> AdminUser:
     user = getattr(response, "user", None)
     if user is None:
         raise AdminUnauthorized("INVALID_OR_EXPIRED_TOKEN")
+    if is_email_link_token(token):
+        # TEOS-307: the session of a password reset link only sets the new password
+        logger.info("admin token rejected: email link session")
+        raise AdminUnauthorized("EMAIL_LINK_SESSION_NOT_ALLOWED")
     role = (user.app_metadata or {}).get("role")
     permissions = permissions_for(role)
     if not permissions:
