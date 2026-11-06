@@ -5337,7 +5337,7 @@ GRANT EXECUTE ON FUNCTION public.admin_group_bundle_counts(bigint[])
     admin_search_users(p_search text DEFAULT NULL, p_ban_status text DEFAULT 'all',
                        p_limit integer DEFAULT 20, p_offset integer DEFAULT 0,
                        p_id uuid DEFAULT NULL, p_sort text DEFAULT 'created_at',
-                       p_dir text DEFAULT 'desc')
+                       p_dir text DEFAULT 'desc', p_account_type text DEFAULT 'all')
       -> jsonb {"data": [user rows], "total": n, "facets": {"all": n, "banned": n, "active": n}}
 
     - Source: users_copy (email, metadata = auth.users.raw_user_meta_data) LEFT JOIN auth.users
@@ -5347,8 +5347,16 @@ GRANT EXECUTE ON FUNCTION public.admin_group_bundle_counts(bigint[])
     - Row: {id, email, first_name, last_name, msisdn, referral_code, email_verified,
             phone_verified, should_notify, role, banned_until, is_banned, created_at,
             last_sign_in_at}. is_banned = banned_until in the future; a lapsed ban is "active".
-    - p_search: literal match on email (ILIKE with %, _ and \ escaped).
+    - p_search: literal match on email (ILIKE with %, _ and \ escaped), or on the phone number
+      (users_copy.metadata msisdn, auth.users.phone). A search made only of digits, spaces and
+      + ( ) . - is also matched on the phone digits alone, so "+961 70 123 456" finds "96170123456".
     - p_ban_status: all | banned | active, else AD422.
+    - p_account_type (2026-11-06): all | registered | guest, else AD422. guest = anonymous accounts
+      (auth.users.is_anonymous, the user portal's guest checkout); registered = every other account.
+      Rows carry is_guest. The facets follow this filter (they count the listed kind only).
+    - guest_email (2026-11-06): for a guest, the email typed at guest checkout
+      (users_copy.metadata.email; the account itself has no email). Not verified. The search also
+      matches it for guests.
     - p_id: only that user (the detail route); the facets are over the searched set anyway.
     - facets: counts over the searched set (p_search and p_id) whatever p_ban_status says.
     - Order: p_sort (created_at | email) in p_dir (asc | desc), NULLs last, then id in the
@@ -5373,6 +5381,9 @@ GRANT EXECUTE ON FUNCTION public.admin_group_bundle_counts(bigint[])
 ------------------------------------------------------------------------------
 -- TEOS-111: p_sort / p_dir added; the first (5-argument) signature is replaced.
 DROP FUNCTION IF EXISTS public.admin_search_users(text, text, integer, integer, uuid);
+-- 2026-11-06: p_account_type added; the 7-argument signature is replaced (callers that do not pass
+-- p_account_type keep working through its default)
+DROP FUNCTION IF EXISTS public.admin_search_users(text, text, integer, integer, uuid, text, text);
 
 CREATE OR REPLACE FUNCTION public.admin_search_users(
     p_search     text    DEFAULT NULL,
@@ -5381,7 +5392,8 @@ CREATE OR REPLACE FUNCTION public.admin_search_users(
     p_offset     integer DEFAULT 0,
     p_id         uuid    DEFAULT NULL,
     p_sort       text    DEFAULT 'created_at',
-    p_dir        text    DEFAULT 'desc'
+    p_dir        text    DEFAULT 'desc',
+    p_account_type text  DEFAULT 'all'
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -5391,9 +5403,11 @@ SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_pattern text;
+    v_phone   text;
     v_status  text := coalesce(nullif(btrim(p_ban_status), ''), 'all');
     v_sort    text := coalesce(nullif(btrim(p_sort), ''), 'created_at');
     v_dir     text := lower(coalesce(nullif(btrim(p_dir), ''), 'desc'));
+    v_account text := lower(coalesce(nullif(btrim(p_account_type), ''), 'all'));
     v_result  jsonb;
 BEGIN
     IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_offset IS NULL OR p_offset < 0 THEN
@@ -5424,9 +5438,20 @@ BEGIN
             DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_dir')::text;
     END IF;
 
+    IF v_account NOT IN ('all', 'registered', 'guest') THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_account_type must be all, registered or guest',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_account_type')::text;
+    END IF;
+
     IF p_search IS NOT NULL AND btrim(p_search) <> '' THEN
         -- literal match: escape the LIKE wildcards (default escape character is the backslash)
         v_pattern := '%' || replace(replace(replace(btrim(p_search), '\', '\\'), '%', '\%'), '_', '\_') || '%';
+        -- a phone-looking search also matches the stored number by its digits only
+        IF btrim(p_search) ~ '^[0-9+() .-]+$' AND length(regexp_replace(p_search, '[^0-9]', '', 'g')) >= 3 THEN
+            v_phone := '%' || regexp_replace(p_search, '[^0-9]', '', 'g') || '%';
+        END IF;
     END IF;
 
     WITH base AS (
@@ -5443,11 +5468,22 @@ BEGIN
                au.banned_until,
                (au.banned_until IS NOT NULL AND au.banned_until > now()) AS is_banned,
                au.created_at,
-               au.last_sign_in_at
+               au.last_sign_in_at,
+               coalesce(au.is_anonymous, false)                  AS is_guest,
+               CASE WHEN coalesce(au.is_anonymous, false)
+                    THEN nullif(btrim(u.metadata ->> 'email'), '') END AS guest_email
           FROM public.users_copy u
           LEFT JOIN auth.users au ON au.id = u.id
          WHERE (p_id IS NULL OR u.id = p_id)
-           AND (v_pattern IS NULL OR u.email ILIKE v_pattern)
+           AND (v_account = 'all' OR (v_account = 'guest') = coalesce(au.is_anonymous, false))
+           AND (v_pattern IS NULL
+                OR u.email ILIKE v_pattern
+                OR (u.metadata ->> 'msisdn') ILIKE v_pattern
+                OR au.phone ILIKE v_pattern
+                OR (coalesce(au.is_anonymous, false) AND (u.metadata ->> 'email') ILIKE v_pattern)
+                OR (v_phone IS NOT NULL
+                    AND (regexp_replace(coalesce(u.metadata ->> 'msisdn', ''), '[^0-9]', '', 'g') LIKE v_phone
+                         OR regexp_replace(coalesce(au.phone, ''), '[^0-9]', '', 'g') LIKE v_phone)))
     ),
     filtered AS (
         SELECT *
@@ -5549,9 +5585,9 @@ $$;
 ------------------------------------------------------------------------------
 -- Privileges
 ------------------------------------------------------------------------------
-REVOKE ALL ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text)
+REVOKE ALL ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text, text)
     FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text)
+GRANT EXECUTE ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text, text)
     TO service_role;
 
 REVOKE ALL ON FUNCTION public.admin_wallet_transactions(uuid, integer, integer)
@@ -7053,3 +7089,276 @@ DROP POLICY IF EXISTS contact_us_select_admin ON public.contact_us;
 CREATE POLICY contact_us_select_admin ON public.contact_us
     FOR SELECT TO authenticated
     USING (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') IN ('admin', 'super_admin'));
+
+
+-- ----------------------------------------------------------------------------
+-- admin trusted devices (TEOS-255 / TEOS-256 / TEOS-310)
+-- ----------------------------------------------------------------------------
+-- Also in migrations/admin/256-ddl.sql (this phase only) and new_change_ddl.sql.
+
+-- ----------------------------------------------------------------------------
+-- admin_devices: one row per browser an admin signed in from (after the email code).
+--   device_hash   HMAC-SHA256 (server secret) of the browser values + the random device key the
+--                 portal keeps in the browser. Computed by the API, never by the browser.
+--   device_info   browser, version, OS, screen, time zone, language: display only
+--   trusted_until null = signed in with a code but not trusted (next sign-in asks again)
+--   session_id    Supabase session (auth.sessions.id, JWT claim session_id) of this browser;
+--                 every /admin request must come from a session that has an active row here
+--   revoked_*     a revoked row is history only: its session is ended, it is never matched again
+--   last_token_iat  iat (JWT issued-at, seconds) of the newest access token the API handed to this
+--                 device; a token of the session issued later (refreshed directly against
+--                 Supabase, not through the API) is refused
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.admin_devices
+(
+    id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_id      uuid        NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
+    device_hash   text        NOT NULL,
+    device_info   jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    name          text        NULL,
+    trusted_until timestamptz NULL,
+    session_id    uuid        NULL,
+    first_ip      text        NULL,
+    last_ip       text        NULL,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    last_used_at  timestamptz NOT NULL DEFAULT now(),
+    revoked_at    timestamptz NULL,
+    revoked_by    uuid        NULL,
+    revoke_reason text        NULL,
+    last_token_iat bigint     NULL,
+    CONSTRAINT admin_devices_name_len CHECK (name IS NULL OR char_length(name) BETWEEN 1 AND 60)
+);
+
+-- added after the first draft of this file: also on a table created by an earlier run
+ALTER TABLE public.admin_devices ADD COLUMN IF NOT EXISTS last_token_iat bigint NULL;
+
+-- one active row per admin and browser; revoked rows are kept as history
+CREATE UNIQUE INDEX IF NOT EXISTS admin_devices_active_hash_uq
+    ON public.admin_devices (admin_id, device_hash) WHERE revoked_at IS NULL;
+-- the per-request check: session -> active device row
+CREATE INDEX IF NOT EXISTS admin_devices_session_idx
+    ON public.admin_devices (session_id) WHERE session_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS admin_devices_admin_idx
+    ON public.admin_devices (admin_id, last_used_at DESC);
+
+ALTER TABLE public.admin_devices ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.admin_devices FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.admin_devices TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- admin_device_verification: one row per "email code" sign-in step. The code itself is created,
+-- emailed and checked by Supabase Auth (sign_in_with_otp / verify_otp, the customer OTP
+-- template): it is never stored here. This row carries the story's rules: 10 minutes,
+-- 5 wrong attempts, 3 resends, 60 s between sends, and which browser asked.
+--   consumed_at  set when a verify claims the row (two verifies at once: only one wins)
+--   failed_at    the challenge is dead (5th wrong code, or the email could not be sent)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.admin_device_verification
+(
+    id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_id     uuid        NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
+    device_hash  text        NOT NULL,
+    device_info  jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    attempts     integer     NOT NULL DEFAULT 0,
+    resend_count integer     NOT NULL DEFAULT 0,
+    last_sent_at timestamptz NOT NULL DEFAULT now(),
+    expires_at   timestamptz NOT NULL,
+    consumed_at  timestamptz NULL,
+    failed_at    timestamptz NULL,
+    ip           text        NULL,
+    user_agent   text        NULL,
+    created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS admin_device_verification_admin_idx
+    ON public.admin_device_verification (admin_id, created_at DESC);
+
+ALTER TABLE public.admin_device_verification ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.admin_device_verification FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.admin_device_verification TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- admin_device_verification_failed_attempt: a verify that claimed the challenge got a wrong code.
+-- Atomically releases the claim, counts the attempt and kills the challenge at p_max attempts.
+-- Returns {"attempts": n, "attempts_left": m, "dead": bool}; {"found": false} when no such row.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_device_verification_failed_attempt(
+    p_challenge_id uuid,
+    p_max          integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_attempts integer;
+BEGIN
+    IF p_challenge_id IS NULL OR p_max IS NULL OR p_max < 1 THEN
+        RAISE EXCEPTION USING ERRCODE = '22023',
+            MESSAGE = 'admin_device_verification_failed_attempt: invalid arguments';
+    END IF;
+
+    UPDATE public.admin_device_verification
+       SET attempts    = attempts + 1,
+           consumed_at = NULL,
+           failed_at   = CASE WHEN attempts + 1 >= p_max THEN clock_timestamp() ELSE failed_at END
+     WHERE id = p_challenge_id
+    RETURNING attempts INTO v_attempts;
+
+    IF v_attempts IS NULL THEN
+        RETURN jsonb_build_object('found', false);
+    END IF;
+
+    RETURN jsonb_build_object(
+        'found', true,
+        'attempts', v_attempts,
+        'attempts_left', GREATEST(p_max - v_attempts, 0),
+        'dead', v_attempts >= p_max
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_device_verification_failed_attempt(uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_device_verification_failed_attempt(uuid, integer) TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- admin_end_session: ends ONE Supabase session (a revoked admin device), whatever the age of
+-- its access token: deletes the session and its refresh tokens. The device's next request
+-- and its next refresh fail. Same owner requirement as admin_revoke_user_sessions (TEOS-149).
+-- Returns {"sessions": n, "refresh_tokens": m}.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_end_session(p_session_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+    v_refresh_tokens integer;
+    v_sessions       integer;
+BEGIN
+    IF p_session_id IS NULL THEN
+        RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'admin_end_session: p_session_id is required';
+    END IF;
+    -- current_user is the owner here (SECURITY DEFINER): without RLS bypass the deletes see nothing
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles
+                    WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
+        RAISE EXCEPTION USING ERRCODE = '42501',
+            MESSAGE = 'admin_end_session: the function owner must bypass row level security';
+    END IF;
+
+    DELETE FROM auth.refresh_tokens WHERE session_id = p_session_id;
+    GET DIAGNOSTICS v_refresh_tokens = ROW_COUNT;
+
+    DELETE FROM auth.sessions WHERE id = p_session_id;
+    GET DIAGNOSTICS v_sessions = ROW_COUNT;
+
+    RETURN jsonb_build_object('sessions', v_sessions, 'refresh_tokens', v_refresh_tokens);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_end_session(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_end_session(uuid) TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- admin_devices_on_password_change (TEOS-255 "trust ends on a password change"): whenever an account's
+-- password changes, wherever it is changed (admin portal, Supabase dashboard, a reset link), its trusted
+-- admin devices stop being trusted: the next sign-in on each of them asks for the email code. Sessions are
+-- not ended here (the admin API does that for its own password change and reset).
+-- Fires only when encrypted_password really changes; touches only admin_devices rows of that account
+-- (customers have none). Never blocks the password change: any error is only a warning.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_devices_on_password_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    UPDATE public.admin_devices
+       SET trusted_until = NULL
+     WHERE admin_id = NEW.id
+       AND revoked_at IS NULL
+       AND trusted_until IS NOT NULL;
+    RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'admin_devices_on_password_change: %', SQLERRM;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_devices_on_password_change() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS admin_devices_on_password_change ON auth.users;
+CREATE TRIGGER admin_devices_on_password_change
+    AFTER UPDATE OF encrypted_password ON auth.users
+    FOR EACH ROW
+    WHEN (OLD.encrypted_password IS DISTINCT FROM NEW.encrypted_password)
+    EXECUTE FUNCTION public.admin_devices_on_password_change();
+
+
+-- ----------------------------------------------------------------------------
+-- admin_lookup_admins (2026-11-06): the Audit log page's "Admin" dropdown. Admin and super_admin accounts
+-- only (auth.users.raw_app_meta_data.role), with an email, searched on the email (literal, case-insensitive),
+-- ordered by email then id. p_id: that one account whatever its role (the portal shows the label of an id
+-- kept in the URL, e.g. a former admin). Read only. Service role only.
+--   -> jsonb {"data": [{id, email, role}], "total": n}
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_lookup_admins(
+    p_search text    DEFAULT NULL,
+    p_limit  integer DEFAULT 20,
+    p_offset integer DEFAULT 0,
+    p_id     uuid    DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_pattern text;
+    v_result  jsonb;
+BEGIN
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_offset IS NULL OR p_offset < 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_limit must be 1..100 and p_offset >= 0',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_limit')::text;
+    END IF;
+
+    IF p_search IS NOT NULL AND btrim(p_search) <> '' THEN
+        v_pattern := '%' || replace(replace(replace(btrim(p_search), '\', '\\'), '%', '\%'), '_', '\_') || '%';
+    END IF;
+
+    WITH matched AS (
+        SELECT au.id, au.email, au.raw_app_meta_data ->> 'role' AS role
+          FROM auth.users au
+         WHERE au.email IS NOT NULL
+           AND (CASE WHEN p_id IS NOT NULL THEN au.id = p_id
+                     ELSE (au.raw_app_meta_data ->> 'role') IN ('admin', 'super_admin') END)
+           AND (v_pattern IS NULL OR au.email ILIKE v_pattern)
+    ),
+    page AS (
+        SELECT * FROM matched ORDER BY lower(email), id LIMIT p_limit OFFSET p_offset
+    )
+    SELECT jsonb_build_object(
+               'data', coalesce((SELECT jsonb_agg(jsonb_build_object('id', p.id, 'email', p.email, 'role', p.role)
+                                                  ORDER BY lower(p.email), p.id)
+                                   FROM page p), '[]'::jsonb),
+               'total', (SELECT count(*) FROM matched))
+      INTO v_result;
+
+    RETURN v_result;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) TO service_role;

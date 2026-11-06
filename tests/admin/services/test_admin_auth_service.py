@@ -9,8 +9,11 @@ from app.exceptions.admin import AdminForbidden, AdminRateLimited, AdminUnauthor
 from app.services.admin.auth_service import AdminAuthService, LoginRateLimiter, _parse_rate_limit
 from app.repo.admin.login_attempt_repo import LoginAttemptRepo
 from tests.admin.conftest import FakeClock, FakeLoginAttemptStore, make_admin, make_auth_user, make_session
+from tests.admin.services.test_trusted_devices_signin import DEVICE, FakeDevices, session_token
 
 WRONG = AuthApiError("Invalid login credentials", 400, "invalid_credentials")
+#: TEOS-255: the session token carries a session_id claim; this browser is a trusted device of the admin
+TOKEN = session_token("sess-1")
 
 
 @pytest.fixture
@@ -28,6 +31,12 @@ def store(clock):
     return FakeLoginAttemptStore(clock)
 
 
+def _trusting():
+    fake = FakeDevices()
+    fake.add(session_id="sess-1")
+    return fake
+
+
 def _limiter(store):
     return LoginRateLimiter(max_failures=5, window_seconds=300, store_factory=lambda: store)
 
@@ -38,18 +47,26 @@ def limiter(store):
 
 
 @pytest.fixture
-def service(client, limiter):
-    return AdminAuthService(client_factory=lambda: client, rate_limiter=limiter)
+def devices():
+    fake = FakeDevices()
+    fake.add(session_id="sess-1")
+    return fake
+
+
+@pytest.fixture
+def service(client, limiter, devices):
+    return AdminAuthService(client_factory=lambda: client, rate_limiter=limiter,
+                            device_service_factory=lambda: devices)
 
 
 def _fail(service, email="admin@example.com", ip="1.2.3.4", times=1):
     for _ in range(times):
         with pytest.raises(AdminUnauthorized):
-            service.login(email, "wrong", ip)
+            service.login(email, "wrong", ip, DEVICE)
 
 
 def _auth_response(role=ROLE_ADMIN):
-    return SimpleNamespace(session=make_session(), user=make_auth_user(role))
+    return SimpleNamespace(session=make_session(access_token=TOKEN), user=make_auth_user(role))
 
 
 # ---------- login ----------
@@ -57,10 +74,11 @@ def _auth_response(role=ROLE_ADMIN):
 def test_login_returns_session_with_role_and_sorted_permissions(service, client):
     client.auth.sign_in_with_password.return_value = _auth_response(ROLE_SUPER_ADMIN)
 
-    session = service.login(" Admin@Example.com ", "secret", "1.2.3.4")
+    session = service.login(" Admin@Example.com ", "secret", "1.2.3.4", DEVICE)
 
     client.auth.sign_in_with_password.assert_called_once_with({"email": "Admin@Example.com", "password": "secret"})
-    assert session.access_token == "access-token"
+    assert session.access_token == TOKEN
+    assert session.device_id == "dev-1"
     assert session.refresh_token == "refresh-token"
     assert session.expires_in == 3600
     assert session.user.role == ROLE_SUPER_ADMIN
@@ -72,7 +90,7 @@ def test_login_with_wrong_password_is_401_login_failed(service, client):
     client.auth.sign_in_with_password.side_effect = AuthApiError("Invalid login credentials", 400, "invalid_credentials")
 
     with pytest.raises(AdminUnauthorized) as err:
-        service.login("admin@example.com", "wrong", "1.2.3.4")
+        service.login("admin@example.com", "wrong", "1.2.3.4", DEVICE)
 
     assert err.value.code == 401
     assert err.value.details == "ADMIN_LOGIN_FAILED"
@@ -82,10 +100,10 @@ def test_account_without_admin_role_gets_403_and_its_session_is_revoked(service,
     client.auth.sign_in_with_password.return_value = _auth_response(role=None)
 
     with pytest.raises(AdminForbidden) as err:
-        service.login("customer@example.com", "secret", "1.2.3.4")
+        service.login("customer@example.com", "secret", "1.2.3.4", DEVICE)
 
     assert err.value.details == "ADMIN_ROLE_REQUIRED"
-    client.auth.admin.sign_out.assert_called_once_with("access-token", "local")
+    client.auth.admin.sign_out.assert_called_once_with(TOKEN, "local")
 
 
 def test_403_is_returned_even_if_revoking_the_session_fails(service, client):
@@ -93,7 +111,7 @@ def test_403_is_returned_even_if_revoking_the_session_fails(service, client):
     client.auth.admin.sign_out.side_effect = RuntimeError("network")
 
     with pytest.raises(AdminForbidden):
-        service.login("customer@example.com", "secret", None)
+        service.login("customer@example.com", "secret", None, DEVICE)
 
 
 @pytest.mark.parametrize("error", [
@@ -104,7 +122,7 @@ def test_supabase_auth_outage_is_502_not_a_failed_attempt(service, client, store
     client.auth.sign_in_with_password.side_effect = error
 
     with pytest.raises(AdminUpstreamError) as err:
-        service.login("admin@example.com", "secret", "1.2.3.4")
+        service.login("admin@example.com", "secret", "1.2.3.4", DEVICE)
 
     assert err.value.code == 502
     assert store.rows == {}
@@ -115,7 +133,7 @@ def test_unexpected_supabase_error_is_not_counted_as_a_failed_attempt(service, c
     client.auth.sign_in_with_password.side_effect = RuntimeError("socket closed")
 
     with pytest.raises(RuntimeError):
-        service.login("admin@example.com", "secret", "1.2.3.4")
+        service.login("admin@example.com", "secret", "1.2.3.4", DEVICE)
 
     assert store.rows == {}
 
@@ -127,7 +145,7 @@ def test_sixth_attempt_from_the_same_ip_and_email_is_429_without_calling_supabas
     _fail(service, times=5)
 
     with pytest.raises(AdminRateLimited) as err:
-        service.login("admin@example.com", "right", "1.2.3.4")
+        service.login("admin@example.com", "right", "1.2.3.4", DEVICE)
 
     assert err.value.code == 429
     assert err.value.details == "ADMIN_TOO_MANY_ATTEMPTS"
@@ -135,27 +153,27 @@ def test_sixth_attempt_from_the_same_ip_and_email_is_429_without_calling_supabas
     # and every attempt after it, while the window lasts
     for _ in range(3):
         with pytest.raises(AdminRateLimited):
-            service.login("admin@example.com", "right", "1.2.3.4")
+            service.login("admin@example.com", "right", "1.2.3.4", DEVICE)
     assert client.auth.sign_in_with_password.call_count == 5
 
 
 def test_per_ip_limit_is_shared_by_workers(client, store):
     """Two app instances (workers) with their own limiter and service, sharing the store."""
-    worker_a = AdminAuthService(client_factory=lambda: client, rate_limiter=_limiter(store))
-    worker_b = AdminAuthService(client_factory=lambda: client, rate_limiter=_limiter(store))
+    worker_a = AdminAuthService(client_factory=lambda: client, rate_limiter=_limiter(store), device_service_factory=_trusting)
+    worker_b = AdminAuthService(client_factory=lambda: client, rate_limiter=_limiter(store), device_service_factory=_trusting)
     client.auth.sign_in_with_password.side_effect = WRONG
     for i, worker in enumerate([worker_a, worker_b, worker_a, worker_b, worker_a]):
         _fail(worker, email=f"user{i}@example.com")
 
     for worker in (worker_a, worker_b):
         with pytest.raises(AdminRateLimited):
-            worker.login("someone-else@example.com", "x", "1.2.3.4")
+            worker.login("someone-else@example.com", "x", "1.2.3.4", DEVICE)
     assert client.auth.sign_in_with_password.call_count == 5
 
 
 def test_per_email_limit_is_shared_by_workers_and_ips(client, store):
-    worker_a = AdminAuthService(client_factory=lambda: client, rate_limiter=_limiter(store))
-    worker_b = AdminAuthService(client_factory=lambda: client, rate_limiter=_limiter(store))
+    worker_a = AdminAuthService(client_factory=lambda: client, rate_limiter=_limiter(store), device_service_factory=_trusting)
+    worker_b = AdminAuthService(client_factory=lambda: client, rate_limiter=_limiter(store), device_service_factory=_trusting)
     client.auth.sign_in_with_password.side_effect = WRONG
     for i in range(5):
         _fail(worker_a if i % 2 else worker_b, email="admin@example.com", ip=f"10.0.0.{i}")
@@ -163,7 +181,7 @@ def test_per_email_limit_is_shared_by_workers_and_ips(client, store):
     # same email (any case, spaces around it) from a new IP, on either worker
     for worker in (worker_a, worker_b):
         with pytest.raises(AdminRateLimited):
-            worker.login("  ADMIN@Example.com ", "right", "9.9.9.9")
+            worker.login("  ADMIN@Example.com ", "right", "9.9.9.9", DEVICE)
 
 
 def test_second_email_from_a_limited_ip_is_still_limited_by_the_ip_rule(service, client, store):
@@ -171,7 +189,7 @@ def test_second_email_from_a_limited_ip_is_still_limited_by_the_ip_rule(service,
     _fail(service, email="first@example.com", times=5)
 
     with pytest.raises(AdminRateLimited):
-        service.login("second@example.com", "x", "1.2.3.4")
+        service.login("second@example.com", "x", "1.2.3.4", DEVICE)
     # the second email itself is not limited from another IP
     _fail(service, email="second@example.com", ip="5.6.7.8")
 
@@ -182,7 +200,7 @@ def test_different_emails_from_one_ip_hit_the_limit_on_the_sixth(service, client
         _fail(service, email=f"user{i}@example.com")
 
     with pytest.raises(AdminRateLimited):
-        service.login("user5@example.com", "x", "1.2.3.4")
+        service.login("user5@example.com", "x", "1.2.3.4", DEVICE)
 
 
 def test_attempts_are_allowed_again_after_the_window(service, client, clock):
@@ -190,26 +208,26 @@ def test_attempts_are_allowed_again_after_the_window(service, client, clock):
     _fail(service, times=5)
     clock.now += 299
     with pytest.raises(AdminRateLimited):
-        service.login("admin@example.com", "x", "1.2.3.4")
+        service.login("admin@example.com", "x", "1.2.3.4", DEVICE)
 
     clock.now += 2  # the first failure is now older than 300 s
     client.auth.sign_in_with_password.side_effect = None
     client.auth.sign_in_with_password.return_value = _auth_response()
-    assert service.login("admin@example.com", "right", "1.2.3.4").user.role == ROLE_ADMIN
+    assert service.login("admin@example.com", "right", "1.2.3.4", DEVICE).user.role == ROLE_ADMIN
 
 
 def test_valid_login_under_the_limit_succeeds(service, client):
     client.auth.sign_in_with_password.side_effect = [WRONG] * 4 + [_auth_response()]
     _fail(service, times=4)
 
-    assert service.login("admin@example.com", "right", "1.2.3.4").user.role == ROLE_ADMIN
+    assert service.login("admin@example.com", "right", "1.2.3.4", DEVICE).user.role == ROLE_ADMIN
 
 
 def test_successful_login_clears_only_that_ip_and_email_pair(service, client, store):
     client.auth.sign_in_with_password.side_effect = [WRONG, WRONG, WRONG, _auth_response()]
     _fail(service, email="admin@example.com", times=2)
     _fail(service, email="other@example.com", times=1)
-    service.login("Admin@example.com", "right", "1.2.3.4")
+    service.login("Admin@example.com", "right", "1.2.3.4", DEVICE)
 
     assert list(store.rows.values()) == [("1.2.3.4", "other@example.com", 1000.0)]
 
@@ -219,7 +237,7 @@ def test_a_refused_attempt_does_not_extend_the_lockout(service, client, store):
     _fail(service, times=5)
     for _ in range(10):
         with pytest.raises(AdminRateLimited):
-            service.login("admin@example.com", "x", "1.2.3.4")
+            service.login("admin@example.com", "x", "1.2.3.4", DEVICE)
 
     assert len(store.rows) == 5
 
@@ -238,7 +256,7 @@ def test_store_unavailable_fails_closed_with_502_without_calling_supabase(client
                                rate_limiter=LoginRateLimiter(5, 300, store_factory=lambda: broken))
 
     with pytest.raises(AdminUpstreamError) as err:
-        service.login("admin@example.com", "right", "1.2.3.4")
+        service.login("admin@example.com", "right", "1.2.3.4", DEVICE)
 
     assert err.value.code == 502
     assert err.value.details == "RATE_LIMIT_STORE_UNAVAILABLE"
@@ -252,7 +270,7 @@ def test_store_answer_without_attempt_id_fails_closed(client):
                                rate_limiter=LoginRateLimiter(5, 300, store_factory=lambda: odd))
 
     with pytest.raises(AdminUpstreamError):
-        service.login("admin@example.com", "right", "1.2.3.4")
+        service.login("admin@example.com", "right", "1.2.3.4", DEVICE)
     client.auth.sign_in_with_password.assert_not_called()
 
 
@@ -262,9 +280,10 @@ def test_successful_login_survives_a_failed_reset(client):
     store.finish.side_effect = RuntimeError("network")
     client.auth.sign_in_with_password.return_value = _auth_response()
     service = AdminAuthService(client_factory=lambda: client,
-                               rate_limiter=LoginRateLimiter(5, 300, store_factory=lambda: store))
+                               rate_limiter=LoginRateLimiter(5, 300, store_factory=lambda: store),
+                               device_service_factory=_trusting)
 
-    assert service.login("admin@example.com", "right", "1.2.3.4").user.role == ROLE_ADMIN
+    assert service.login("admin@example.com", "right", "1.2.3.4", DEVICE).user.role == ROLE_ADMIN
     store.finish.assert_called_once_with(7, "success")
 
 
@@ -328,9 +347,10 @@ def test_rate_limit_setting_is_parsed_with_a_safe_default(value, expected):
 def test_refresh_returns_a_new_session(service, client):
     client.auth.refresh_session.return_value = _auth_response()
 
-    session = service.refresh("refresh-token")
+    session = service.refresh("refresh-token", DEVICE)
 
     client.auth.refresh_session.assert_called_once_with("refresh-token")
+    assert session.device_id == "dev-1"
     assert session.user.role == ROLE_ADMIN
 
 
@@ -338,7 +358,7 @@ def test_refresh_with_invalid_token_is_401(service, client):
     client.auth.refresh_session.side_effect = AuthApiError("Invalid Refresh Token", 400, "refresh_token_not_found")
 
     with pytest.raises(AdminUnauthorized) as err:
-        service.refresh("bad")
+        service.refresh("bad", DEVICE)
 
     assert err.value.details == "INVALID_REFRESH_TOKEN"
 
@@ -347,9 +367,9 @@ def test_refresh_after_the_role_was_removed_is_403(service, client):
     client.auth.refresh_session.return_value = _auth_response(role=None)
 
     with pytest.raises(AdminForbidden):
-        service.refresh("refresh-token")
+        service.refresh("refresh-token", DEVICE)
 
-    client.auth.admin.sign_out.assert_called_once_with("access-token", "local")
+    client.auth.admin.sign_out.assert_called_once_with(TOKEN, "local")
 
 
 # ---------- logout / me ----------

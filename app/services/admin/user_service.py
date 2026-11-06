@@ -159,8 +159,9 @@ class UserAdminService:
     # ---------- reads ----------
 
     def list(self, search: Optional[str], ban_status: str, page: PageParams, *,
-             sort: str = "created_at", direction: str = "desc") -> AdminPage:
-        result = self.repo.search(search, ban_status, page, sort=sort, direction=direction)
+             sort: str = "created_at", direction: str = "desc", account_type: str = "all") -> AdminPage:
+        result = self.repo.search(search, ban_status, page, sort=sort, direction=direction,
+                                  account_type=account_type)
         return AdminPage(data=result.rows, total_count=result.total, facets=result.facets)
 
     def get(self, user_id: str) -> Dict[str, Any]:

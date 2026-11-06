@@ -32,6 +32,8 @@ SUPER_ONLY: FrozenSet[str] = frozenset({
     "admin.users.ban",
     "admin.bundles.bulk",
     "admin.referrals.export",
+    # TEOS-307: Admins page (list admins, send a password reset link, revoke admin access)
+    "admin.security.manage",
 })
 
 ROLE_PERMISSIONS: dict[str, FrozenSet[str]] = {
