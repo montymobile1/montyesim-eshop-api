@@ -5,6 +5,7 @@ from uuid import UUID
 
 from fastapi import Depends, Path, Query
 
+from app.api.v1.admin._lookup import add_lookup_route
 from app.api.v1.admin._route import admin_router
 from app.dependencies.admin_security import AdminUser, require_permission
 from app.schemas.admin.audit_log import AdminAuditLogDetail, AdminAuditLogPage, AdminAuditOperation, AdminAuditTable
@@ -16,6 +17,10 @@ router = admin_router()
 service = AuditQueryService()
 
 READ = "admin.audit.read"
+
+# 2026-11-06: GET /audit-log/lookup -> the "Admin" filter's options, admin and super_admin accounts only
+# (the users lookup offered every account). Kept above "/{audit_id}".
+add_lookup_route(router, "admins", READ)
 
 
 @router.get("", response_model=Response[AdminAuditLogPage], summary="Audit trail, newest first")

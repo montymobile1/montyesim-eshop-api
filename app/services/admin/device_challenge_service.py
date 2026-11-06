@@ -239,16 +239,15 @@ class DeviceChallengeService:
     # ---------- resend ----------
 
     def resend(self, challenge_id: str, ip: Optional[str]) -> AdminCodeResent:
-        """A new code for the same challenge (the previous one stops working). 410 closed / expired;
-        429 ``resend_limit`` (3 used), ``resend_too_soon {retry_after}`` (< 60 s), ``code_limit``
-        (5 codes in the hour); 503 when Supabase could not send it (the challenge is then dead)."""
+        """A new code for the same challenge (the previous one stops working); the 10 minutes restart.
+        TEOS-256 case 14: an EXPIRED code can be resent too (the story's "Code expired" with a Resend option),
+        within the same limits. 410 closed (unknown, used or dead); 429 ``resend_limit`` (3 used),
+        ``resend_too_soon {retry_after}`` (< 60 s), ``code_limit`` (5 codes in the hour); 503 when Supabase
+        could not send it (the challenge is then dead)."""
         challenge = self._get(challenge_id)
         if challenge is None or challenge.get("consumed_at") or challenge.get("failed_at"):
             raise _closed()
         now = self._clock()
-        expires_at = _as_datetime(challenge.get("expires_at"))
-        if expires_at is None or expires_at <= now:
-            raise _expired()
         resend_count = int(challenge.get("resend_count") or 0)
         if resend_count >= MAX_RESENDS:
             raise coded(AdminRateLimited, "resend_limit", ErrorMessages.ADMIN_DEVICE_RESEND_LIMIT)

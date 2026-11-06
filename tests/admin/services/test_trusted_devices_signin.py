@@ -726,15 +726,34 @@ def test_resend_too_soon_then_limit(service, supabase, clock):
     assert len(supabase.sent) == 4
 
 
-def test_resend_of_an_expired_or_consumed_challenge_is_410(service, supabase, clock):
+def test_resend_of_a_consumed_challenge_is_410(service, supabase, clock):
     challenge = _login(service)
     service.verify_device(challenge.challenge_id, _code(supabase), True, None, DEVICE, None)
     clock.advance(61)
     _raises(lambda: service.resend_code(challenge.challenge_id, None), 410, "challenge_closed")
 
-    other = _login(service, info=device_info(browser="Edge"))
+
+def test_case_14_an_expired_code_can_be_resent_and_the_10_minutes_restart(service, supabase, clock):
+    """Story TEOS-256 case 14: "Code expired" with a Resend option."""
+    challenge = _login(service)
     clock.advance(601)
-    _raises(lambda: service.resend_code(other.challenge_id, None), 410, "challenge_expired")
+    _raises(lambda: service.verify_device(challenge.challenge_id, "123456", True, None, DEVICE, None),
+            410, "challenge_expired")
+
+    resent = service.resend_code(challenge.challenge_id, None)
+
+    assert resent.expires_in == 600 and resent.resends_left == 2
+    session = service.verify_device(challenge.challenge_id, _code(supabase), True, None, DEVICE, None)
+    assert session.access_token
+
+
+def test_expired_code_with_no_resends_left_is_429_resend_limit(service, supabase, clock):
+    challenge = _login(service)
+    for _ in range(3):
+        clock.advance(61)
+        service.resend_code(challenge.challenge_id, None)
+    clock.advance(601)
+    _raises(lambda: service.resend_code(challenge.challenge_id, None), 429, "resend_limit")
 
 
 def test_parallel_resend_that_loses_the_race_is_429(service, challenge_repo, clock):

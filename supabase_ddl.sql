@@ -5337,7 +5337,7 @@ GRANT EXECUTE ON FUNCTION public.admin_group_bundle_counts(bigint[])
     admin_search_users(p_search text DEFAULT NULL, p_ban_status text DEFAULT 'all',
                        p_limit integer DEFAULT 20, p_offset integer DEFAULT 0,
                        p_id uuid DEFAULT NULL, p_sort text DEFAULT 'created_at',
-                       p_dir text DEFAULT 'desc')
+                       p_dir text DEFAULT 'desc', p_account_type text DEFAULT 'all')
       -> jsonb {"data": [user rows], "total": n, "facets": {"all": n, "banned": n, "active": n}}
 
     - Source: users_copy (email, metadata = auth.users.raw_user_meta_data) LEFT JOIN auth.users
@@ -5351,6 +5351,12 @@ GRANT EXECUTE ON FUNCTION public.admin_group_bundle_counts(bigint[])
       (users_copy.metadata msisdn, auth.users.phone). A search made only of digits, spaces and
       + ( ) . - is also matched on the phone digits alone, so "+961 70 123 456" finds "96170123456".
     - p_ban_status: all | banned | active, else AD422.
+    - p_account_type (2026-11-06): all | registered | guest, else AD422. guest = anonymous accounts
+      (auth.users.is_anonymous, the user portal's guest checkout); registered = every other account.
+      Rows carry is_guest. The facets follow this filter (they count the listed kind only).
+    - guest_email (2026-11-06): for a guest, the email typed at guest checkout
+      (users_copy.metadata.email; the account itself has no email). Not verified. The search also
+      matches it for guests.
     - p_id: only that user (the detail route); the facets are over the searched set anyway.
     - facets: counts over the searched set (p_search and p_id) whatever p_ban_status says.
     - Order: p_sort (created_at | email) in p_dir (asc | desc), NULLs last, then id in the
@@ -5375,6 +5381,9 @@ GRANT EXECUTE ON FUNCTION public.admin_group_bundle_counts(bigint[])
 ------------------------------------------------------------------------------
 -- TEOS-111: p_sort / p_dir added; the first (5-argument) signature is replaced.
 DROP FUNCTION IF EXISTS public.admin_search_users(text, text, integer, integer, uuid);
+-- 2026-11-06: p_account_type added; the 7-argument signature is replaced (callers that do not pass
+-- p_account_type keep working through its default)
+DROP FUNCTION IF EXISTS public.admin_search_users(text, text, integer, integer, uuid, text, text);
 
 CREATE OR REPLACE FUNCTION public.admin_search_users(
     p_search     text    DEFAULT NULL,
@@ -5383,7 +5392,8 @@ CREATE OR REPLACE FUNCTION public.admin_search_users(
     p_offset     integer DEFAULT 0,
     p_id         uuid    DEFAULT NULL,
     p_sort       text    DEFAULT 'created_at',
-    p_dir        text    DEFAULT 'desc'
+    p_dir        text    DEFAULT 'desc',
+    p_account_type text  DEFAULT 'all'
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -5397,6 +5407,7 @@ DECLARE
     v_status  text := coalesce(nullif(btrim(p_ban_status), ''), 'all');
     v_sort    text := coalesce(nullif(btrim(p_sort), ''), 'created_at');
     v_dir     text := lower(coalesce(nullif(btrim(p_dir), ''), 'desc'));
+    v_account text := lower(coalesce(nullif(btrim(p_account_type), ''), 'all'));
     v_result  jsonb;
 BEGIN
     IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_offset IS NULL OR p_offset < 0 THEN
@@ -5427,6 +5438,13 @@ BEGIN
             DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_dir')::text;
     END IF;
 
+    IF v_account NOT IN ('all', 'registered', 'guest') THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_account_type must be all, registered or guest',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_account_type')::text;
+    END IF;
+
     IF p_search IS NOT NULL AND btrim(p_search) <> '' THEN
         -- literal match: escape the LIKE wildcards (default escape character is the backslash)
         v_pattern := '%' || replace(replace(replace(btrim(p_search), '\', '\\'), '%', '\%'), '_', '\_') || '%';
@@ -5450,14 +5468,19 @@ BEGIN
                au.banned_until,
                (au.banned_until IS NOT NULL AND au.banned_until > now()) AS is_banned,
                au.created_at,
-               au.last_sign_in_at
+               au.last_sign_in_at,
+               coalesce(au.is_anonymous, false)                  AS is_guest,
+               CASE WHEN coalesce(au.is_anonymous, false)
+                    THEN nullif(btrim(u.metadata ->> 'email'), '') END AS guest_email
           FROM public.users_copy u
           LEFT JOIN auth.users au ON au.id = u.id
          WHERE (p_id IS NULL OR u.id = p_id)
+           AND (v_account = 'all' OR (v_account = 'guest') = coalesce(au.is_anonymous, false))
            AND (v_pattern IS NULL
                 OR u.email ILIKE v_pattern
                 OR (u.metadata ->> 'msisdn') ILIKE v_pattern
                 OR au.phone ILIKE v_pattern
+                OR (coalesce(au.is_anonymous, false) AND (u.metadata ->> 'email') ILIKE v_pattern)
                 OR (v_phone IS NOT NULL
                     AND (regexp_replace(coalesce(u.metadata ->> 'msisdn', ''), '[^0-9]', '', 'g') LIKE v_phone
                          OR regexp_replace(coalesce(au.phone, ''), '[^0-9]', '', 'g') LIKE v_phone)))
@@ -5562,9 +5585,9 @@ $$;
 ------------------------------------------------------------------------------
 -- Privileges
 ------------------------------------------------------------------------------
-REVOKE ALL ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text)
+REVOKE ALL ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text, text)
     FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text)
+GRANT EXECUTE ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text, text)
     TO service_role;
 
 REVOKE ALL ON FUNCTION public.admin_wallet_transactions(uuid, integer, integer)
@@ -7279,3 +7302,63 @@ CREATE TRIGGER admin_devices_on_password_change
     FOR EACH ROW
     WHEN (OLD.encrypted_password IS DISTINCT FROM NEW.encrypted_password)
     EXECUTE FUNCTION public.admin_devices_on_password_change();
+
+
+-- ----------------------------------------------------------------------------
+-- admin_lookup_admins (2026-11-06): the Audit log page's "Admin" dropdown. Admin and super_admin accounts
+-- only (auth.users.raw_app_meta_data.role), with an email, searched on the email (literal, case-insensitive),
+-- ordered by email then id. p_id: that one account whatever its role (the portal shows the label of an id
+-- kept in the URL, e.g. a former admin). Read only. Service role only.
+--   -> jsonb {"data": [{id, email, role}], "total": n}
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_lookup_admins(
+    p_search text    DEFAULT NULL,
+    p_limit  integer DEFAULT 20,
+    p_offset integer DEFAULT 0,
+    p_id     uuid    DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_pattern text;
+    v_result  jsonb;
+BEGIN
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_offset IS NULL OR p_offset < 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_limit must be 1..100 and p_offset >= 0',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_limit')::text;
+    END IF;
+
+    IF p_search IS NOT NULL AND btrim(p_search) <> '' THEN
+        v_pattern := '%' || replace(replace(replace(btrim(p_search), '\', '\\'), '%', '\%'), '_', '\_') || '%';
+    END IF;
+
+    WITH matched AS (
+        SELECT au.id, au.email, au.raw_app_meta_data ->> 'role' AS role
+          FROM auth.users au
+         WHERE au.email IS NOT NULL
+           AND (CASE WHEN p_id IS NOT NULL THEN au.id = p_id
+                     ELSE (au.raw_app_meta_data ->> 'role') IN ('admin', 'super_admin') END)
+           AND (v_pattern IS NULL OR au.email ILIKE v_pattern)
+    ),
+    page AS (
+        SELECT * FROM matched ORDER BY lower(email), id LIMIT p_limit OFFSET p_offset
+    )
+    SELECT jsonb_build_object(
+               'data', coalesce((SELECT jsonb_agg(jsonb_build_object('id', p.id, 'email', p.email, 'role', p.role)
+                                                  ORDER BY lower(p.email), p.id)
+                                   FROM page p), '[]'::jsonb),
+               'total', (SELECT count(*) FROM matched))
+      INTO v_result;
+
+    RETURN v_result;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) TO service_role;

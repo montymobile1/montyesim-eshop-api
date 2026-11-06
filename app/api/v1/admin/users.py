@@ -11,7 +11,7 @@ from app.dependencies.admin_security import AdminUser, require_permission
 from app.schemas.admin.common import AdminPage, PageParams, ok, ok_page, page_params
 from app.schemas.admin.users import (AdminUserBan, AdminUserBanResult, AdminUserDetail, AdminUserReferral,
                                      AdminUserRow, AdminUserUnban, AdminUserUnbanResult, AdminWalletTransaction,
-                                     SortDirection, UserBanStatus, UserSort)
+                                     SortDirection, UserAccountType, UserBanStatus, UserSort)
 from app.schemas.response import Response
 from app.services.admin.audit_service import audit_context
 from app.services.admin.user_service import UserAdminService
@@ -36,13 +36,17 @@ SearchParam = Query(None, max_length=100,
 @router.get("", response_model=Response[AdminPage[AdminUserRow]])
 def list_users(search: Optional[str] = SearchParam,
                ban_status: UserBanStatus = Query("all"),
+               account_type: UserAccountType = Query("all", description="all | registered | guest (anonymous "
+                                                                        "guest-checkout accounts)"),
                sort: UserSort = Query("created_at"),
                direction: SortDirection = Query("desc", alias="dir"),
                page: PageParams = Depends(page_params),
                user: AdminUser = Depends(require_permission(READ))) -> Response:
     """Users with their ban state, newest first by default (`sort=created_at|email`, `dir=asc|desc`,
-    ties broken by id), and `facets:{all,banned,active}` over the searched set."""
-    return ok_page(service.list(search, ban_status, page, sort=sort, direction=direction))
+    ties broken by id), and `facets:{all,banned,active}` over the searched set (and the account type).
+    `is_guest` marks anonymous guest-checkout accounts."""
+    return ok_page(service.list(search, ban_status, page, sort=sort, direction=direction,
+                                account_type=account_type))
 
 
 @router.get("/{user_id}", response_model=Response[AdminUserDetail])

@@ -275,7 +275,7 @@ After applying, if the API still answers 502 with "Could not find the function",
 
 ### Admin settings (.env)
 
-`ADMIN_MEDIA_BUCKET`, `ADMIN_MAX_UPLOAD_BYTES` (1 MB), `ADMIN_MAX_JSON_BYTES`, `ADMIN_MAX_GROUP_FORM_BYTES` (50 MB), `ADMIN_EXPORT_ROW_CAP`, `ADMIN_LOGIN_RATE_LIMIT`, `ADMIN_TRUSTED_PROXY_HOPS`, `ADMIN_TRUST_CF_CONNECTING_IP`, `ADMIN_PASSWORD_RESET_URL`. Defaults and descriptions are in `.env.example`.
+`ADMIN_MEDIA_BUCKET`, `ADMIN_MAX_UPLOAD_BYTES` (1 MB), `ADMIN_MAX_JSON_BYTES`, `ADMIN_MAX_GROUP_FORM_BYTES` (50 MB), `ADMIN_EXPORT_ROW_CAP`, `ADMIN_LOGIN_RATE_LIMIT`, `ADMIN_TRUSTED_PROXY_HOPS`, `ADMIN_TRUST_CF_CONNECTING_IP`, `ADMIN_PASSWORD_RESET_URL`, `ADMIN_DEVICE_HASH_SECRET`, `ADMIN_DEVICE_CODE_LENGTH` (6). Defaults and descriptions are in `.env.example`.
 
 The login rate limit is counted in the database, shared by every worker: the `admin_login_attempt` table and functions (section "admin login rate limit" of `supabase_ddl.sql`, part of the ADMIN API section) must be applied before deploying (without it every admin login answers 502).
 
