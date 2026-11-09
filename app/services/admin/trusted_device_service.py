@@ -21,7 +21,6 @@ Implementation notes (BE-2):
   revoked row's session anyway
 - the audit rows never hold the device key, the device hash or a code
 """
-import html
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional
@@ -402,11 +401,9 @@ class TrustedDeviceService:
             if not self._smtp_check():
                 logger.info(f"admin devices: email '{template}' skipped: SMTP is not configured")
                 return
-            safe = {key: html.escape(value) if isinstance(value, str) else value for key, value in data.items()}
-
             def job() -> None:
                 try:
-                    content = self._renderer(template, {**_brand(), **safe})
+                    content = self._renderer(template, {**_brand(), **data})
                     if not content:
                         logger.error(f"admin devices: email template '{template}' could not be rendered")
                         return

@@ -7,7 +7,6 @@ the device notifications (``TrustedDeviceService``). The admin emails are in Eng
   sign-in code and the reset link are unavailable (503); the device notifications are skipped.
 - the logo header comes from the app settings ``BASE_URL`` / ``ESIM_NAME``, like the customer emails.
 """
-import html
 import os
 from typing import Any, Dict, Optional
 
@@ -31,16 +30,18 @@ def brand() -> Dict[str, str]:
         except Exception:
             value = None
         return str(value or os.getenv(key) or default)
-    return {"base_url": html.escape(setting("BASE_URL", "").rstrip("/")),
-            "esim_name": html.escape(setting("ESIM_NAME", "Monty eSIM"))}
+    return {"base_url": setting("BASE_URL", "").rstrip("/"),
+            "esim_name": setting("ESIM_NAME", "Monty eSIM")}
 
 
 def render(template_name: str, data: Dict[str, Any]) -> Optional[str]:
     """Like ``config.get_email_template`` (same folder setting) but an empty setting falls back to the
-    templates of this checkout. The values are HTML-escaped by the caller."""
-    from jinja2 import Environment, FileSystemLoader
+    templates of this checkout. Jinja auto-escaping is on: every value is HTML-escaped when rendered."""
+    from jinja2 import Environment, FileSystemLoader, select_autoescape
     folder = (os.getenv("EMAIL_TEMPLATES_PATH") or "").strip() or TEMPLATES_DIR
-    return Environment(loader=FileSystemLoader(folder)).get_template(template_name).render(data=data)
+    environment = Environment(loader=FileSystemLoader(folder),
+                              autoescape=select_autoescape(enabled_extensions=("htm", "html"), default=True))
+    return environment.get_template(template_name).render(data=data)
 
 
 def deliver(subject: str, html_content: str, recipient: str) -> None:
@@ -50,10 +51,9 @@ def deliver(subject: str, html_content: str, recipient: str) -> None:
 
 
 def send_now(template: str, subject: str, recipient: str, data: Dict[str, Any]) -> None:
-    """Renders the template (values HTML-escaped, logo header added) and sends it now. Raises when it cannot be
-    rendered or sent: the caller answers with an error."""
-    safe = {key: html.escape(value) if isinstance(value, str) else value for key, value in data.items()}
-    content = render(template, {**brand(), **safe})
+    """Renders the template (values HTML-escaped by the renderer, logo header added) and sends it now. Raises
+    when it cannot be rendered or sent: the caller answers with an error."""
+    content = render(template, {**brand(), **data})
     if not content:
         raise RuntimeError(f"email template '{template}' could not be rendered")
     deliver(subject, content, recipient)

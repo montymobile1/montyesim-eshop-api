@@ -24,7 +24,7 @@ def test_every_admin_template_renders_with_the_logo_and_its_values():
         assert "https://esim.example.com/logo/logo.png" in html
         assert "{{" not in html and "{%" not in html
     assert "042917" in admin_mailer.render(TEMPLATE_SIGN_IN_CODE, DATA)
-    assert DATA["link"] in admin_mailer.render(TEMPLATE_PASSWORD_RESET, DATA)
+    assert DATA["link"].replace("&", "&amp;") in admin_mailer.render(TEMPLATE_PASSWORD_RESET, DATA)
 
 
 def test_send_now_escapes_values_and_sends_the_email(monkeypatch):
@@ -36,7 +36,7 @@ def test_send_now_escapes_values_and_sends_the_email(monkeypatch):
 
     ((subject, html, to),) = sent
     assert to == "amy@x.com" and subject == SUBJECT_PASSWORD_RESET
-    assert 'href="https://x/verify?a=1&amp;b=&quot;2&quot;"' in html and 'b="2"' not in html
+    assert 'href="https://x/verify?a=1&amp;b=&#34;2&#34;"' in html and 'b="2"' not in html
 
 
 def test_send_now_raises_when_the_email_cannot_be_sent(monkeypatch):
