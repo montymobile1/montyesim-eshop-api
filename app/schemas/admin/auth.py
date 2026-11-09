@@ -57,9 +57,9 @@ class AdminChangePasswordRequest(BaseModel):
 
 
 class AdminResetPasswordRequest(BaseModel):
-    """Body of ``POST /auth/reset-password`` (TEOS-307): the access token of the reset email link, read
-    by the portal from the link, and the new password."""
-    access_token: str = Field(..., min_length=1, max_length=4096)
+    """Body of ``POST /auth/reset-password`` (TEOS-307): the recovery token of the reset email link (the portal
+    reads it from ``#token=``), and the new password."""
+    token: str = Field(..., min_length=1, max_length=512)
     new_password: AdminNewPassword
 
     model_config = ConfigDict(extra="forbid")
@@ -74,7 +74,7 @@ class AdminProfile(BaseModel):
 
 
 class AdminSession(BaseModel):
-    status: Literal["signed_in"] = "signed_in"  # TEOS-255: vs AdminLoginChallenge "verification_required"
+    status: Literal["signed_in"] = "signed_in"  # TEOS-255: vs AdminLoginVerification "verification_required"
     access_token: str
     refresh_token: str
     expires_in: int

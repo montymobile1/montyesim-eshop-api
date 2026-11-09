@@ -81,7 +81,7 @@ class AdminRateLimited(AdminError):
 class AdminGone(AdminError):
     """410 (TEOS-255): the email-code step expired or was already used."""
     status_code = 410
-    default_name = ErrorMessages.ADMIN_DEVICE_CHALLENGE_CLOSED
+    default_name = ErrorMessages.ADMIN_DEVICE_VERIFICATION_CLOSED
 
 
 class AdminServiceUnavailable(AdminError):

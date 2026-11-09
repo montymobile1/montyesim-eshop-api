@@ -60,10 +60,10 @@ class AdminDeviceInfo(BaseModel):
 
 # ---------- sign-in with the email code ----------
 
-class AdminLoginChallenge(BaseModel):
+class AdminLoginVerification(BaseModel):
     """``POST /auth/login`` answer when the browser is not a trusted device: no tokens, a code was emailed."""
     status: Literal["verification_required"] = "verification_required"
-    challenge_id: str
+    verification_id: str
     channel: Literal["email"] = "email"
     destination: str                 # masked email, e.g. "j***@m***.com"
     code_length: int                 # digits of the code (Supabase project setting, ADMIN_DEVICE_CODE_LENGTH)
@@ -74,7 +74,7 @@ class AdminLoginChallenge(BaseModel):
 
 class AdminVerifyDeviceRequest(BaseModel):
     """Body of ``POST /auth/verify-device``."""
-    challenge_id: Annotated[str, Field(max_length=64)]
+    verification_id: Annotated[str, Field(max_length=64)]
     code: Annotated[str, Field(min_length=1, max_length=32)]   # digits only, exact length checked by the service (422)
     trust_device: bool = False
     device_name: DeviceName = None
@@ -85,7 +85,7 @@ class AdminVerifyDeviceRequest(BaseModel):
 
 class AdminResendCodeRequest(BaseModel):
     """Body of ``POST /auth/resend-code``."""
-    challenge_id: Annotated[str, Field(max_length=64)]
+    verification_id: Annotated[str, Field(max_length=64)]
 
     model_config = ConfigDict(extra="forbid")
 

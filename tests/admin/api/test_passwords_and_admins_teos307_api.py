@@ -96,7 +96,7 @@ def test_reset_password_is_public(api_client, auth_service):
     auth_service.complete_password_reset = lambda token, new, ip: auth_service.calls.append(
         (token, new)) or AdminPasswordReset(sessions_signed_out=True)
 
-    response = api_client.post(f"{AUTH}/reset-password", json={"access_token": "link-token", "new_password": GOOD})
+    response = api_client.post(f"{AUTH}/reset-password", json={"token": "link-token", "new_password": GOOD})
 
     assert response.status_code == 200
     assert response.json()["data"] == {"sessions_signed_out": True}

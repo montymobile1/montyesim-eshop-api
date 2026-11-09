@@ -4,9 +4,14 @@
   (``users_copy`` has no role and the API's database user cannot read ``auth.users``), so the accounts are
   read through the GoTrue admin API page by page and filtered here. Search, role tab and paging are done in
   memory over the admins found. No database change.
-- reset password: Supabase Auth emails the admin a single-use reset link to the portal page set in
-  ``ADMIN_PASSWORD_RESET_URL``. Nothing changes on the account until the admin sets the new password there
-  (``POST /auth/reset-password``), which then signs out every session of the account.
+- reset password: Supabase Auth generates a single-use recovery token (``generate_link`` type recovery: Supabase
+  sends nothing) and the API emails a link straight to the portal page set in ``ADMIN_PASSWORD_RESET_URL``,
+  ``<url>#token=<token>``, through its own SMTP (``admin_mailer``, template ``admin_password_reset.htm``). The
+  link has no Supabase address, and opening it (a mail scanner included) uses nothing up: the token is only
+  verified when the new password is submitted. Without SMTP the feature is
+  unavailable: the list says so (``password_reset_available``) and the action answers 503. Nothing changes on
+  the account until the admin sets the new password there (``POST /auth/reset-password``), which then signs
+  out every session of the account.
 - revoke access: the admin role is removed (the account is kept: it may also be an app customer) and every
   session of the account is signed out, and every trusted device row is revoked (TEOS-255). The audit
   row is written after the change; when it cannot be written the role is put back and 502 is returned,
@@ -25,13 +30,15 @@ from loguru import logger
 from app.config.admin_permissions import ROLE_SUPER_ADMIN, permissions_for
 from app.config.config import supabase_client
 from app.config.constants import ErrorMessages
-from app.exceptions.admin import AdminConflict, AdminNotFound, AdminRateLimited, AdminUpstreamError
+from app.exceptions.admin import (AdminConflict, AdminNotFound, AdminRateLimited, AdminServiceUnavailable,
+                                  AdminUpstreamError, coded)
 from app.repo.admin.base import AuditContext
-from app.schemas.admin.admins import (AdminAccessRevoked, AdminAccountRow, AdminPasswordResetSent,
-                                      AdminRoleFilter)
-from app.schemas.admin.common import AdminPage, PageParams
+from app.schemas.admin.admins import (AdminAccessRevoked, AdminAccountPage, AdminAccountRow,
+                                      AdminPasswordResetSent, AdminRoleFilter)
+from app.schemas.admin.common import PageParams
 from app.services.admin.auth_service import (AUTH_SERVICE_UNAVAILABLE, AUTH_USERS_TABLE, OPERATION_UPDATE,
                                              _default_audit, _default_session_revoker, _is_upstream_failure)
+from app.services.admin import admin_mailer
 
 #: GoTrue admin list page size, and a safety cap on pages read per request (100k accounts)
 LIST_PAGE_SIZE = 1000
@@ -43,9 +50,12 @@ ADMIN_HAS_NO_EMAIL = "admin_has_no_email"
 RESET_URL_NOT_SET = "PASSWORD_RESET_URL_NOT_SET"
 RESET_EMAIL_FAILED = "RESET_EMAIL_FAILED"
 RESET_EMAIL_RATE_LIMITED = "reset_email_rate_limited"
+RESET_UNAVAILABLE = "password_reset_unavailable"
 AUDIT_FAILED = "AUDIT_FAILED"
 ACTION_RESET_EMAIL_SENT = "password_reset_email_sent"
 ACTION_ACCESS_REVOKED = "admin_access_revoked"
+TEMPLATE_PASSWORD_RESET = "admin_password_reset.htm"
+SUBJECT_PASSWORD_RESET = "Reset your admin portal password"
 
 
 def _role_of(user: Any) -> Optional[str]:
@@ -63,6 +73,16 @@ def _default_device_revoker(user_id: str, ctx: AuditContext) -> int:
     return TrustedDeviceService().revoke_all(user_id, REASON_ACCESS_REVOKED, ctx)
 
 
+def reset_link(page_url: str, token: str) -> str:
+    """The portal reset page with the token in the fragment: never sent to a server, so not in any access log."""
+    from urllib.parse import quote
+    return f"{page_url.split('#', 1)[0]}#token={quote(token, safe='')}"
+
+
+def _default_reset_sender(email: str, link: str) -> None:
+    admin_mailer.send_now(TEMPLATE_PASSWORD_RESET, SUBJECT_PASSWORD_RESET, email, {"link": link})
+
+
 def _is_rate_limited(exc: AuthError) -> bool:
     return (getattr(exc, "status", None) == 429
             or getattr(exc, "code", None) in ("over_email_send_rate_limit", "over_request_rate_limit"))
@@ -73,8 +93,12 @@ class AdminAccountService:
                  session_revoker: Callable[[str], Dict[str, int]] = _default_session_revoker,
                  audit_factory: Callable = _default_audit,
                  reset_url: Callable[[], Optional[str]] = _reset_url,
-                 device_revoker: Callable[[str, AuditContext], int] = _default_device_revoker):
+                 device_revoker: Callable[[str, AuditContext], int] = _default_device_revoker,
+                 reset_sender: Callable[[str, str], None] = _default_reset_sender,
+                 smtp_check: Callable[[], bool] = admin_mailer.smtp_configured):
         self._client_factory = client_factory
+        self._reset_sender = reset_sender
+        self._smtp_check = smtp_check
         self._session_revoker = session_revoker
         self._audit_factory = audit_factory
         self._reset_url = reset_url
@@ -83,7 +107,7 @@ class AdminAccountService:
     # ---------- list ----------
 
     def list(self, search: Optional[str], role: AdminRoleFilter, page: PageParams,
-             current_user_id: str) -> AdminPage:
+             current_user_id: str) -> AdminAccountPage:
         """Super admins first, then by email (case-insensitive), then id. ``facets`` = {all, super_admin,
         admin} over the searched set, so the tab counts follow the search."""
         rows = [self._row(user, current_user_id) for user in self._all_admins()]
@@ -96,7 +120,13 @@ class AdminAccountService:
         if role != "all":
             rows = [row for row in rows if row.role == role]
         rows.sort(key=lambda row: (row.role != ROLE_SUPER_ADMIN, (row.email or "").lower(), row.id))
-        return AdminPage(data=rows[page.offset:page.offset + page.limit], total_count=len(rows), facets=facets)
+        return AdminAccountPage(data=rows[page.offset:page.offset + page.limit], total_count=len(rows),
+                                facets=facets, password_reset_available=self.password_reset_available())
+
+    def password_reset_available(self) -> bool:
+        """The reset link can be emailed: SMTP and ``ADMIN_PASSWORD_RESET_URL`` are set. The portal disables
+        "Send reset link" otherwise."""
+        return bool(self._smtp_check() and self._reset_url())
 
     def _all_admins(self) -> List[Any]:
         client = self._client_factory()
@@ -126,9 +156,13 @@ class AdminAccountService:
 
     def send_password_reset(self, admin_id: str, ctx: AuditContext) -> AdminPasswordResetSent:
         """409 ``cannot_target_self``; 404 ``admin_not_found`` (unknown account or no admin role);
-        409 ``admin_has_no_email``; 502 ``PASSWORD_RESET_URL_NOT_SET``; 429 when Supabase's email rate
-        limit is reached; 502 ``RESET_EMAIL_FAILED`` when the email cannot be sent (e.g. no SMTP)."""
+        503 ``password_reset_unavailable`` when SMTP is not configured (nothing generated or sent);
+        409 ``admin_has_no_email``; 502 ``PASSWORD_RESET_URL_NOT_SET``; 429 when Supabase refuses to
+        generate more links; 502 ``RESET_EMAIL_FAILED`` when the link cannot be generated or emailed."""
         user = self._target(admin_id, ctx)
+        if not self._smtp_check():
+            logger.error("admin password reset: SMTP is not configured, the reset link cannot be emailed")
+            raise coded(AdminServiceUnavailable, RESET_UNAVAILABLE, ErrorMessages.ADMIN_EMAIL_NOT_CONFIGURED)
         redirect_to = self._reset_url()
         if not redirect_to:
             logger.error("admin password reset: ADMIN_PASSWORD_RESET_URL is not set")
@@ -137,12 +171,22 @@ class AdminAccountService:
         if not email:
             raise AdminConflict(ADMIN_HAS_NO_EMAIL)
         try:
-            self._client_factory().auth.reset_password_for_email(email, {"redirect_to": redirect_to})
+            # Supabase only generates the token (single use, its "Email OTP Expiration"); our SMTP sends the link
+            link = self._client_factory().auth.admin.generate_link({"type": "recovery", "email": email})
+            hashed_token = getattr(getattr(link, "properties", None), "hashed_token", None)
         except AuthError as exc:
             if _is_rate_limited(exc):
                 raise AdminRateLimited(RESET_EMAIL_RATE_LIMITED, name=ErrorMessages.ADMIN_RESET_EMAIL_RATE_LIMITED)
-            logger.error(f"admin password reset: email not sent: {type(exc).__name__} "
+            logger.error(f"admin password reset: link not generated: {type(exc).__name__} "
                          f"{getattr(exc, 'code', None)}")
+            raise AdminUpstreamError(RESET_EMAIL_FAILED, name=ErrorMessages.ADMIN_RESET_EMAIL_FAILED)
+        if not hashed_token:
+            logger.error("admin password reset: Supabase returned no token")
+            raise AdminUpstreamError(RESET_EMAIL_FAILED, name=ErrorMessages.ADMIN_RESET_EMAIL_FAILED)
+        try:
+            self._reset_sender(email, reset_link(redirect_to, hashed_token))
+        except Exception as exc:  # the link is never logged
+            logger.error(f"admin password reset: email not sent: {type(exc).__name__}")
             raise AdminUpstreamError(RESET_EMAIL_FAILED, name=ErrorMessages.ADMIN_RESET_EMAIL_FAILED)
         try:
             self._audit_factory().log(ctx, AUTH_USERS_TABLE, OPERATION_UPDATE, record_id=str(user.id),

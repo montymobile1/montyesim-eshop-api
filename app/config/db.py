@@ -112,3 +112,4 @@ class DatabaseTables(StrEnum):
     TABLE_ADMIN_LOGIN_ATTEMPT = "admin_login_attempt"
     TABLE_ADMIN_DEVICES = "admin_devices"
     TABLE_ADMIN_DEVICE_VERIFICATION = "admin_device_verification"
+    TABLE_ADMIN_OTP = "admin_otp"

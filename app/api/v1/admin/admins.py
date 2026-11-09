@@ -8,9 +8,9 @@ from starlette.responses import Response as HttpResponse
 
 from app.api.v1.admin._route import admin_router
 from app.dependencies.admin_security import AdminUser, require_permission
-from app.schemas.admin.admins import (AdminAccessRevoked, AdminAccountRow, AdminPasswordResetSent,
+from app.schemas.admin.admins import (AdminAccessRevoked, AdminAccountPage, AdminPasswordResetSent,
                                       AdminRevokeAccess, AdminRoleFilter)
-from app.schemas.admin.common import AdminPage, PageParams, ok, ok_page, page_params
+from app.schemas.admin.common import PageParams, ok, ok_page, page_params
 from app.schemas.admin.trusted_devices import AdminDeviceList
 from app.schemas.response import Response
 from app.services.admin.admin_account_service import AdminAccountService
@@ -28,7 +28,7 @@ AdminId = Path(..., description="admin account id (uuid)")
 DeviceId = Path(..., description="device id (uuid)")
 
 
-@router.get("", response_model=Response[AdminPage[AdminAccountRow]])
+@router.get("", response_model=Response[AdminAccountPage])
 def list_admins(search: Optional[str] = Query(None, max_length=100, description="part of the email"),
                 role: AdminRoleFilter = Query("all"),
                 page: PageParams = Depends(page_params),

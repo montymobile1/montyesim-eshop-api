@@ -680,13 +680,13 @@ def test_repo_record_token_iat_only_raises_the_value(db_table):
     assert AdminDeviceRepo().record_token_iat("d1", 1000) is None
 
 
-def test_repo_fail_open_kills_only_open_challenges_of_the_admin(db_table):
-    from app.repo.admin.trusted_device_repo import AdminDeviceChallengeRepo
+def test_repo_fail_open_kills_only_open_verifications_of_the_admin(db_table):
+    from app.repo.admin.trusted_device_repo import AdminDeviceVerificationRepo
     chain = db_table.update.return_value.eq.return_value
     final = chain.is_.return_value.is_.return_value.gt.return_value
     final.execute.return_value = SimpleNamespace(data=[{"id": "c1"}, {"id": "c2"}])
 
-    assert AdminDeviceChallengeRepo().fail_open(ADMIN_ID) == 2
+    assert AdminDeviceVerificationRepo().fail_open(ADMIN_ID) == 2
     assert list(db_table.update.call_args.args[0]) == ["failed_at"]
     db_table.update.return_value.eq.assert_called_once_with("admin_id", ADMIN_ID)
     assert chain.is_.call_args.args == ("consumed_at", "null")

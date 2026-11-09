@@ -4,7 +4,7 @@ from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.schemas.admin.common import AdminReason
+from app.schemas.admin.common import AdminPage, AdminReason
 
 AdminRoleFilter = Literal["all", "super_admin", "admin"]
 
@@ -17,6 +17,11 @@ class AdminAccountRow(BaseModel):
     last_sign_in_at: Optional[datetime] = None
     #: the signed-in super admin's own row: its actions are refused (409 ``cannot_target_self``)
     is_current_user: bool = False
+
+
+class AdminAccountPage(AdminPage[AdminAccountRow]):
+    """The Admins list, plus whether "Send reset link" can work on this client (SMTP and the reset URL set)."""
+    password_reset_available: bool = False
 
 
 class AdminRevokeAccess(BaseModel):

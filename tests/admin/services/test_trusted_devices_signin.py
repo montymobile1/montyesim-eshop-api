@@ -1,7 +1,9 @@
-"""TEOS-255 trusted devices, sign-in side (BE-1): login -> email code challenge, verify-device, resend-code,
+"""TEOS-255 trusted devices, sign-in side (BE-1): login -> email code verification, verify-device, resend-code,
 refresh tied to the device, the per-request device-session check, and the TEOS-307 hooks.
 
-Supabase Auth, the challenge table and TrustedDeviceService are in-memory fakes: no network, no database.
+Supabase Auth, the verification and admin_otp tables, the SMTP sender and TrustedDeviceService are in-memory
+fakes: no network, no database. The codes are the API's own (admin_otp, hashed with OTP_HMAC_SECRET); the
+session after a correct code comes from generate_link + verify_otp(token_hash).
 The story's test case numbers are in the test names (``case_NN``).
 """
 import copy
@@ -22,10 +24,11 @@ from app.dependencies.admin_security import AdminUser, resolve_admin, token_sess
 from app.exceptions.admin import AdminError
 from app.repo.admin.base import AuditContext
 from app.schemas.admin.auth import AdminSession
-from app.schemas.admin.trusted_devices import AdminDeviceInfo, AdminLoginChallenge
+from app.schemas.admin.trusted_devices import AdminDeviceInfo, AdminLoginVerification
 from app.services.admin.auth_service import AdminAuthService, LoginRateLimiter
-from app.services.admin.device_challenge_service import (DeviceChallengeService, _as_datetime,
-                                                         code_length_from_env, mask_email)
+from app.services.admin import device_verification_service
+from app.services.admin.device_verification_service import (DeviceVerificationService, _as_datetime,
+                                                         code_length_from_env, hash_code, mask_email, new_code)
 from app.services.admin.device_hash import device_hash
 from app.services.admin.trusted_device_service import REASON_PASSWORD_CHANGE, REASON_PASSWORD_RESET
 from tests.admin.conftest import FakeClock, FakeLoginAttemptStore, make_auth_user
@@ -77,8 +80,8 @@ class Clock:
         self.now += timedelta(seconds=seconds)
 
 
-class FakeChallengeRepo:
-    """In-memory twin of AdminDeviceChallengeRepo (same conditional updates)."""
+class FakeVerificationRepo:
+    """In-memory twin of AdminDeviceVerificationRepo (same conditional updates)."""
 
     def __init__(self, clock: Clock):
         self.clock = clock
@@ -86,30 +89,30 @@ class FakeChallengeRepo:
         self.get_calls = 0
 
     def create(self, row):
-        challenge_id = str(uuid.uuid4())
-        self.rows[challenge_id] = {"id": challenge_id, "attempts": 0, "resend_count": 0, "consumed_at": None,
+        verification_id = str(uuid.uuid4())
+        self.rows[verification_id] = {"id": verification_id, "attempts": 0, "resend_count": 0, "consumed_at": None,
                                    "failed_at": None, "created_at": self.clock().isoformat(), **row}
-        return copy.deepcopy(self.rows[challenge_id])
+        return copy.deepcopy(self.rows[verification_id])
 
-    def get(self, challenge_id):
+    def get(self, verification_id):
         self.get_calls += 1
-        row = self.rows.get(challenge_id)
+        row = self.rows.get(verification_id)
         return copy.deepcopy(row) if row else None
 
     def sends_since(self, admin_id, since):
         return sum(1 + row["resend_count"] for row in self.rows.values()
                    if row["admin_id"] == admin_id and _as_datetime(row["created_at"]) >= since)
 
-    def claim(self, challenge_id):
-        row = self.rows.get(challenge_id)
+    def claim(self, verification_id):
+        row = self.rows.get(verification_id)
         if (not row or row["consumed_at"] or row["failed_at"]
                 or _as_datetime(row["expires_at"]) <= self.clock()):
             return None
         row["consumed_at"] = self.clock().isoformat()
         return copy.deepcopy(row)
 
-    def failed_attempt(self, challenge_id, max_attempts):
-        row = self.rows.get(challenge_id)
+    def failed_attempt(self, verification_id, max_attempts):
+        row = self.rows.get(verification_id)
         if not row:
             return {"found": False}
         row["attempts"] += 1
@@ -119,13 +122,13 @@ class FakeChallengeRepo:
         return {"found": True, "attempts": row["attempts"], "attempts_left": max(max_attempts - row["attempts"], 0),
                 "dead": row["attempts"] >= max_attempts}
 
-    def release(self, challenge_id):
-        row = self.rows.get(challenge_id)
+    def release(self, verification_id):
+        row = self.rows.get(verification_id)
         if row and not row["failed_at"]:
             row["consumed_at"] = None
 
-    def mark_failed(self, challenge_id):
-        self.rows[challenge_id]["failed_at"] = self.clock().isoformat()
+    def mark_failed(self, verification_id):
+        self.rows[verification_id]["failed_at"] = self.clock().isoformat()
 
     def fail_open(self, admin_id):
         killed = 0
@@ -136,8 +139,8 @@ class FakeChallengeRepo:
                 killed += 1
         return killed
 
-    def record_resend(self, challenge_id, resend_count, expires_at):
-        row = self.rows.get(challenge_id)
+    def record_resend(self, verification_id, resend_count, expires_at):
+        row = self.rows.get(verification_id)
         if not row or row["resend_count"] != resend_count or row["consumed_at"] or row["failed_at"]:
             return None
         row.update(resend_count=resend_count + 1, last_sent_at=self.clock().isoformat(),
@@ -145,8 +148,38 @@ class FakeChallengeRepo:
         return copy.deepcopy(row)
 
 
+class FakeOtpRepo:
+    """In-memory twin of AdminOtpRepo: hashed codes per verification."""
+
+    def __init__(self, clock: Clock):
+        self.clock = clock
+        self.rows: List[Dict[str, Any]] = []
+
+    def create(self, row):
+        self.rows.append({"id": len(self.rows) + 1, "created_at": self.clock().isoformat(), **row})
+        return copy.deepcopy(self.rows[-1])
+
+    def active(self, verification_id):
+        live = [r for r in self.rows if r["verification_id"] == verification_id and not r["is_used"]
+                and _as_datetime(r["expire_at"]) > self.clock()]
+        return copy.deepcopy(max(live, key=lambda r: r["id"])) if live else None
+
+    def expire_active(self, verification_id):
+        count = 0
+        for row in self.rows:
+            if (row["verification_id"] == verification_id and not row["is_used"]
+                    and _as_datetime(row["expire_at"]) > self.clock()):
+                row["expire_at"] = self.clock().isoformat()
+                count += 1
+        return count
+
+    def mark_used(self, otp_id):
+        next(r for r in self.rows if r["id"] == otp_id)["is_used"] = True
+
+
 class FakeSupabase:
-    """Supabase Auth: password sign-in, the email OTP (one live code per email), sessions."""
+    """Supabase Auth (password sign-in, generate_link + verify_otp for the session after the code, sessions)
+    and the SMTP sender of the codes (``mail_code``: the last code emailed per address)."""
 
     def __init__(self):
         self.users = {ADMIN_ID: make_auth_user(ROLE_ADMIN, user_id=ADMIN_ID, email=EMAIL),
@@ -162,10 +195,12 @@ class FakeSupabase:
         self.during_verify = None
         self.password_response = None
         self.refresh_response = None
+        self.links: List[str] = []
         self.auth = SimpleNamespace(
-            sign_in_with_password=self._sign_in_with_password, sign_in_with_otp=self._sign_in_with_otp,
+            sign_in_with_password=self._sign_in_with_password,
             verify_otp=self._verify_otp, refresh_session=lambda token: self.refresh_response,
             admin=SimpleNamespace(get_user_by_id=self._get_user_by_id, update_user_by_id=lambda uid, attrs: None,
+                                  generate_link=self._generate_link,
                                   sign_out=lambda token, scope: self.signed_out.append((token, scope))))
 
     def __call__(self):
@@ -174,28 +209,33 @@ class FakeSupabase:
     def _sign_in_with_password(self, credentials):
         return self.password_response or auth_response("password-session")
 
-    def _sign_in_with_otp(self, payload):
-        assert payload["options"] == {"should_create_user": False}
+    def mail_code(self, email, code, minutes):
+        """The SMTP sender of DeviceVerificationService."""
+        assert minutes == 10
         if self.otp_error:
             raise self.otp_error
-        self.codes[payload["email"]] = str(self.next_code)
-        self.sent.append(payload["email"])
-        self.next_code += 111111
+        self.codes[email] = code
+        self.sent.append(email)
+
+    def _generate_link(self, params):
+        assert params["type"] == "magiclink"
+        self.links.append(params["email"])
+        return SimpleNamespace(properties=SimpleNamespace(hashed_token=f"hash-{params['email']}",
+                                                          verification_type="magiclink"))
 
     def _get_user_by_id(self, user_id):
         return SimpleNamespace(user=self.users[user_id])
 
     def _verify_otp(self, payload):
-        assert payload["type"] == "email"
+        """Only the magic link token of generate_link: the code itself is checked by the API."""
+        assert payload["type"] == "magiclink" and payload["token_hash"].startswith("hash-")
         if self.during_verify:
             hook, self.during_verify = self.during_verify, None
             hook()
         if self.verify_error:
             raise self.verify_error
-        if self.codes.get(payload["email"]) != payload["token"]:
-            raise AuthApiError("Token has expired or is invalid", 403, "otp_expired")
-        del self.codes[payload["email"]]
-        user = next(u for u in self.users.values() if u.email == payload["email"])
+        email = payload["token_hash"][len("hash-"):]
+        user = next(u for u in self.users.values() if u.email == email)
         session_id = f"otp-session-{self.next_session}"
         self.next_session += 1
         return auth_response(session_id, role=user.app_metadata.get("role"), user_id=user.id, email=user.email,
@@ -293,8 +333,8 @@ def supabase():
 
 
 @pytest.fixture
-def challenge_repo(clock):
-    return FakeChallengeRepo(clock)
+def verification_repo(clock):
+    return FakeVerificationRepo(clock)
 
 
 @pytest.fixture
@@ -308,22 +348,32 @@ def audit():
 
 
 @pytest.fixture
-def challenges(supabase, challenge_repo, audit, clock):
-    return DeviceChallengeService(client_factory=supabase, repo_factory=lambda: challenge_repo,
-                                  audit_factory=lambda: audit, clock=clock, code_length=6)
+def otp_repo(clock):
+    return FakeOtpRepo(clock)
 
 
 @pytest.fixture
-def service(supabase, devices, audit, challenges):
+def verifications(supabase, verification_repo, otp_repo, audit, clock, monkeypatch):
+    # predictable codes (123456, 234567, ...) so a test can name a wrong one; the real ones come from secrets
+    codes = iter(str(123456 + 111111 * i) for i in range(8))
+    monkeypatch.setattr(device_verification_service, "new_code", lambda length: next(codes))
+    return DeviceVerificationService(client_factory=supabase, repo_factory=lambda: verification_repo,
+                                  audit_factory=lambda: audit, clock=clock, code_length=6,
+                                  otp_repo_factory=lambda: otp_repo, code_sender=supabase.mail_code,
+                                  smtp_check=lambda: True)
+
+
+@pytest.fixture
+def service(supabase, devices, audit, verifications):
     limiter = LoginRateLimiter(5, 300, store_factory=lambda: FakeLoginAttemptStore(FakeClock()))
     return AdminAuthService(client_factory=supabase, rate_limiter=limiter, audit_factory=lambda: audit,
                             session_revoker=lambda uid: {"sessions": 1}, device_service_factory=lambda: devices,
-                            challenge_service=challenges)
+                            verification_service=verifications)
 
 
-def _login(service, info=DEVICE, ip="1.2.3.4") -> AdminLoginChallenge:
+def _login(service, info=DEVICE, ip="1.2.3.4") -> AdminLoginVerification:
     result = service.login(EMAIL, "secret", ip, info, "Mozilla/5.0")
-    assert isinstance(result, AdminLoginChallenge)
+    assert isinstance(result, AdminLoginVerification)
     return result
 
 
@@ -346,7 +396,7 @@ def _raises(call, status, code=None, **extra) -> Dict[str, Any]:
 
 # ---------- login ----------
 
-def test_case_01_untrusted_device_gets_a_challenge_no_tokens_one_email(service, supabase, challenge_repo, audit):
+def test_case_01_untrusted_device_gets_a_verification_no_tokens_one_email(service, supabase, verification_repo, audit):
     result = _login(service)
 
     assert result.status == "verification_required" and result.channel == "email"
@@ -356,7 +406,7 @@ def test_case_01_untrusted_device_gets_a_challenge_no_tokens_one_email(service, 
     assert supabase.sent == [EMAIL]
     # the password session is signed out: it is never handed out
     assert supabase.signed_out == [(auth_response("password-session").session.access_token, "local")]
-    row = challenge_repo.rows[result.challenge_id]
+    row = verification_repo.rows[result.verification_id]
     assert row["admin_id"] == ADMIN_ID and row["device_hash"] == device_hash(DEVICE)
     assert row["ip"] == "1.2.3.4" and row["user_agent"] == "Mozilla/5.0"
     assert row["device_info"]["browser"] == "Chrome" and "device_key" not in row["device_info"]
@@ -419,43 +469,80 @@ def test_login_of_a_non_admin_is_403_before_any_device_work(service, supabase, d
     assert devices.calls == [] and supabase.sent == []
 
 
-def test_case_29_email_down_is_503_and_the_challenge_is_dead(service, supabase, challenge_repo):
+def test_case_29_email_down_is_503_and_the_verification_is_dead(service, supabase, verification_repo):
     supabase.otp_error = AuthApiError("Error sending magic link email", 500, "unexpected_failure")
 
     _raises(lambda: service.login(EMAIL, "secret", None, DEVICE), 503, "email_unavailable")
 
-    (row,) = challenge_repo.rows.values()
+    (row,) = verification_repo.rows.values()
     assert row["failed_at"] is not None
     supabase.otp_error = None
-    _raises(lambda: service.verify_device(row["id"], "123456", True, None, DEVICE, None), 410, "challenge_closed")
-    _raises(lambda: service.resend_code(row["id"], None), 410, "challenge_closed")
+    _raises(lambda: service.verify_device(row["id"], "123456", True, None, DEVICE, None), 410, "verification_closed")
+    _raises(lambda: service.resend_code(row["id"], None), 410, "verification_closed")
 
 
-def test_supabase_send_limit_on_login_is_429_too_soon_not_an_outage(service, supabase, challenge_repo):
-    # Supabase allows one OTP email per user per 60 s: a second login from a new browser within the minute
-    supabase.otp_error = AuthApiError("For security purposes, you can only request this after 42 seconds.",
-                                      429, "over_email_send_rate_limit")
+def test_the_code_is_ours_stored_hashed_and_sent_by_smtp(service, supabase, verification_repo, otp_repo):
+    verification = _login(service)
 
-    _raises(lambda: service.login(EMAIL, "secret", None, DEVICE), 429, "resend_too_soon", retry_after=60)
+    (row,) = otp_repo.rows
+    code = _code(supabase)
+    assert row["verification_id"] == verification.verification_id and row["admin_id"] == ADMIN_ID
+    assert row["otp"] == hash_code(code) and code not in row["otp"] and len(row["otp"]) == 64
+    assert row["is_used"] is False
+    assert row["expire_at"] == verification_repo.rows[verification.verification_id]["expires_at"]
+    assert supabase.links == []  # no session is opened before the code
 
-    (row,) = challenge_repo.rows.values()
-    assert row["failed_at"] is not None  # no code was sent for it: the admin signs in again a minute later
+    service.verify_device(verification.verification_id, code, True, None, DEVICE, None)
+
+    assert otp_repo.rows[0]["is_used"] is True
+    assert supabase.links == [EMAIL]
 
 
-def test_supabase_send_limit_on_resend_keeps_the_challenge_alive(service, supabase, challenge_repo, clock):
-    challenge = _login(service)
+def test_new_code_is_random_digits_with_leading_zeros_kept():
+    codes = {new_code(6) for _ in range(200)}
+    assert all(len(c) == 6 and c.isdigit() for c in codes) and len(codes) > 150
+    assert len(new_code(8)) == 8
+
+
+def test_no_smtp_is_503_email_not_configured_before_any_verification(service, supabase, verification_repo, verifications):
+    verifications._smtp_check = lambda: False
+
+    _raises(lambda: service.login(EMAIL, "secret", None, DEVICE), 503, "email_not_configured")
+
+    assert verification_repo.rows == {} and supabase.sent == []
+    assert len(supabase.signed_out) == 1  # the password session is still never handed out
+
+
+def test_no_smtp_on_resend_is_503_and_the_verification_stays(service, supabase, verification_repo, verifications, clock):
+    verification = _login(service)
     clock.advance(61)
-    supabase.otp_error = AuthApiError("email rate limit exceeded", 429, "over_email_send_rate_limit")
+    verifications._smtp_check = lambda: False
 
-    _raises(lambda: service.resend_code(challenge.challenge_id, None), 429, "resend_too_soon", retry_after=60)
+    _raises(lambda: service.resend_code(verification.verification_id, None), 503, "email_not_configured")
 
-    assert challenge_repo.rows[challenge.challenge_id]["failed_at"] is None
-    supabase.otp_error = None
-    clock.advance(61)
-    service.resend_code(challenge.challenge_id, None)
+    row = verification_repo.rows[verification.verification_id]
+    assert row["failed_at"] is None and row["resend_count"] == 0
+    assert service.verify_device(verification.verification_id, _code(supabase), True, None, DEVICE, None).access_token
 
 
-def test_case_26_sixth_code_in_an_hour_is_429_without_email(service, supabase, challenge_repo, clock):
+def test_session_token_replaced_meanwhile_is_retried_once(service, supabase):
+    verification = _login(service)
+    calls = {"n": 0}
+    real = supabase._verify_otp
+
+    def flaky(payload):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise AuthApiError("Token has expired or is invalid", 403, "otp_expired")
+        return real(payload)
+
+    supabase.auth.verify_otp = flaky
+
+    assert service.verify_device(verification.verification_id, _code(supabase), True, None, DEVICE, None).access_token
+    assert supabase.links == [EMAIL, EMAIL]
+
+
+def test_case_26_sixth_code_in_an_hour_is_429_without_email(service, supabase, verification_repo, clock):
     for _ in range(5):
         _login(service)
         clock.advance(60)
@@ -464,54 +551,54 @@ def test_case_26_sixth_code_in_an_hour_is_429_without_email(service, supabase, c
     _raises(lambda: service.login(EMAIL, "secret", None, DEVICE), 429, "code_limit", retry_after=3600)
 
     assert len(supabase.sent) == sent == 5
-    assert len(challenge_repo.rows) == 5
+    assert len(verification_repo.rows) == 5
     clock.advance(3600)  # the window moves on
     _login(service)
 
 
 def test_resends_count_in_the_hourly_limit(service, supabase, clock):
-    challenge = _login(service)
+    verification = _login(service)
     for _ in range(3):
         clock.advance(60)
-        service.resend_code(challenge.challenge_id, None)
+        service.resend_code(verification.verification_id, None)
     clock.advance(1)
     _login(service)  # 4 codes + this one = 5
 
     _raises(lambda: service.login(EMAIL, "secret", None, DEVICE), 429, "code_limit")
 
 
-def test_a_new_challenge_closes_the_admins_older_open_ones(service, supabase, challenge_repo, clock):
-    """Supabase keeps one code per user: only the newest challenge may take guesses (finding 4)."""
+def test_a_new_verification_closes_the_admins_older_open_ones(service, supabase, verification_repo, clock):
+    """Supabase keeps one code per user: only the newest verification may take guesses (finding 4)."""
     first = _login(service)
     clock.advance(61)
     second = _login(service, info=device_info(browser="Edge"))
 
-    assert challenge_repo.rows[first.challenge_id]["failed_at"] is not None
-    assert challenge_repo.rows[second.challenge_id]["failed_at"] is None
-    _raises(lambda: service.verify_device(first.challenge_id, _code(supabase), True, None, DEVICE, None), 410,
-            "challenge_closed")
-    assert service.verify_device(second.challenge_id, _code(supabase), True, None,
+    assert verification_repo.rows[first.verification_id]["failed_at"] is not None
+    assert verification_repo.rows[second.verification_id]["failed_at"] is None
+    _raises(lambda: service.verify_device(first.verification_id, _code(supabase), True, None, DEVICE, None), 410,
+            "verification_closed")
+    assert service.verify_device(second.verification_id, _code(supabase), True, None,
                                  device_info(browser="Edge"), None).access_token
 
 
-def test_older_open_challenges_are_closed_even_when_the_login_gets_429(service, supabase, challenge_repo, clock):
+def test_older_open_verifications_are_closed_even_when_the_login_gets_429(service, supabase, verification_repo, clock):
     first = _login(service)
     for _ in range(4):
         clock.advance(61)
         _login(service)
     clock.advance(61)
-    open_before = [r for r in challenge_repo.rows.values() if not r["failed_at"]]
+    open_before = [r for r in verification_repo.rows.values() if not r["failed_at"]]
     assert len(open_before) == 1
 
     _raises(lambda: service.login(EMAIL, "secret", None, DEVICE), 429, "code_limit")
 
-    assert all(r["failed_at"] for r in challenge_repo.rows.values())
-    assert challenge_repo.rows[first.challenge_id]["failed_at"]
+    assert all(r["failed_at"] for r in verification_repo.rows.values())
+    assert verification_repo.rows[first.verification_id]["failed_at"]
 
 
-def test_fail_open_leaves_consumed_expired_and_other_admins_challenges(challenge_repo, clock):
+def test_fail_open_leaves_consumed_expired_and_other_admins_verifications(verification_repo, clock):
     def row(admin_id=ADMIN_ID, **extra):
-        return challenge_repo.create({"admin_id": admin_id, "device_hash": "h", "device_info": {},
+        return verification_repo.create({"admin_id": admin_id, "device_hash": "h", "device_info": {},
                                       "expires_at": (clock() + timedelta(minutes=10)).isoformat(),
                                       "last_sent_at": clock().isoformat(), **extra})["id"]
 
@@ -519,9 +606,9 @@ def test_fail_open_leaves_consumed_expired_and_other_admins_challenges(challenge
     consumed = row(consumed_at=clock().isoformat())
     expired = row(expires_at=(clock() - timedelta(seconds=1)).isoformat())
 
-    assert challenge_repo.fail_open(ADMIN_ID) == 1
-    assert challenge_repo.rows[open_id]["failed_at"]
-    assert not any(challenge_repo.rows[i]["failed_at"] for i in (other_admin, consumed, expired))
+    assert verification_repo.fail_open(ADMIN_ID) == 1
+    assert verification_repo.rows[open_id]["failed_at"]
+    assert not any(verification_repo.rows[i]["failed_at"] for i in (other_admin, consumed, expired))
 
 
 def test_gpu_language_or_memory_changes_keep_the_same_device(service, supabase, devices):
@@ -538,9 +625,9 @@ def test_gpu_language_or_memory_changes_keep_the_same_device(service, supabase, 
 # ---------- verify ----------
 
 def test_case_02_correct_code_with_trust_gives_the_session_and_a_trusted_row(service, supabase, devices):
-    challenge = _login(service)
+    verification = _login(service)
 
-    session = service.verify_device(challenge.challenge_id, _code(supabase), True, "Work laptop", DEVICE, "1.2.3.4")
+    session = service.verify_device(verification.verification_id, _code(supabase), True, "Work laptop", DEVICE, "1.2.3.4")
 
     assert session.status == "signed_in" and session.access_token and session.refresh_token
     assert token_session_id(session.access_token) == "otp-session-1"
@@ -551,9 +638,9 @@ def test_case_02_correct_code_with_trust_gives_the_session_and_a_trusted_row(ser
 
 
 def test_case_03_correct_code_without_trust_registers_an_untrusted_row(service, supabase, devices):
-    challenge = _login(service)
+    verification = _login(service)
 
-    session = service.verify_device(challenge.challenge_id, _code(supabase), False, None, DEVICE, None)
+    session = service.verify_device(verification.verification_id, _code(supabase), False, None, DEVICE, None)
 
     assert devices.rows[session.device_id]["trusted"] is False
     supabase.sent.clear()
@@ -562,14 +649,14 @@ def test_case_03_correct_code_without_trust_registers_an_untrusted_row(service, 
 
 
 @pytest.mark.parametrize("code", ["12345", "1234567", "12a456", "", "١٢٣٤٥٦", " 12345"])
-def test_case_28_code_of_the_wrong_format_is_422_before_any_lookup(service, supabase, challenge_repo, code):
-    challenge = _login(service)
-    gets = challenge_repo.get_calls
+def test_case_28_code_of_the_wrong_format_is_422_before_any_lookup(service, supabase, verification_repo, code):
+    verification = _login(service)
+    gets = verification_repo.get_calls
 
-    _raises(lambda: service.verify_device(challenge.challenge_id, code, True, None, DEVICE, None), 422,
+    _raises(lambda: service.verify_device(verification.verification_id, code, True, None, DEVICE, None), 422,
             "code_format", code_length=6)
 
-    assert challenge_repo.get_calls == gets
+    assert verification_repo.get_calls == gets
 
 
 def test_code_length_follows_the_setting(monkeypatch):
@@ -582,206 +669,206 @@ def test_code_length_follows_the_setting(monkeypatch):
     assert code_length_from_env() == 6
 
 
-def test_case_14_wrong_codes_count_down_then_429_and_the_challenge_is_burned(service, supabase, challenge_repo):
-    challenge = _login(service)
+def test_case_14_wrong_codes_count_down_then_429_and_the_verification_is_burned(service, supabase, verification_repo):
+    verification = _login(service)
     good = _code(supabase)
 
     for left in (4, 3, 2, 1):
-        _raises(lambda: service.verify_device(challenge.challenge_id, "000000", True, None, DEVICE, None), 400,
+        _raises(lambda: service.verify_device(verification.verification_id, "000000", True, None, DEVICE, None), 400,
                 "code_invalid", attempts_left=left)
-    _raises(lambda: service.verify_device(challenge.challenge_id, "000000", True, None, DEVICE, None), 429,
+    _raises(lambda: service.verify_device(verification.verification_id, "000000", True, None, DEVICE, None), 429,
             "too_many_attempts")
 
-    assert challenge_repo.rows[challenge.challenge_id]["failed_at"] is not None
-    _raises(lambda: service.verify_device(challenge.challenge_id, good, True, None, DEVICE, None), 410,
-            "challenge_closed")
+    assert verification_repo.rows[verification.verification_id]["failed_at"] is not None
+    _raises(lambda: service.verify_device(verification.verification_id, good, True, None, DEVICE, None), 410,
+            "verification_closed")
 
 
 def test_case_15_code_older_than_10_minutes_is_410_expired(service, supabase, clock):
-    challenge = _login(service)
+    verification = _login(service)
     clock.advance(600)
 
-    _raises(lambda: service.verify_device(challenge.challenge_id, _code(supabase), True, None, DEVICE, None), 410,
-            "challenge_expired")
+    _raises(lambda: service.verify_device(verification.verification_id, _code(supabase), True, None, DEVICE, None), 410,
+            "verification_expired")
 
 
-def test_case_16_consumed_challenge_is_410_closed(service, supabase):
-    challenge = _login(service)
+def test_case_16_consumed_verification_is_410_closed(service, supabase):
+    verification = _login(service)
     code = _code(supabase)
-    service.verify_device(challenge.challenge_id, code, True, None, DEVICE, None)
+    service.verify_device(verification.verification_id, code, True, None, DEVICE, None)
 
-    _raises(lambda: service.verify_device(challenge.challenge_id, code, True, None, DEVICE, None), 410,
-            "challenge_closed")
-
-
-@pytest.mark.parametrize("challenge_id", ["not-a-uuid", str(uuid.uuid4())])
-def test_unknown_challenge_is_410_closed(service, challenge_id):
-    _raises(lambda: service.verify_device(challenge_id, "123456", True, None, DEVICE, None), 410, "challenge_closed")
-    _raises(lambda: service.resend_code(challenge_id, None), 410, "challenge_closed")
+    _raises(lambda: service.verify_device(verification.verification_id, code, True, None, DEVICE, None), 410,
+            "verification_closed")
 
 
-def test_case_17_admin_a_challenge_with_admin_b_code_is_400(service, supabase):
-    challenge_a = _login(service)
+@pytest.mark.parametrize("verification_id", ["not-a-uuid", str(uuid.uuid4())])
+def test_unknown_verification_is_410_closed(service, verification_id):
+    _raises(lambda: service.verify_device(verification_id, "123456", True, None, DEVICE, None), 410, "verification_closed")
+    _raises(lambda: service.resend_code(verification_id, None), 410, "verification_closed")
+
+
+def test_case_17_admin_a_verification_with_admin_b_code_is_400(service, supabase):
+    verification_a = _login(service)
     supabase.password_response = auth_response("pw-b", user_id=OTHER_ID, email=OTHER_EMAIL)
     service.login(OTHER_EMAIL, "secret", None, DEVICE)
     code_b = _code(supabase, OTHER_EMAIL)
 
-    _raises(lambda: service.verify_device(challenge_a.challenge_id, code_b, True, None, DEVICE, None), 400,
+    _raises(lambda: service.verify_device(verification_a.verification_id, code_b, True, None, DEVICE, None), 400,
             "code_invalid", attempts_left=4)
 
 
-def test_verify_from_another_browser_is_400_device_mismatch(service, supabase, challenge_repo):
-    challenge = _login(service)
+def test_verify_from_another_browser_is_400_device_mismatch(service, supabase, verification_repo):
+    verification = _login(service)
 
-    _raises(lambda: service.verify_device(challenge.challenge_id, _code(supabase), True, None,
+    _raises(lambda: service.verify_device(verification.verification_id, _code(supabase), True, None,
                                           device_info(device_key=str(uuid.uuid4())), None), 400, "device_mismatch")
 
-    assert challenge_repo.rows[challenge.challenge_id]["attempts"] == 0
+    assert verification_repo.rows[verification.verification_id]["attempts"] == 0
 
 
 @pytest.mark.parametrize("error", [AuthApiError("boom", 503, "unexpected_failure"), AuthRetryableError("down", 0)])
-def test_supabase_down_during_verify_is_502_and_the_attempt_is_not_counted(service, supabase, challenge_repo, error):
-    challenge = _login(service)
+def test_supabase_down_during_verify_is_502_and_the_attempt_is_not_counted(service, supabase, verification_repo, error):
+    verification = _login(service)
     supabase.verify_error = error
 
     with pytest.raises(AdminError) as err:
-        service.verify_device(challenge.challenge_id, _code(supabase), True, None, DEVICE, None)
+        service.verify_device(verification.verification_id, _code(supabase), True, None, DEVICE, None)
 
     assert err.value.code == 502 and err.value.details == "AUTH_SERVICE_UNAVAILABLE"
-    row = challenge_repo.rows[challenge.challenge_id]
+    row = verification_repo.rows[verification.verification_id]
     assert row["consumed_at"] is None and row["attempts"] == 0
     supabase.verify_error = None
-    assert service.verify_device(challenge.challenge_id, _code(supabase), True, None, DEVICE, None).access_token
+    assert service.verify_device(verification.verification_id, _code(supabase), True, None, DEVICE, None).access_token
 
 
 def test_case_30_two_verifies_at_once_give_one_session_and_one_410(service, supabase):
-    challenge = _login(service)
+    verification = _login(service)
     code = _code(supabase)
     second = {}
 
     def parallel_verify():  # runs while the first verify is waiting for Supabase
         with pytest.raises(AdminError) as err:
-            service.verify_device(challenge.challenge_id, code, True, None, DEVICE, None)
+            service.verify_device(verification.verification_id, code, True, None, DEVICE, None)
         second["error"] = err.value
 
     supabase.during_verify = parallel_verify
-    session = service.verify_device(challenge.challenge_id, code, True, None, DEVICE, None)
+    session = service.verify_device(verification.verification_id, code, True, None, DEVICE, None)
 
     assert session.access_token
-    assert second["error"].code == 410 and json.loads(second["error"].details)["code"] == "challenge_closed"
+    assert second["error"].code == 410 and json.loads(second["error"].details)["code"] == "verification_closed"
 
 
 def test_verify_of_an_account_that_lost_the_admin_role_is_403_and_signed_out(service, supabase, devices):
-    challenge = _login(service)
+    verification = _login(service)
     supabase.users[ADMIN_ID] = make_auth_user(None, user_id=ADMIN_ID, email=EMAIL)
     supabase.signed_out.clear()
 
-    _raises(lambda: service.verify_device(challenge.challenge_id, _code(supabase), True, None, DEVICE, None), 403)
+    _raises(lambda: service.verify_device(verification.verification_id, _code(supabase), True, None, DEVICE, None), 403)
 
     assert len(supabase.signed_out) == 1
     assert not any(c[0] == "register_verified" for c in devices.calls)
 
 
 def test_verify_signs_the_session_out_when_the_device_row_cannot_be_written(service, supabase, devices):
-    challenge = _login(service)
+    verification = _login(service)
     supabase.signed_out.clear()
     devices.fail = RuntimeError("db down")
 
     with pytest.raises(RuntimeError):
-        service.verify_device(challenge.challenge_id, _code(supabase), True, None, DEVICE, None)
+        service.verify_device(verification.verification_id, _code(supabase), True, None, DEVICE, None)
 
     assert len(supabase.signed_out) == 1
 
 
 # ---------- resend ----------
 
-def test_case_13_resend_sends_a_new_code_and_the_old_one_stops_working(service, supabase, challenge_repo, clock,
+def test_case_13_resend_sends_a_new_code_and_the_old_one_stops_working(service, supabase, verification_repo, clock,
                                                                        audit):
-    challenge = _login(service)
+    verification = _login(service)
     old = _code(supabase)
     clock.advance(61)
 
-    result = service.resend_code(challenge.challenge_id, "1.2.3.4")
+    result = service.resend_code(verification.verification_id, "1.2.3.4")
 
     assert (result.expires_in, result.resend_available_in, result.resends_left) == (600, 60, 2)
     new = _code(supabase)
     assert new != old and supabase.sent == [EMAIL, EMAIL]
-    row = challenge_repo.rows[challenge.challenge_id]
+    row = verification_repo.rows[verification.verification_id]
     assert _as_datetime(row["expires_at"]) == clock.now + timedelta(minutes=10)  # expiry restarts
-    _raises(lambda: service.verify_device(challenge.challenge_id, old, True, None, DEVICE, None), 400, "code_invalid")
-    assert service.verify_device(challenge.challenge_id, new, True, None, DEVICE, None).access_token
+    _raises(lambda: service.verify_device(verification.verification_id, old, True, None, DEVICE, None), 400, "code_invalid")
+    assert service.verify_device(verification.verification_id, new, True, None, DEVICE, None).access_token
     assert audit.actions() == ["code_sent", "code_resent", "code_failed"]
 
 
 def test_resend_too_soon_then_limit(service, supabase, clock):
-    challenge = _login(service)
+    verification = _login(service)
     clock.advance(20)
 
-    _raises(lambda: service.resend_code(challenge.challenge_id, None), 429, "resend_too_soon", retry_after=40)
+    _raises(lambda: service.resend_code(verification.verification_id, None), 429, "resend_too_soon", retry_after=40)
     for left in (2, 1, 0):
         clock.advance(60)
-        assert service.resend_code(challenge.challenge_id, None).resends_left == left
+        assert service.resend_code(verification.verification_id, None).resends_left == left
     clock.advance(60)
-    _raises(lambda: service.resend_code(challenge.challenge_id, None), 429, "resend_limit")
+    _raises(lambda: service.resend_code(verification.verification_id, None), 429, "resend_limit")
     assert len(supabase.sent) == 4
 
 
-def test_resend_of_a_consumed_challenge_is_410(service, supabase, clock):
-    challenge = _login(service)
-    service.verify_device(challenge.challenge_id, _code(supabase), True, None, DEVICE, None)
+def test_resend_of_a_consumed_verification_is_410(service, supabase, clock):
+    verification = _login(service)
+    service.verify_device(verification.verification_id, _code(supabase), True, None, DEVICE, None)
     clock.advance(61)
-    _raises(lambda: service.resend_code(challenge.challenge_id, None), 410, "challenge_closed")
+    _raises(lambda: service.resend_code(verification.verification_id, None), 410, "verification_closed")
 
 
 def test_case_14_an_expired_code_can_be_resent_and_the_10_minutes_restart(service, supabase, clock):
     """Story TEOS-256 case 14: "Code expired" with a Resend option."""
-    challenge = _login(service)
+    verification = _login(service)
     clock.advance(601)
-    _raises(lambda: service.verify_device(challenge.challenge_id, "123456", True, None, DEVICE, None),
-            410, "challenge_expired")
+    _raises(lambda: service.verify_device(verification.verification_id, "123456", True, None, DEVICE, None),
+            410, "verification_expired")
 
-    resent = service.resend_code(challenge.challenge_id, None)
+    resent = service.resend_code(verification.verification_id, None)
 
     assert resent.expires_in == 600 and resent.resends_left == 2
-    session = service.verify_device(challenge.challenge_id, _code(supabase), True, None, DEVICE, None)
+    session = service.verify_device(verification.verification_id, _code(supabase), True, None, DEVICE, None)
     assert session.access_token
 
 
 def test_expired_code_with_no_resends_left_is_429_resend_limit(service, supabase, clock):
-    challenge = _login(service)
+    verification = _login(service)
     for _ in range(3):
         clock.advance(61)
-        service.resend_code(challenge.challenge_id, None)
+        service.resend_code(verification.verification_id, None)
     clock.advance(601)
-    _raises(lambda: service.resend_code(challenge.challenge_id, None), 429, "resend_limit")
+    _raises(lambda: service.resend_code(verification.verification_id, None), 429, "resend_limit")
 
 
-def test_parallel_resend_that_loses_the_race_is_429(service, challenge_repo, clock):
-    challenge = _login(service)
+def test_parallel_resend_that_loses_the_race_is_429(service, verification_repo, clock):
+    verification = _login(service)
     clock.advance(61)
-    challenge_repo.record_resend = lambda *a: None  # another resend counted first
+    verification_repo.record_resend = lambda *a: None  # another resend counted first
 
-    _raises(lambda: service.resend_code(challenge.challenge_id, None), 429, "resend_too_soon", retry_after=60)
+    _raises(lambda: service.resend_code(verification.verification_id, None), 429, "resend_too_soon", retry_after=60)
 
 
-def test_resend_with_email_down_is_503_and_kills_the_challenge(service, supabase, challenge_repo, clock):
-    challenge = _login(service)
+def test_resend_with_email_down_is_503_and_kills_the_verification(service, supabase, verification_repo, clock):
+    verification = _login(service)
     clock.advance(61)
     supabase.otp_error = AuthRetryableError("smtp down", 0)
 
-    _raises(lambda: service.resend_code(challenge.challenge_id, None), 503, "email_unavailable")
+    _raises(lambda: service.resend_code(verification.verification_id, None), 503, "email_unavailable")
 
-    assert challenge_repo.rows[challenge.challenge_id]["failed_at"] is not None
+    assert verification_repo.rows[verification.verification_id]["failed_at"] is not None
 
 
 # ---------- case 12 / 27: audit and logs ----------
 
 def test_case_12_each_sign_in_event_writes_one_audit_row(service, supabase, audit, devices, clock):
-    challenge = _login(service)
+    verification = _login(service)
     with pytest.raises(AdminError):
-        service.verify_device(challenge.challenge_id, "000000", True, None, DEVICE, None)
+        service.verify_device(verification.verification_id, "000000", True, None, DEVICE, None)
     clock.advance(61)
-    service.resend_code(challenge.challenge_id, None)
+    service.resend_code(verification.verification_id, None)
     devices.add(info=device_info(browser="Edge"))
     service.login(EMAIL, "secret", None, device_info(browser="Edge"))
 
@@ -798,22 +885,22 @@ def test_case_27_the_code_never_appears_in_logs_responses_or_audit_rows(service,
     outputs: List[str] = []
     codes: List[str] = []
     try:
-        challenge = _login(service)
-        outputs.append(challenge.model_dump_json())
+        verification = _login(service)
+        outputs.append(verification.model_dump_json())
         codes.append(_code(supabase))
         for wrong in ("000000", "111111"):
             with pytest.raises(AdminError) as err:
-                service.verify_device(challenge.challenge_id, wrong, True, None, DEVICE, None)
+                service.verify_device(verification.verification_id, wrong, True, None, DEVICE, None)
             outputs.append(err.value.details)
         clock.advance(61)
-        outputs.append(service.resend_code(challenge.challenge_id, None).model_dump_json())
+        outputs.append(service.resend_code(verification.verification_id, None).model_dump_json())
         codes.append(_code(supabase))
         supabase.verify_error = AuthApiError("boom", 500, "unexpected_failure")
         with pytest.raises(AdminError) as err:
-            service.verify_device(challenge.challenge_id, codes[-1], True, None, DEVICE, None)
+            service.verify_device(verification.verification_id, codes[-1], True, None, DEVICE, None)
         outputs.append(err.value.details)
         supabase.verify_error = None
-        outputs.append(service.verify_device(challenge.challenge_id, codes[-1], True, None, DEVICE,
+        outputs.append(service.verify_device(verification.verification_id, codes[-1], True, None, DEVICE,
                                              None).model_dump_json())
     finally:
         logger.remove(sink)
@@ -884,8 +971,8 @@ def test_verify_device_session_works_on_admin_routes_and_refresh_whatever_its_am
     """GoTrue may label the session of verify_otp(type="email") ``magiclink`` or ``otp``: both are portal
     sessions through their device row."""
     supabase.verify_methods = methods
-    challenge = _login(service)
-    session = service.verify_device(challenge.challenge_id, _code(supabase), True, None, DEVICE, None)
+    verification = _login(service)
+    session = service.verify_device(verification.verification_id, _code(supabase), True, None, DEVICE, None)
     _get_user(supabase_auth)
 
     assert resolve_admin(session.access_token).device_id == session.device_id
@@ -977,8 +1064,8 @@ def test_row_without_last_token_iat_accepts_any_token(supabase_auth, lookup):
 
 def test_every_token_the_api_hands_out_is_recorded(service, supabase, devices, lookup, supabase_auth):
     _get_user(supabase_auth)
-    challenge = _login(service)
-    verified = service.verify_device(challenge.challenge_id, _code(supabase), True, None, DEVICE, None)
+    verification = _login(service)
+    verified = service.verify_device(verification.verification_id, _code(supabase), True, None, DEVICE, None)
     row_id = verified.device_id
     assert devices.rows[row_id]["last_token_iat"] == admin_security.token_iat(verified.access_token)
 
@@ -1120,53 +1207,39 @@ def test_change_password_succeeds_when_the_device_update_fails(service, supabase
     assert result.access_token
 
 
-def test_password_reset_revokes_every_device(service, supabase, devices, monkeypatch):
-    supabase.auth.get_user = lambda jwt: SimpleNamespace(user=make_auth_user(ROLE_ADMIN, user_id=ADMIN_ID))
+def _recovery_token(supabase):
+    """The reset link's token: Supabase's verify_otp(type recovery) opens a recovery session of the admin."""
+    supabase.auth.verify_otp = lambda payload: (
+        auth_response("link", methods=("recovery",)) if payload == {"token_hash": "reset-token", "type": "recovery"}
+        else (_ for _ in ()).throw(AuthApiError("Token has expired or is invalid", 403, "otp_expired")))
 
-    service.complete_password_reset(session_token("link", "recovery"), "N3w-Passw0rd!x", None)
+
+def test_password_reset_revokes_every_device(service, supabase, devices):
+    _recovery_token(supabase)
+
+    service.complete_password_reset("reset-token", "N3w-Passw0rd!x", None)
 
     assert ("revoke_all", ADMIN_ID, REASON_PASSWORD_RESET, None) in devices.calls
 
 
-@pytest.mark.parametrize("methods", [("otp",), ("magiclink",)])
-@pytest.mark.parametrize("revoked", [False, True])
-def test_password_reset_with_a_portal_session_is_400(service, supabase, devices, methods, revoked):
-    """A verify-device session (it has a device row, active or revoked) must not set a password without the
-    current one."""
-    supabase.auth.get_user = lambda jwt: SimpleNamespace(user=make_auth_user(ROLE_ADMIN, user_id=ADMIN_ID))
+def test_password_reset_with_a_portal_token_is_400(service, supabase, devices):
+    """Only the link's recovery token sets a password without the current one: a session token is refused."""
+    _recovery_token(supabase)
     updates = []
     supabase.auth.admin.update_user_by_id = lambda uid, attrs: updates.append(uid)
-    devices.add(session_id="portal", revoked=revoked)
 
     with pytest.raises(AdminError) as err:
-        service.complete_password_reset(session_token("portal", *methods), "N3w-Passw0rd!x", None)
+        service.complete_password_reset(session_token("portal", "otp"), "N3w-Passw0rd!x", None)
 
     assert err.value.code == 400 and err.value.details == "reset_link_invalid"
     assert updates == []
 
 
-@pytest.mark.parametrize("methods", [("recovery",), ("otp",), ("magiclink",)])
-def test_password_reset_with_a_reset_link_session_without_a_row_works(service, supabase, devices, methods):
-    supabase.auth.get_user = lambda jwt: SimpleNamespace(user=make_auth_user(ROLE_ADMIN, user_id=ADMIN_ID))
-
-    assert service.complete_password_reset(session_token("link", *methods), "N3w-Passw0rd!x",
-                                           None).sessions_signed_out is True
-
-
-def test_password_reset_when_the_device_lookup_fails_is_502(service, supabase, devices):
-    devices.fail, devices.fail_only = RuntimeError("db down"), {"session_device"}
-
-    with pytest.raises(AdminError) as err:
-        service.complete_password_reset(session_token("link", "recovery"), "N3w-Passw0rd!x", None)
-    assert err.value.code == 502
-
-
 def test_password_reset_succeeds_when_the_device_update_fails(service, supabase, devices):
-    supabase.auth.get_user = lambda jwt: SimpleNamespace(user=make_auth_user(ROLE_ADMIN, user_id=ADMIN_ID))
+    _recovery_token(supabase)
     devices.fail, devices.fail_only = RuntimeError("db down"), {"revoke_all"}
 
-    assert service.complete_password_reset(session_token("link", "recovery"), "N3w-Passw0rd!x",
-                                           None).sessions_signed_out is True
+    assert service.complete_password_reset("reset-token", "N3w-Passw0rd!x", None).sessions_signed_out is True
 
 
 # ---------- helpers ----------

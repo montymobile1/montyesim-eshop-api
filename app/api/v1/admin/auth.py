@@ -9,7 +9,7 @@ from app.dependencies.admin_security import AdminUser, admin_user, rate_limit_ip
 from app.schemas.admin.auth import (AdminChangePasswordRequest, AdminLoginRequest, AdminPasswordChanged,
                                     AdminPasswordReset, AdminProfile, AdminRefreshRequest,
                                     AdminResetPasswordRequest, AdminSession)
-from app.schemas.admin.trusted_devices import (AdminCodeResent, AdminLoginChallenge, AdminResendCodeRequest,
+from app.schemas.admin.trusted_devices import (AdminCodeResent, AdminLoginVerification, AdminResendCodeRequest,
                                                AdminVerifyDeviceRequest)
 from app.schemas.admin.common import ok
 from app.schemas.response import Response
@@ -21,7 +21,7 @@ router = admin_router()
 service = AdminAuthService()
 
 
-@router.post("/login", response_model=Response[Union[AdminSession, AdminLoginChallenge]])
+@router.post("/login", response_model=Response[Union[AdminSession, AdminLoginVerification]])
 def login(body: AdminLoginRequest, request: Request) -> Response:
     """Email + password sign-in. 401 ADMIN_LOGIN_FAILED, 403 ADMIN_ROLE_REQUIRED, 429 too many attempts.
     TEOS-255: a trusted device gets the session (`status: signed_in`); any other browser gets
@@ -33,19 +33,19 @@ def login(body: AdminLoginRequest, request: Request) -> Response:
 
 @router.post("/verify-device", response_model=Response[AdminSession])
 def verify_device(body: AdminVerifyDeviceRequest, request: Request) -> Response:
-    """TEOS-255: the email code of a login challenge -> the session (+ `device_id`). 422 `code_format`;
+    """TEOS-255: the email code of a login verification -> the session (+ `device_id`). 422 `code_format`;
     400 `code_invalid {attempts_left}` / `device_mismatch`; 429 `too_many_attempts`;
-    410 `challenge_expired` / `challenge_closed`; 403 not an admin; 502 Supabase Auth down."""
-    return ok(service.verify_device(body.challenge_id, body.code, body.trust_device, body.device_name,
+    410 `verification_expired` / `verification_closed`; 403 not an admin; 502 Supabase Auth down."""
+    return ok(service.verify_device(body.verification_id, body.code, body.trust_device, body.device_name,
                                     body.device, rate_limit_ip(request)))
 
 
 @router.post("/resend-code", response_model=Response[AdminCodeResent])
 def resend_code(body: AdminResendCodeRequest, request: Request) -> Response:
-    """TEOS-255: a new email code for a login challenge (the previous one stops working). 410
-    `challenge_closed` / `challenge_expired`; 429 `resend_limit`, `resend_too_soon {retry_after}`,
+    """TEOS-255: a new email code for a login verification (the previous one stops working). 410
+    `verification_closed` / `verification_expired`; 429 `resend_limit`, `resend_too_soon {retry_after}`,
     `code_limit {retry_after}`; 503 `email_unavailable`."""
-    return ok(service.resend_code(body.challenge_id, rate_limit_ip(request)))
+    return ok(service.resend_code(body.verification_id, rate_limit_ip(request)))
 
 
 @router.post("/refresh", response_model=Response[AdminSession])
@@ -81,7 +81,7 @@ def change_password(body: AdminChangePasswordRequest, request: Request,
 
 @router.post("/reset-password", response_model=Response[AdminPasswordReset])
 def reset_password(body: AdminResetPasswordRequest, request: Request) -> Response:
-    """TEOS-307: sets the new password from the reset email link (no bearer: `access_token` is the link's
-    session). Every session of the account is then signed out. 400 `reset_link_invalid`; 403 not an
-    admin; 422 `same_password` / `weak_password` or a new password that breaks the rules."""
-    return ok(service.complete_password_reset(body.access_token, body.new_password, rate_limit_ip(request)))
+    """TEOS-307: sets the new password from the reset email link (no bearer: `token` is the link's recovery
+    token, verified here once). Every session of the account is then signed out. 400 `reset_link_invalid`;
+    403 not an admin; 422 `same_password` / `weak_password` or a new password that breaks the rules."""
+    return ok(service.complete_password_reset(body.token, body.new_password, rate_limit_ip(request)))

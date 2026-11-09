@@ -22,7 +22,6 @@ Implementation notes (BE-2):
 - the audit rows never hold the device key, the device hash or a code
 """
 import html
-import os
 import threading
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional
@@ -34,6 +33,8 @@ from app.exceptions.admin import AdminNotFound, coded
 from app.repo.admin.base import AuditContext
 from app.repo.admin.trusted_device_repo import AdminDeviceRepo, iso, utc_now
 from app.schemas.admin.trusted_devices import AdminDeviceInfo, AdminDeviceRow
+from app.services.admin import admin_mailer
+from app.services.admin.admin_mailer import smtp_configured
 from app.services.admin.device_hash import device_label, display_info
 
 TRUST_DAYS = 30
@@ -74,27 +75,10 @@ def _default_audit():
     return AuditService()
 
 
-def smtp_configured() -> bool:
-    """D7: the API mailer is used only when the SMTP account is set (config.py has placeholder defaults)."""
-    return bool((os.getenv("SMTP_USERNAME") or "").strip() and (os.getenv("SMTP_PASSWORD") or "").strip())
-
-
-def _default_mailer(subject: str, html_content: str, recipient: str) -> None:
-    from app.config.config import send_email
-    send_email(subject=subject, html_content=html_content, recipients=recipient)
-
-
-#: ``app/email_templates`` of this checkout, used when ``EMAIL_TEMPLATES_PATH`` is not set (or empty)
-_TEMPLATES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                              "email_templates")
-
-
-def _default_renderer(template_name: str, data: Dict[str, Any]) -> Optional[str]:
-    """Like ``config.get_email_template`` (same folder setting) but an empty setting falls back to the
-    templates of this checkout. The values are HTML-escaped by the caller."""
-    from jinja2 import Environment, FileSystemLoader
-    folder = (os.getenv("EMAIL_TEMPLATES_PATH") or "").strip() or _TEMPLATES_DIR
-    return Environment(loader=FileSystemLoader(folder)).get_template(template_name).render(data=data)
+#: the API mailer (``admin_mailer``): SMTP check, sender and template renderer
+_default_mailer = admin_mailer.deliver
+_default_renderer = admin_mailer.render
+_brand = admin_mailer.brand
 
 
 def _in_thread(job: Callable[[], None]) -> None:
@@ -134,20 +118,6 @@ def _not_found():
 
 def _with_version(name: Any, version: Any) -> str:
     return " ".join(part for part in (str(name or "").strip(), str(version or "").strip()) if part)
-
-
-def _brand() -> Dict[str, str]:
-    """The logo header of the emails, like the customer emails: ``{base_url}/logo/logo.png`` and the eSIM name, from
-    the app settings (``BASE_URL``, ``ESIM_NAME``), else the environment."""
-    def setting(key: str, default: str) -> str:
-        try:
-            from app.config.helper import get_config
-            value = get_config(key, None)
-        except Exception:
-            value = None
-        return str(value or os.getenv(key) or default)
-    return {"base_url": html.escape(setting("BASE_URL", "").rstrip("/")),
-            "esim_name": html.escape(setting("ESIM_NAME", "Monty eSIM"))}
 
 
 class TrustedDeviceService:

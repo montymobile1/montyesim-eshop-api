@@ -9,12 +9,12 @@ from app.config.admin_permissions import ROLE_ADMIN, permissions_for
 from app.config.constants import ErrorMessages
 from app.exceptions.admin import AdminError, AdminGone, AdminRateLimited, AdminValidationError, coded
 from app.schemas.admin.auth import AdminProfile, AdminSession
-from app.schemas.admin.trusted_devices import AdminCodeResent, AdminLoginChallenge
+from app.schemas.admin.trusted_devices import AdminCodeResent, AdminLoginVerification
 from tests.admin.conftest import make_auth_user
 from tests.admin.services.test_trusted_devices_signin import DEVICE_PAYLOAD, FakeDevices, session_token
 
 BASE = "/api/v1/admin/auth"
-CHALLENGE_ID = "3f1c2b4a-5d6e-4f70-8a9b-0c1d2e3f4a5b"
+VERIFICATION_ID = "3f1c2b4a-5d6e-4f70-8a9b-0c1d2e3f4a5b"
 
 
 @pytest.fixture
@@ -38,7 +38,7 @@ def _developer_code(response):
 def test_login_of_an_untrusted_browser_answers_verification_required(api_client, auth_service):
     def login(email, password, ip, device, user_agent):
         auth_service.calls.append((device.browser, user_agent))
-        return AdminLoginChallenge(challenge_id=CHALLENGE_ID, destination="a***@e***.com", code_length=6,
+        return AdminLoginVerification(verification_id=VERIFICATION_ID, destination="a***@e***.com", code_length=6,
                                    expires_in=600, resend_available_in=60, resends_left=3)
 
     auth_service.login = login
@@ -48,7 +48,7 @@ def test_login_of_an_untrusted_browser_answers_verification_required(api_client,
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data == {"status": "verification_required", "challenge_id": CHALLENGE_ID, "channel": "email",
+    assert data == {"status": "verification_required", "verification_id": VERIFICATION_ID, "channel": "email",
                     "destination": "a***@e***.com", "code_length": 6, "expires_in": 600,
                     "resend_available_in": 60, "resends_left": 3}
     assert auth_service.calls == [("Chrome", "UA/1")]
@@ -68,19 +68,19 @@ def test_verify_device_returns_the_session(api_client, auth_service):
     auth_service.verify_device = lambda *args: auth_service.calls.append(args[:4]) or _session()
 
     response = api_client.post(f"{BASE}/verify-device", json={
-        "challenge_id": CHALLENGE_ID, "code": "123456", "trust_device": True, "device_name": "  Work   laptop ",
+        "verification_id": VERIFICATION_ID, "code": "123456", "trust_device": True, "device_name": "  Work   laptop ",
         "device": DEVICE_PAYLOAD}, headers={"X-Forwarded-For": "203.0.113.7"})
 
     assert response.status_code == 200
     assert response.json()["data"]["device_id"] == "dev-1"
-    assert auth_service.calls == [(CHALLENGE_ID, "123456", True, "Work laptop")]
+    assert auth_service.calls == [(VERIFICATION_ID, "123456", True, "Work laptop")]
 
 
 @pytest.mark.parametrize("body", [
-    {"challenge_id": CHALLENGE_ID, "code": "123456", "trust_device": True},                      # no device
-    {"challenge_id": CHALLENGE_ID, "code": "", "device": DEVICE_PAYLOAD},
-    {"challenge_id": CHALLENGE_ID, "code": "123456", "device": DEVICE_PAYLOAD, "admin_id": "x"},  # unknown field
-    {"challenge_id": CHALLENGE_ID, "code": "123456", "device": DEVICE_PAYLOAD, "device_name": "x" * 61},
+    {"verification_id": VERIFICATION_ID, "code": "123456", "trust_device": True},                      # no device
+    {"verification_id": VERIFICATION_ID, "code": "", "device": DEVICE_PAYLOAD},
+    {"verification_id": VERIFICATION_ID, "code": "123456", "device": DEVICE_PAYLOAD, "admin_id": "x"},  # unknown field
+    {"verification_id": VERIFICATION_ID, "code": "123456", "device": DEVICE_PAYLOAD, "device_name": "x" * 61},
 ])
 def test_verify_device_invalid_body_is_422(api_client, auth_service, body):
     response = api_client.post(f"{BASE}/verify-device", json=body)
@@ -95,8 +95,8 @@ def test_verify_device_invalid_body_is_422(api_client, auth_service, body):
      {"code": "code_invalid", "attempts_left": 3}),
     (coded(AdminRateLimited, "too_many_attempts", ErrorMessages.ADMIN_DEVICE_TOO_MANY_ATTEMPTS), 429,
      {"code": "too_many_attempts"}),
-    (coded(AdminGone, "challenge_expired", ErrorMessages.ADMIN_DEVICE_CODE_EXPIRED), 410,
-     {"code": "challenge_expired"}),
+    (coded(AdminGone, "verification_expired", ErrorMessages.ADMIN_DEVICE_CODE_EXPIRED), 410,
+     {"code": "verification_expired"}),
 ])
 def test_verify_device_errors_carry_the_machine_code(api_client, auth_service, error, status, expected):
     def fail(*args):
@@ -104,7 +104,7 @@ def test_verify_device_errors_carry_the_machine_code(api_client, auth_service, e
 
     auth_service.verify_device = fail
 
-    response = api_client.post(f"{BASE}/verify-device", json={"challenge_id": CHALLENGE_ID, "code": "1",
+    response = api_client.post(f"{BASE}/verify-device", json={"verification_id": VERIFICATION_ID, "code": "1",
                                                               "device": DEVICE_PAYLOAD})
 
     assert response.status_code == status and response.json()["responseCode"] == status
@@ -113,14 +113,14 @@ def test_verify_device_errors_carry_the_machine_code(api_client, auth_service, e
 
 
 def test_resend_code(api_client, auth_service):
-    auth_service.resend_code = lambda challenge_id, ip: auth_service.calls.append(challenge_id) or AdminCodeResent(
+    auth_service.resend_code = lambda verification_id, ip: auth_service.calls.append(verification_id) or AdminCodeResent(
         expires_in=600, resend_available_in=60, resends_left=2)
 
-    response = api_client.post(f"{BASE}/resend-code", json={"challenge_id": CHALLENGE_ID})
+    response = api_client.post(f"{BASE}/resend-code", json={"verification_id": VERIFICATION_ID})
 
     assert response.status_code == 200
     assert response.json()["data"] == {"expires_in": 600, "resend_available_in": 60, "resends_left": 2}
-    assert auth_service.calls == [CHALLENGE_ID]
+    assert auth_service.calls == [VERIFICATION_ID]
 
 
 def test_resend_code_too_soon_is_429_with_retry_after(api_client, auth_service):
@@ -129,7 +129,7 @@ def test_resend_code_too_soon_is_429_with_retry_after(api_client, auth_service):
 
     auth_service.resend_code = fail
 
-    response = api_client.post(f"{BASE}/resend-code", json={"challenge_id": CHALLENGE_ID})
+    response = api_client.post(f"{BASE}/resend-code", json={"verification_id": VERIFICATION_ID})
 
     assert response.status_code == 429
     assert _developer_code(response) == {"code": "resend_too_soon", "retry_after": 42}

@@ -1,4 +1,4 @@
-"""Admin trusted devices storage (TEOS-255): ``admin_devices`` and ``admin_device_verification``.
+"""Admin trusted devices storage (TEOS-255): ``admin_devices``, ``admin_device_verification`` and ``admin_otp``.
 
 SQL: supabase_ddl.sql section "admin trusted devices" (also migrations/admin/256-ddl.sql). Service role only.
 Times written here are UTC ISO strings; "now" comparisons in filters use the API clock.
@@ -95,7 +95,7 @@ class AdminDeviceRepo(AdminBaseRepository):
         return _unwrap(self.rpc("admin_end_session", {"p_session_id": session_id}))
 
 
-class AdminDeviceChallengeRepo(AdminBaseRepository):
+class AdminDeviceVerificationRepo(AdminBaseRepository):
     def __init__(self):
         super().__init__(DatabaseTables.TABLE_ADMIN_DEVICE_VERIFICATION)
 
@@ -103,50 +103,80 @@ class AdminDeviceChallengeRepo(AdminBaseRepository):
         response = self._run(lambda: self.table.insert(row).execute())
         return response.data[0]
 
-    def get(self, challenge_id: str) -> Optional[Dict[str, Any]]:
-        response = self._run(lambda: self.table.select("*").eq("id", challenge_id).limit(1).execute())
+    def get(self, verification_id: str) -> Optional[Dict[str, Any]]:
+        response = self._run(lambda: self.table.select("*").eq("id", verification_id).limit(1).execute())
         return response.data[0] if response.data else None
 
     def sends_since(self, admin_id: str, since: datetime) -> int:
-        """Codes emailed to the admin since ``since``: one per challenge plus its resends."""
+        """Codes emailed to the admin since ``since``: one per verification plus its resends."""
         response = self._run(lambda: self.table.select("resend_count").eq("admin_id", admin_id)
                              .gte("created_at", iso(since)).execute())
         return sum(1 + int(row.get("resend_count") or 0) for row in (response.data or []))
 
-    def claim(self, challenge_id: str) -> Optional[Dict[str, Any]]:
-        """Atomically takes the challenge for one verify: only a live, unclaimed, unexpired row is returned.
+    def claim(self, verification_id: str) -> Optional[Dict[str, Any]]:
+        """Atomically takes the verification for one verify: only a live, unclaimed, unexpired row is returned.
         Two verifies at once: one gets the row, the other None."""
         now = iso(utc_now())
-        response = self._run(lambda: self.table.update({"consumed_at": now}).eq("id", challenge_id)
+        response = self._run(lambda: self.table.update({"consumed_at": now}).eq("id", verification_id)
                              .is_("consumed_at", "null").is_("failed_at", "null").gt("expires_at", now).execute())
         return response.data[0] if response.data else None
 
-    def failed_attempt(self, challenge_id: str, max_attempts: int) -> Dict[str, Any]:
+    def failed_attempt(self, verification_id: str, max_attempts: int) -> Dict[str, Any]:
         """A claimed verify had a wrong code: releases the claim and counts the attempt (dead at the max).
         ``{"found", "attempts", "attempts_left", "dead"}``."""
         return _unwrap(self.rpc("admin_device_verification_failed_attempt",
-                                {"p_challenge_id": challenge_id, "p_max": max_attempts}))
+                                {"p_verification_id": verification_id, "p_max": max_attempts}))
 
-    def release(self, challenge_id: str) -> None:
+    def release(self, verification_id: str) -> None:
         """Undoes a claim without counting an attempt (Supabase Auth was down during the verify)."""
-        self._run(lambda: self.table.update({"consumed_at": None}).eq("id", challenge_id)
+        self._run(lambda: self.table.update({"consumed_at": None}).eq("id", verification_id)
                   .is_("failed_at", "null").execute())
 
     def fail_open(self, admin_id: str) -> int:
-        """Kills the admin's open challenges (not consumed, not failed, not expired): Supabase keeps one code
-        per user, so only the newest challenge may take guesses. Returns how many."""
+        """Kills the admin's open verifications (not consumed, not failed, not expired): only the newest verification
+        may take guesses. Returns how many."""
         now = iso(utc_now())
         response = self._run(lambda: self.table.update({"failed_at": now}).eq("admin_id", admin_id)
                              .is_("consumed_at", "null").is_("failed_at", "null").gt("expires_at", now).execute())
         return len(response.data or [])
 
-    def mark_failed(self, challenge_id: str) -> None:
-        self._run(lambda: self.table.update({"failed_at": iso(utc_now())}).eq("id", challenge_id).execute())
+    def mark_failed(self, verification_id: str) -> None:
+        self._run(lambda: self.table.update({"failed_at": iso(utc_now())}).eq("id", verification_id).execute())
 
-    def record_resend(self, challenge_id: str, resend_count: int, expires_at: datetime) -> Optional[Dict[str, Any]]:
+    def record_resend(self, verification_id: str, resend_count: int, expires_at: datetime) -> Optional[Dict[str, Any]]:
         """Counts a resend only if nobody else did meanwhile (``resend_count`` unchanged)."""
         patch = {"resend_count": resend_count + 1, "last_sent_at": iso(utc_now()), "expires_at": iso(expires_at)}
-        response = self._run(lambda: self.table.update(patch).eq("id", challenge_id)
+        response = self._run(lambda: self.table.update(patch).eq("id", verification_id)
                              .eq("resend_count", resend_count).is_("consumed_at", "null")
                              .is_("failed_at", "null").execute())
         return response.data[0] if response.data else None
+
+
+class AdminOtpRepo(AdminBaseRepository):
+    """``admin_otp``: the sign-in codes, one or more per ``admin_device_verification`` row (``verification_id``),
+    like ``user_otp`` for the customers. Only the
+    HMAC-SHA256 of a code (``OTP_HMAC_SECRET``, ``user_otp_service.hash_otp``) is stored, never the code."""
+
+    def __init__(self):
+        super().__init__(DatabaseTables.TABLE_ADMIN_OTP)
+
+    def create(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        response = self._run(lambda: self.table.insert(row).execute())
+        return response.data[0]
+
+    def active(self, verification_id: str) -> Optional[Dict[str, Any]]:
+        """The verification's live code: the newest row not used and not expired, else None."""
+        now = iso(utc_now())
+        response = self._run(lambda: self.table.select("*").eq("verification_id", verification_id).eq("is_used", False)
+                             .gt("expire_at", now).order("id", desc=True).limit(1).execute())
+        return response.data[0] if response.data else None
+
+    def expire_active(self, verification_id: str) -> int:
+        """A resend: the verification's live codes stop working (``expire_at`` = now). Returns how many."""
+        now = iso(utc_now())
+        response = self._run(lambda: self.table.update({"expire_at": now}).eq("verification_id", verification_id)
+                             .eq("is_used", False).gt("expire_at", now).execute())
+        return len(response.data or [])
+
+    def mark_used(self, otp_id: Any) -> None:
+        self._run(lambda: self.table.update({"is_used": True}).eq("id", otp_id).execute())
