@@ -48,6 +48,7 @@ RESET_LINK_INVALID = "reset_link_invalid"
 PASSWORD_UPDATE_FAILED = "PASSWORD_UPDATE_FAILED"
 #: audit rows of password actions: table ``auth.users``, operation UPDATE, ``action`` in the details
 AUTH_USERS_TABLE = "auth.users"
+PASSWORD_CHANGE_STEP = "password change"  # log label of the trusted-devices updates after a password change
 OPERATION_UPDATE = "UPDATE"
 ACTION_PASSWORD_CHANGE = "password_change"
 ACTION_PASSWORD_RESET = "password_reset"
@@ -393,12 +394,12 @@ class AdminAuthService:
     def _devices_after_password_change(self, user: AdminUser, new_access_token: str, ctx: AuditContext) -> None:
         """TEOS-255 (D10): every OTHER device is revoked; the caller's row moves to the new session and stays
         trusted. The password is already changed, so a failure here is logged, never raised."""
-        self._devices_call("password change", lambda: self.devices.revoke_all(
+        self._devices_call(PASSWORD_CHANGE_STEP, lambda: self.devices.revoke_all(
             str(user.id), REASON_PASSWORD_CHANGE, ctx, except_device_id=user.device_id))
         new_session_id = token_session_id(new_access_token)
         if user.device_id and new_session_id:
-            self._devices_call("password change", lambda: self.devices.move_session(user.device_id, new_session_id))
-            self._devices_call("password change", lambda: self.devices.record_token(
+            self._devices_call(PASSWORD_CHANGE_STEP, lambda: self.devices.move_session(user.device_id, new_session_id))
+            self._devices_call(PASSWORD_CHANGE_STEP, lambda: self.devices.record_token(
                 user.device_id, token_iat(new_access_token)))
 
     @staticmethod

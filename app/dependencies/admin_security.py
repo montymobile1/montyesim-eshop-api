@@ -9,7 +9,9 @@ TEOS-255 (trusted devices): the token's ``session_id`` claim must also belong to
 Supabase, or a revoked device, gets 401. The token must also not be newer than the last token the API
 handed to that device (``last_token_iat``): a token refreshed directly at Supabase gets 401.
 """
+import base64
 import ipaddress
+import json
 import os
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -64,11 +66,7 @@ def token_auth_methods(token: str) -> FrozenSet[str]:
     """The ``amr`` methods of a Supabase access token (how its session was opened); empty when the token
     cannot be read. The claims are read without checking the signature: callers still validate the token
     with Supabase Auth, this only says what kind of session it is."""
-    try:
-        claims = jwt.decode(token, options={"verify_signature": False})
-    except jwt.PyJWTError:
-        return frozenset()
-    amr = claims.get("amr")
+    amr = _unverified_claims(token).get("amr")
     if not isinstance(amr, list):
         return frozenset()
     return frozenset(entry.get("method") for entry in amr
@@ -90,9 +88,16 @@ def is_recovery_session(token: str) -> bool:
 
 
 def _unverified_claims(token: str) -> Dict[str, Any]:
+    """The payload of a JWT (its middle segment), read without checking the signature; {} when unreadable.
+    Only for reading claims of a token that Supabase Auth validates (``resolve_admin``) or that Supabase
+    just returned (sign-in, refresh): never use it to decide that a token is genuine."""
+    parts = token.split(".") if isinstance(token, str) else []
+    if len(parts) != 3:
+        return {}
     try:
-        claims = jwt.decode(token, options={"verify_signature": False})
-    except jwt.PyJWTError:
+        payload = base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
+        claims = json.loads(payload)
+    except (ValueError, TypeError):  # bad base64, bad UTF-8 or bad JSON
         return {}
     return claims if isinstance(claims, dict) else {}
 
