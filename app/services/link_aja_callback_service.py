@@ -64,11 +64,12 @@ from loguru import logger
 
 from app.config.constants import ErrorMessages
 from app.config.db import OrderStatusEnum, PaymentTypeEnum, UserOrderType
-from app.exceptions import CustomException
+from app.exceptions import CustomException, HubOrderFailedException
 from app.models.user import UserOrderModel
 from app.repo import UserOrderRepo
 from app.schemas.home import BundleDTO
 from app.services.bundle_service import BundleService
+from app.services.order_refund_service import OrderRefundService
 from app.services.integration.link_aja import (
     NON_FINAL_STATUSES,
     NOTIFY_SUCCESS_CODE,
@@ -115,12 +116,14 @@ class LinkAjaCallbackService:
     def __init__(self, link_aja_service: LinkAjaService = None,
                  user_order_repo: UserOrderRepo = None,
                  bundle_service: BundleService = None,
-                 task_executor: Optional[TaskExecutor] = None):
+                 task_executor: Optional[TaskExecutor] = None,
+                 order_refund_service: Optional[OrderRefundService] = None):
         # Lazily defaulted so constructing this never requires LinkAja config.
         self.__link_aja_service = link_aja_service or LinkAjaService()
         self.__user_order_repo = user_order_repo or UserOrderRepo()
         self.__bundle_service = bundle_service or BundleService()
         self.__task_executor = task_executor or TaskExecutor()
+        self.__order_refund_service = order_refund_service  # created on first failure
 
     # ------------------------------------------------------------------
     # Entry point
@@ -444,6 +447,11 @@ class LinkAjaCallbackService:
                          f"on a dedicated thread")
             self.__run_detached(task)
 
+    def __refunds(self) -> OrderRefundService:
+        if self.__order_refund_service is None:
+            self.__order_refund_service = OrderRefundService()
+        return self.__order_refund_service
+
     @staticmethod
     def __run_detached(task: Callable[[], object]) -> None:
         threading.Thread(target=task, name="linkaja-provision", daemon=True).start()
@@ -458,10 +466,20 @@ class LinkAjaCallbackService:
 
         if order.order_type == UserOrderType.ASSIGN:
             logger.info(f"[LinkAja] provisioning assign order {order.id}")
-            return await self.__bundle_service.buy_bundle(
-                user_order=order, bundle=bundle, user_id=order.user_id,
-                payment_status=OrderStatusEnum.SUCCESS,
-                payment_type=PaymentTypeEnum.LINK_AJA)
+            try:
+                result = await self.__bundle_service.buy_bundle(
+                    user_order=order, bundle=bundle, user_id=order.user_id,
+                    payment_status=OrderStatusEnum.SUCCESS,
+                    payment_type=PaymentTypeEnum.LINK_AJA)
+            except Exception as error:
+                # Paid through LinkAja: no automatic LinkAja refund yet, flag it for support.
+                self.__refunds().flag_hub_failure_for_review(order=order, payment_type=PaymentTypeEnum.LINK_AJA,
+                                                             error=error)
+                raise
+            if isinstance(result, HubOrderFailedException):
+                self.__refunds().flag_hub_failure_for_review(order=order, payment_type=PaymentTypeEnum.LINK_AJA,
+                                                             failure=result)
+            return result
 
         if order.order_type == UserOrderType.BUNDLE_TOP_UP:
             # Top-ups are not enabled for LinkAja (see the report). Beyond the
