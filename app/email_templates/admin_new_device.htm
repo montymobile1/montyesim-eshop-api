@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<title></title>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style type="text/css">*{box-sizing:border-box}body{margin:0;padding:0}p{line-height:inherit}</style>
+</head>
+<body style="background-color:#293B7D;margin:0;padding:0;-webkit-text-size-adjust:none;text-size-adjust:none">
+<table border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#293B7D" width="100%">
+<tbody>
+<tr>
+<td>
+<table align="center" border="0" cellpadding="0" cellspacing="0" role="presentation" style="background-color:#fff;color:#000;width:640px;margin:20px auto;border-radius:4px" width="640">
+<tbody>
+<tr>
+<td align="center" style="padding:25px 30px 0;">
+{% if data.base_url %}<a href="{{ data.base_url }}" style="outline:none" tabindex="-1" target="_blank"><img alt="{{ data.esim_name }}" height="auto" src="{{ data.base_url }}/logo/logo.png" style="display:block;height:auto;border:0;width:153px;max-width:100%" title="{{ data.esim_name }} Logo" width="153" /></a>{% endif %}
+</td>
+</tr>
+<tr>
+<td style="padding:20px 30px 25px;font-family:Verdana,Geneva,sans-serif;color:#293B7D;font-size:14px;line-height:1.6">
+
+<h2 style="margin:0 0 10px;font-size:17px;color:#293B7D;">New sign-in to your admin account</h2>
+<p style="margin:0 0 20px;font-size:15px;">Your admin account was signed in from a new device after the email code was entered.</p>
+
+<table border="0" cellpadding="4" cellspacing="0" role="presentation" style="font-size:14px;color:#293B7D;margin-bottom:20px" width="100%">
+<tbody>
+<tr><td style="width:180px;"><strong>Device:</strong></td><td>{{ data.device }}</td></tr>
+<tr><td><strong>Browser:</strong></td><td>{{ data.browser }}</td></tr>
+<tr><td><strong>Operating system:</strong></td><td>{{ data.os }}</td></tr>
+<tr><td><strong>IP address:</strong></td><td>{{ data.ip }}</td></tr>
+<tr><td><strong>Time:</strong></td><td>{{ data.time }}</td></tr>
+<tr><td><strong>Trusted for 30 days:</strong></td><td>{{ "Yes" if data.trusted else "No" }}</td></tr>
+</tbody>
+</table>
+
+<p style="margin:0 0 10px;">If this was you, there is nothing to do.</p>
+<p style="margin:0;">If it was not you, change your password from your profile in the admin portal and remove this device under <strong>Profile &gt; Devices</strong>, then tell your super admin.</p>
+
+</td>
+</tr>
+<tr>
+<td style="background-color:#C3D2EE;padding:10px 30px;font-family:Verdana,Geneva,sans-serif;font-size:10px;color:#293B7D;text-align:center;border-radius:0 0 4px 4px;">
+This is an automated security notification from the admin portal.
+</td>
+</tr>
+</tbody>
+</table>
+</td>
+</tr>
+</tbody>
+</table>
+</body>
+</html>

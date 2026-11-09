@@ -67,6 +67,13 @@ class LookupService:
         """``{id, label: email, email}``; users without an email are left out."""
         return _page(self._users.lookup(search, page, record_id), user_item)
 
+    def admins(self, search: Optional[str], page: PageParams,
+               record_id: Optional[str] = None) -> AdminPage[LookupItem]:
+        """``{id, label: email, email, role}``: admin and super_admin accounts only (Audit log "Admin" filter)."""
+        return _page(self._users.admins_lookup(search, page, record_id),
+                     lambda row: LookupItem(id=str(row["id"]), label=row.get("email") or "",
+                                            email=row.get("email"), role=row.get("role")))
+
     def bundles(self, search: Optional[str], page: PageParams,
                 record_id: Optional[str] = None) -> AdminPage[LookupItem]:
         """``{id, label: "display_title (bundle_code)", bundle_code}``; search on bundle_code."""
