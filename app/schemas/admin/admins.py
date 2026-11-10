@@ -14,6 +14,7 @@ class AdminAccountRow(BaseModel):
     email: Optional[str] = None
     role: str
     created_at: Optional[datetime] = None
+    #: the last ADMIN PORTAL sign-in (``admin_devices``), not Supabase's account-wide one; null = never
     last_sign_in_at: Optional[datetime] = None
     #: the signed-in super admin's own row: its actions are refused (409 ``cannot_target_self``)
     is_current_user: bool = False

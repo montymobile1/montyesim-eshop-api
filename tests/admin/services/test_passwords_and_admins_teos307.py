@@ -308,7 +308,13 @@ def mailed():
 
 
 @pytest.fixture
-def accounts(client, audit, revoked, mailed):
+def portal_sign_ins():
+    """admin_devices.last_sign_in_at per admin (lower-case id), the Admins page "Last sign-in"."""
+    return {}
+
+
+@pytest.fixture
+def accounts(client, audit, revoked, mailed, portal_sign_ins):
     client.auth.admin.generate_link.return_value = SimpleNamespace(
         properties=SimpleNamespace(hashed_token=RESET_TOKEN, verification_type="recovery",
                                    action_link="https://project.supabase.co/auth/v1/verify?token=x"))
@@ -316,7 +322,9 @@ def accounts(client, audit, revoked, mailed):
                                session_revoker=lambda uid: revoked.append(uid) or {"sessions": 1, "refresh_tokens": 0},
                                reset_url=lambda: "https://admin.example.com/reset-password",
                                reset_sender=lambda email, link: mailed.append((email, link)),
-                               smtp_check=lambda: True)
+                               smtp_check=lambda: True,
+                               portal_sign_ins=lambda ids: {i.lower(): portal_sign_ins[i.lower()]
+                                                            for i in ids if i.lower() in portal_sign_ins})
 
 
 def test_list_keeps_admins_only_super_admins_first_with_facets(accounts, client):
@@ -331,6 +339,47 @@ def test_list_keeps_admins_only_super_admins_first_with_facets(accounts, client)
     assert page.total_count == 3 and page.facets == {"all": 3, "super_admin": 1, "admin": 2}
     assert [row.is_current_user for row in page.data] == [True, False, False]
     client.auth.admin.list_users.assert_called_once_with(page=1, per_page=1000)
+
+
+def test_last_sign_in_is_the_admin_portal_one_not_supabases(accounts, client, portal_sign_ins):
+    """Supabase's last_sign_in_at is account-wide (a user portal sign-in moves it): never shown."""
+    portal = datetime(2026, 11, 10, 9, 30, tzinfo=timezone.utc)
+    user_portal_only = _user("b", "amy@x.com", ROLE_ADMIN)
+    user_portal_only.last_sign_in_at = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)
+    signed_in = _user("C-UPPER", "zed@x.com", ROLE_ADMIN)
+    signed_in.last_sign_in_at = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)
+    client.auth.admin.list_users.return_value = [user_portal_only, signed_in]
+    portal_sign_ins["c-upper"] = portal.isoformat()
+
+    page = accounts.list(None, "all", PageParams(page=1, page_size=20), ADMIN_ID)
+
+    by_email = {row.email: row.last_sign_in_at for row in page.data}
+    assert by_email == {"amy@x.com": None, "zed@x.com": portal}
+
+
+def test_last_sign_ins_are_read_only_for_the_page_shown(client):
+    asked = []
+    client.auth.admin.list_users.return_value = [_user(str(i), f"ops{i}@x.com", ROLE_ADMIN) for i in range(5)]
+    service = AdminAccountService(client_factory=lambda: client, reset_url=lambda: None, smtp_check=lambda: False,
+                                  portal_sign_ins=lambda ids: asked.append(list(ids)) or {})
+
+    service.list(None, "all", PageParams(page=2, page_size=2), ADMIN_ID)
+
+    assert asked == [["2", "3"]]
+
+
+def test_last_sign_ins_lookup_failure_is_502(client):
+    client.auth.admin.list_users.return_value = [_user("b", "amy@x.com", ROLE_ADMIN)]
+
+    def down(ids):
+        raise RuntimeError("db down")
+
+    service = AdminAccountService(client_factory=lambda: client, reset_url=lambda: None, smtp_check=lambda: False,
+                                  portal_sign_ins=down)
+
+    with pytest.raises(AdminUpstreamError) as err:
+        service.list(None, "all", PageParams(page=1, page_size=20), ADMIN_ID)
+    assert err.value.details == "SIGN_INS_LOOKUP_FAILED"
 
 
 def test_list_search_role_tab_and_paging(accounts, client):
@@ -420,7 +469,8 @@ def test_reset_without_smtp_is_503_unavailable_and_generates_nothing(client, aud
                                                   (True, None, False)])
 def test_list_says_whether_the_reset_link_is_available(client, smtp, url, available):
     client.auth.admin.list_users.return_value = [_user("b", "amy@x.com", ROLE_ADMIN)]
-    service = AdminAccountService(client_factory=lambda: client, reset_url=lambda: url, smtp_check=lambda: smtp)
+    service = AdminAccountService(client_factory=lambda: client, reset_url=lambda: url, smtp_check=lambda: smtp,
+                                  portal_sign_ins=lambda ids: {})
 
     page = service.list(None, "all", PageParams(page=1, page_size=20), ADMIN_ID)
 
