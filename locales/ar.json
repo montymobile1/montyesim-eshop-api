@@ -45,6 +45,8 @@
   "VERIFY_FAILED": "فشلت عملية التحقق.",
   "DELETE_ACCOUNT_FAILED": "فشل في حذف الحساب.",
   "REQUEST_FAILED": "فشل الطلب. يرجى المحاولة مرة أخرى.",
+  "ORDER_FAILED_REFUNDED": "تعذّر إتمام طلبك، لذلك تمت إعادة المبلغ إلى محفظتك.",
+  "ORDER_UNDER_REVIEW": "تعذّر تأكيد طلبك. يقوم فريقنا بمراجعته وسيتواصل معك قريبًا.",
   "INVALID_PAYMENT_TYPE": "تم تقديم نوع دفع غير صالح.",
   "USER_PROFILE_NOT_FOUND": "لم يتم العثور على ملف المستخدم.",
   "USER_PROFILE_BUNDLE_NOT_FOUND": "لم يتم العثور على حزمة ملف المستخدم.",

@@ -11,7 +11,7 @@ from app.config.helper import get_config
 from app.config.notification_types import send_buy_bundle_notification, send_buy_topup_notification
 from app.config.push_notification_manager import fcm_service
 from app.config.utils import truncate_two_decimals_decimal
-from app.exceptions import BadRequestException
+from app.exceptions import BadRequestException, HubOrderFailedException
 from app.models.app import BundleModel
 from app.models.user import UserOrderModel, UsersCopyModel, UserProfileModel, UserProfileBundleModel
 from app.repo import UserRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserWalletRepo
@@ -25,6 +25,7 @@ from app.schemas.response import Response, ResponseHelper
 from app.services.cache_service import CacheService
 from app.services.currency_service import CurrencyService
 from app.services.grouping_service import GroupingService
+from app.services.integration.esim_hub_outcome import HubCallOutcome, HubFailureKind
 from app.services.integration.link_aja import CLAIM_OWNED_ORDER_FIELDS
 from app.services.promotion_service import PromotionService
 from app.services.task_executor import TaskExecutor
@@ -185,24 +186,34 @@ class BundleService:
 
     async def buy_bundle(self, user_order: UserOrderModel, bundle: BundleDTO, user_id: str,
                          payment_status: str, payment_type: str, rule_id: str = None):
-        rate = self.__currency_service.get_currency_rate(from_currency=user_order.currency, to_currency="USD")
-        user = self.__user_repo.get_by_id(record_id=user_id)
-        msisdn = user.metadata.get("msisdn", "")
-        email = user.email
-        unique_identifier = f"{msisdn if msisdn else email}|{user_order.id}"
         order_id = user_order.id
         promo_code = user_order.promo_code if user_order.promo_code else user_order.referral_code
-        new_price = (round((user_order.modified_amount / 100) * rate, 2)) if promo_code else None
-        discount_amount = self.__get_discount_amount(promo_code) if promo_code else None
-        discount_rate = self.__get_discount_rate(promo_code) if promo_code else None
-        bundle_type = self.__bundle_type(code=bundle.bundle_code)
-        esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
-                                                                             order_id=unique_identifier, user=user,
-                                                                             payment_type=payment_type,
-                                                                             new_price=new_price,
-                                                                             discount_amount=discount_amount,
-                                                                             discount_rate=discount_rate,
-                                                                             bundle_type=bundle_type)
+        hub_outcome = HubCallOutcome()  # written by the Hub service on failure only
+        try:
+            rate = self.__currency_service.get_currency_rate(from_currency=user_order.currency, to_currency="USD")
+            user = self.__user_repo.get_by_id(record_id=user_id)
+            msisdn = user.metadata.get("msisdn", "")
+            email = user.email
+            unique_identifier = f"{msisdn if msisdn else email}|{user_order.id}"
+            new_price = (round((user_order.modified_amount / 100) * rate, 2)) if promo_code else None
+            discount_amount = self.__get_discount_amount(promo_code) if promo_code else None
+            discount_rate = self.__get_discount_rate(promo_code) if promo_code else None
+            bundle_type = self.__bundle_type(code=bundle.bundle_code)
+        except Exception as e:
+            # Paid, but the Hub was never called: nothing was delivered, the order fails definitely.
+            logger.error(f"order {user_order.id} failed before the eSIM Hub was called: {e}")
+            hub_outcome.mark(HubFailureKind.DEFINITE, f"failed before the eSIM Hub was called: {e}")
+            esim_hub_order = None
+        else:
+            esim_hub_order = await self.__esim_hub_service.create_reseller_order(bundle_code=bundle.bundle_code,
+                                                                                 order_id=unique_identifier,
+                                                                                 user=user,
+                                                                                 payment_type=payment_type,
+                                                                                 new_price=new_price,
+                                                                                 discount_amount=discount_amount,
+                                                                                 discount_rate=discount_rate,
+                                                                                 bundle_type=bundle_type,
+                                                                                 outcome=hub_outcome)
 
         user_order.payment_status = payment_status
         user_order.payment_time = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
@@ -214,7 +225,7 @@ class BundleService:
             logger.info(f"error creating esim hub profile for order {user_order.id}")
             await self.__promotion_service.update_promotion_usage(user_id=user_id, code=promo_code, status="failed",
                                                                   rule_id=rule_id, order_id=order_id)
-            return BadRequestException("Payment failed")
+            return HubOrderFailedException("Payment failed", definite=hub_outcome.definite, reason=hub_outcome.reason)
         else:
             user_order.esim_order_id = esim_hub_order.orderId
         self.__user_order_repo.update_by({"id": user_order.id},
@@ -283,25 +294,38 @@ class BundleService:
 
     async def top_up_bundle(self, bundle: BundleDTO, user_order: UserOrderModel, iccid: str, user_id: str,
                             payment_status: str, payment_type: str = PaymentTypeEnum.CARD):
-        user = self.__user_repo.get_by_id(record_id=user_id)
-        msisdn = user.metadata.get("msisdn", "")
-        email = user.email
-        order_id = f"{msisdn if msisdn else email}|{user_order.id}"
-        user_profile: UserProfileModel = self.__user_profile_repo.get_first_by({"user_id": user_id, "iccid": iccid})
-        primary_bundle: UserProfileBundleModel = self.__user_profile_bundle_repo.get_first_by(
-            {"user_id": user_id, "iccid": iccid, "bundle_type": UserBundleType.PRIMARY_BUNDLE})
-        bundle_type = self.__bundle_type(code=bundle.bundle_code)
+        hub_outcome = HubCallOutcome()  # written on failure only
         try:
-            esim_hub_topup = await self.__esim_hub_service.create_reseller_topup(
-                esim_hub_order_id=user_profile.esim_hub_order_id,
-                bundle_code=bundle.bundle_code,
-                order_id=order_id,
-                user=user,
-                payment_type=payment_type,
-                bundle_type=bundle_type)
+            user = self.__user_repo.get_by_id(record_id=user_id)
+            msisdn = user.metadata.get("msisdn", "")
+            email = user.email
+            order_id = f"{msisdn if msisdn else email}|{user_order.id}"
+            user_profile: UserProfileModel = self.__user_profile_repo.get_first_by(
+                {"user_id": user_id, "iccid": iccid})
+            primary_bundle: UserProfileBundleModel = self.__user_profile_bundle_repo.get_first_by(
+                {"user_id": user_id, "iccid": iccid, "bundle_type": UserBundleType.PRIMARY_BUNDLE})
+            bundle_type = self.__bundle_type(code=bundle.bundle_code)
+            if user_profile is None:
+                raise ValueError(f"the user has no eSIM with iccid {iccid}")
         except Exception as e:
+            # Paid, but the Hub was never called: nothing was delivered, the top-up fails definitely.
             esim_hub_topup = None
-            logger.error(f"error while topping up bundle {str(e)}")
+            hub_outcome.mark(HubFailureKind.DEFINITE, f"top-up failed before the eSIM Hub was called: {e}")
+            logger.error(f"top-up {user_order.id} failed before the eSIM Hub was called: {e}")
+        else:
+            try:
+                esim_hub_topup = await self.__esim_hub_service.create_reseller_topup(
+                    esim_hub_order_id=user_profile.esim_hub_order_id,
+                    bundle_code=bundle.bundle_code,
+                    order_id=order_id,
+                    user=user,
+                    payment_type=payment_type,
+                    bundle_type=bundle_type,
+                    outcome=hub_outcome)
+            except Exception as e:
+                esim_hub_topup = None
+                hub_outcome.mark(HubFailureKind.AMBIGUOUS, f"Hub top-up request failed: {e}")
+                logger.error(f"error while topping up bundle {str(e)}")
         if not esim_hub_topup:
             self.__user_order_repo.update_by({"id": user_order.id}, {
                 "order_status": OrderStatusEnum.FAILURE,
@@ -310,7 +334,7 @@ class BundleService:
                 "esim_order_id": None
             })
             logger.error(f"error while topping up bundle {user_order.id}")
-            return BadRequestException("Payment failed")
+            return HubOrderFailedException("Payment failed", definite=hub_outcome.definite, reason=hub_outcome.reason)
         self.__user_order_repo.update_by({"id": user_order.id}, {
             "order_status": OrderStatusEnum.SUCCESS,
             "payment_status": payment_status,

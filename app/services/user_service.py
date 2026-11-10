@@ -2,7 +2,7 @@ import asyncio
 import os
 from datetime import datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal, ROUND_HALF_UP
-from typing import List
+from typing import List, Optional
 
 import bleach
 import stripe
@@ -17,7 +17,8 @@ from app.config.db import DatabaseTables, PaymentTypeEnum, ConfigKeysEnum
 from app.config.helper import get_config
 from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, \
     truncate_two_decimals_decimal
-from app.exceptions import BadRequestException, CustomException
+from app.exceptions import BadRequestException, CustomException, OrderFulfilmentFailedException, \
+    OrderNotFulfilledException
 from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel, UsersCopyModel, UserWalletModel, \
     UserProfileModel, UserProfileBundleModel
 from app.repo import NotificationRepo, UserOrderRepo, UserProfileRepo, UserProfileBundleRepo, UserRepo
@@ -31,6 +32,7 @@ from app.schemas.home import BundleDTO, CountryDTO
 from app.schemas.response import Response, ResponseHelper
 from app.services.bundle_service import BundleService
 from app.services.currency_service import CurrencyService
+from app.services.order_refund_service import OrderRefundService, RefundResult
 from app.services.integration.link_aja import LinkAjaPaymentRequest, embed_order_data
 from app.services.promotion_service import PromotionService
 from app.services.task_executor import TaskExecutor
@@ -55,6 +57,7 @@ class UserBundleService:
         self.__task_executor = TaskExecutor()
         self.__bundle_translation_repo = BundleTranslationRepo()
         self.__tag_repo = TagRepo()
+        self.__order_refund_service: Optional[OrderRefundService] = None  # created on first failure
 
     async def assign(self, user: UserModel, device_id: str, assign_request: AssignRequest, x_currency: str,
                      locale: str, request: Request) -> Response[PaymentIntentResponse] | Response[bool]:
@@ -620,14 +623,27 @@ class UserBundleService:
 
         payment_status = OrderStatusEnum.SUCCESS if response else OrderStatusEnum.FAILURE
 
-        if user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
-            return await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                             payment_status=payment_status,
-                                                             payment_type=PaymentTypeEnum.DCB,
-                                                             iccid=request.iccid)
-        return await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                      payment_status=payment_status,
-                                                      payment_type=PaymentTypeEnum.DCB)
+        try:
+            if user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
+                result = await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle,
+                                                                   user_id=user.id,
+                                                                   payment_status=payment_status,
+                                                                   payment_type=PaymentTypeEnum.DCB,
+                                                                   iccid=request.iccid)
+            else:
+                result = await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
+                                                                user_id=user.id,
+                                                                payment_status=payment_status,
+                                                                payment_type=PaymentTypeEnum.DCB)
+        except Exception as error:
+            # The carrier balance was deducted: no automatic DCB refund, flag it for support.
+            self.__refunds().flag_hub_failure_for_review(order=user_order, payment_type=PaymentTypeEnum.DCB,
+                                                         error=error)
+            raise
+        if isinstance(result, OrderFulfilmentFailedException):
+            self.__refunds().flag_hub_failure_for_review(order=user_order, payment_type=PaymentTypeEnum.DCB,
+                                                         failure=result)
+        return result
 
     async def resend_order_otp(self, user: UserModel, order_id: str) -> Response[None]:
         order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
@@ -656,26 +672,58 @@ class UserBundleService:
         if wallet.amount < bundle_price:
             raise CustomException(code=400, name=ErrorMessages.INSUFFICIENT_WALLET_BALANCE,
                                   details="Insufficient wallet balance, please top up your wallet")
+        debited = False
         try:
             self.__user_wallet_service.add_wallet_transaction(amount=(bundle_price * -1),
                                                               user_id=user.id,
                                                               source=UserWalletTransactionSource.PURCHASE_BUNDLE,
                                                               order_currency="USD")
+            debited = True
+            result = None
             if user_order.order_type == UserOrderType.ASSIGN:
-                await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                       payment_status=OrderStatusEnum.SUCCESS,
-                                                       payment_type=PaymentTypeEnum.WALLET,
-                                                       rule_id=rule_id)
+                result = await self.__bundle_service.buy_bundle(user_order=user_order, bundle=bundle,
+                                                                user_id=user.id,
+                                                                payment_status=OrderStatusEnum.SUCCESS,
+                                                                payment_type=PaymentTypeEnum.WALLET,
+                                                                rule_id=rule_id)
             elif user_order.order_type == UserOrderType.BUNDLE_TOP_UP:
-                await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle, user_id=user.id,
-                                                          payment_status=OrderStatusEnum.SUCCESS,
-                                                          payment_type=PaymentTypeEnum.WALLET,
-                                                          iccid=iccid)
+                result = await self.__bundle_service.top_up_bundle(user_order=user_order, bundle=bundle,
+                                                                   user_id=user.id,
+                                                                   payment_status=OrderStatusEnum.SUCCESS,
+                                                                   payment_type=PaymentTypeEnum.WALLET,
+                                                                   iccid=iccid)
+            if isinstance(result, OrderFulfilmentFailedException):
+                raise self.__wallet_order_not_fulfilled(user_order, result, None, bundle_price, wallet.currency)
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
+        except OrderNotFulfilledException:
+            raise
         except Exception as e:
+            if debited:
+                raise self.__wallet_order_not_fulfilled(user_order, None, e, bundle_price, wallet.currency)
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
                                   details=f"Error while creating order: {e}")
+
+    def __wallet_order_not_fulfilled(self, user_order: UserOrderModel, failure: Optional[OrderFulfilmentFailedException],
+                                     error: Optional[Exception], amount: float,
+                                     currency: str) -> OrderNotFulfilledException:
+        """The wallet was debited but the order was not fulfilled: credit it back when that is safe,
+        and answer with the failure instead of COMPLETED."""
+        result = self.__refunds().handle_wallet_hub_failure(order=user_order, failure=failure, amount=amount,
+                                                            currency=currency, error=error)
+        if result == RefundResult.REFUNDED:
+            return OrderNotFulfilledException(name=ErrorMessages.ORDER_FAILED_REFUNDED,
+                                              details=f"order {user_order.id} failed at the eSIM Hub; "
+                                                      f"{amount} {currency} credited back to the wallet")
+        # TODO: answer 202 ORDER_UNDER_REVIEW once the app reads the body of a 202 (http_request.dart only
+        #  parses 200/201/400/403/404/429 today).
+        return OrderNotFulfilledException(name=ErrorMessages.ORDER_UNDER_REVIEW,
+                                          details=f"order {user_order.id} could not be confirmed; flagged for review")
+
+    def __refunds(self) -> OrderRefundService:
+        if self.__order_refund_service is None:
+            self.__order_refund_service = OrderRefundService()
+        return self.__order_refund_service
 
     async def __handle_dcb_payment(self, user: UserModel, user_order: UserOrderModel, bundle: BundleDTO) -> Response[
         PaymentIntentResponse]:
