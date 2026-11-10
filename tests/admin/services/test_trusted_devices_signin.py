@@ -367,7 +367,7 @@ def verifications(supabase, verification_repo, otp_repo, audit, clock, monkeypat
 def service(supabase, devices, audit, verifications):
     limiter = LoginRateLimiter(5, 300, store_factory=lambda: FakeLoginAttemptStore(FakeClock()))
     return AdminAuthService(client_factory=supabase, rate_limiter=limiter, audit_factory=lambda: audit,
-                            session_revoker=lambda uid: {"sessions": 1}, device_service_factory=lambda: devices,
+                            device_service_factory=lambda: devices,
                             verification_service=verifications)
 
 
@@ -1236,10 +1236,11 @@ def test_password_reset_with_a_portal_token_is_400(service, supabase, devices):
 
 
 def test_password_reset_succeeds_when_the_device_update_fails(service, supabase, devices):
+    """The password is set anyway; the admin portal sessions could not all be ended, so it says so."""
     _recovery_token(supabase)
     devices.fail, devices.fail_only = RuntimeError("db down"), {"revoke_all"}
 
-    assert service.complete_password_reset("reset-token", "N3w-Passw0rd!x", None).sessions_signed_out is True
+    assert service.complete_password_reset("reset-token", "N3w-Passw0rd!x", None).sessions_signed_out is False
 
 
 # ---------- helpers ----------
