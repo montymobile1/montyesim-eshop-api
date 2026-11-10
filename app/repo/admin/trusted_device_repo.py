@@ -18,6 +18,11 @@ def iso(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat()
 
 
+def _moment(value: Any) -> datetime:
+    parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 def _unwrap(result: Any) -> dict:
     """A scalar jsonb RPC result can arrive wrapped in a list."""
     if isinstance(result, list):
@@ -53,6 +58,21 @@ class AdminDeviceRepo(AdminBaseRepository):
         response = self._run(lambda: self.table.select("*").eq("id", device_id).eq("admin_id", admin_id)
                              .is_("revoked_at", "null").limit(1).execute())
         return response.data[0] if response.data else None
+
+    def last_sign_ins(self, admin_ids: Iterable[str]) -> Dict[str, str]:
+        """The latest admin portal sign-in of each admin (``last_sign_in_at`` over all their rows, revoked ones
+        included), keyed by the lower-case admin id. Admins without one are absent."""
+        ids = sorted({str(i).lower() for i in admin_ids if i})
+        latest: Dict[str, str] = {}
+        for start in range(0, len(ids), 100):  # keeps the URL short
+            chunk = ids[start:start + 100]
+            response = self._run(lambda: self.table.select("admin_id,last_sign_in_at").in_("admin_id", chunk)
+                                 .not_.is_("last_sign_in_at", "null").execute())
+            for row in response.data or []:
+                key, value = str(row.get("admin_id")).lower(), row.get("last_sign_in_at")
+                if value and (key not in latest or _moment(value) > _moment(latest[key])):
+                    latest[key] = value
+        return latest
 
     def trusted_active(self, admin_id: str) -> List[Dict[str, Any]]:
         """Active rows still trusted now, least recently used first (the 5-device limit drops the first)."""

@@ -178,7 +178,8 @@ class TrustedDeviceService:
         first (one session per device). Returns the updated row. No email."""
         repo = self._repo()
         self._end_previous_session(repo, device, session_id)
-        patch = {"session_id": session_id, "last_used_at": iso(self._clock()), "last_ip": ip,
+        now = iso(self._clock())
+        patch = {"session_id": session_id, "last_used_at": now, "last_sign_in_at": now, "last_ip": ip,
                  "device_info": display_info(info)}
         row = repo.update(str(device["id"]), patch) or {**device, **patch}
         admin_id = str(device.get("admin_id") or "")
@@ -198,7 +199,8 @@ class TrustedDeviceService:
         now = self._clock()
         name = _collapse_name(name)
         patch: Dict[str, Any] = {
-            "session_id": session_id, "last_used_at": iso(now), "last_ip": ip, "device_info": display_info(info),
+            "session_id": session_id, "last_used_at": iso(now), "last_sign_in_at": iso(now), "last_ip": ip,
+            "device_info": display_info(info),
             "trusted_until": iso(now + timedelta(days=TRUST_DAYS)) if trust else None,
         }
         if name:

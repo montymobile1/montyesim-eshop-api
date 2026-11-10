@@ -206,6 +206,7 @@ def test_signed_in_trusted_moves_the_row_to_the_new_session_and_ends_the_old_one
     assert updated["session_id"] == "new-session"
     assert updated["last_ip"] == "9.9.9.9"
     assert updated["last_used_at"] == iso(NOW)
+    assert updated["last_sign_in_at"] == iso(NOW)  # the Admins page "Last sign-in"
     assert updated["device_info"]["browser"] == "Firefox"
     assert "device_key" not in updated["device_info"]
     assert repo.ended == ["old-session"]
@@ -218,6 +219,7 @@ def test_register_verified_trusted_creates_the_row_for_30_days(service, repo, au
                                     "  My   laptop ", CTX)
 
     stored = repo.rows[row["id"]]
+    assert stored["last_sign_in_at"] == iso(NOW)
     assert stored["trusted_until"] == iso(NOW + timedelta(days=TRUST_DAYS))
     assert stored["session_id"] == "s1"
     assert stored["first_ip"] == stored["last_ip"] == "5.5.5.5"
@@ -264,6 +266,7 @@ def test_touch_sets_last_use_and_ip_without_audit(service, repo, audit):
 
     assert repo.rows[row["id"]]["last_used_at"] == iso(NOW)
     assert repo.rows[row["id"]]["last_ip"] == "2.2.2.2"
+    assert repo.rows[row["id"]].get("last_sign_in_at") is None  # a refresh is not a sign-in
     assert audit.rows == []
 
 

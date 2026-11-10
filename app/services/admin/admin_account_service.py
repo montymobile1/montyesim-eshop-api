@@ -51,6 +51,7 @@ RESET_URL_NOT_SET = "PASSWORD_RESET_URL_NOT_SET"
 RESET_EMAIL_FAILED = "RESET_EMAIL_FAILED"
 RESET_EMAIL_RATE_LIMITED = "reset_email_rate_limited"
 RESET_UNAVAILABLE = "password_reset_unavailable"
+SIGN_INS_LOOKUP_FAILED = "SIGN_INS_LOOKUP_FAILED"
 AUDIT_FAILED = "AUDIT_FAILED"
 ACTION_RESET_EMAIL_SENT = "password_reset_email_sent"
 ACTION_ACCESS_REVOKED = "admin_access_revoked"
@@ -79,6 +80,12 @@ def reset_link(page_url: str, token: str) -> str:
     return f"{page_url.split('#', 1)[0]}#token={quote(token, safe='')}"
 
 
+def _default_portal_sign_ins(admin_ids: List[str]) -> Dict[str, Any]:
+    """The last admin portal sign-in per admin (``admin_devices.last_sign_in_at``)."""
+    from app.repo.admin.trusted_device_repo import AdminDeviceRepo
+    return AdminDeviceRepo().last_sign_ins(admin_ids)
+
+
 def _default_reset_sender(email: str, link: str) -> None:
     admin_mailer.send_now(TEMPLATE_PASSWORD_RESET, SUBJECT_PASSWORD_RESET, email, {"link": link})
 
@@ -95,8 +102,10 @@ class AdminAccountService:
                  reset_url: Callable[[], Optional[str]] = _reset_url,
                  device_revoker: Callable[[str, AuditContext], int] = _default_device_revoker,
                  reset_sender: Callable[[str, str], None] = _default_reset_sender,
-                 smtp_check: Callable[[], bool] = admin_mailer.smtp_configured):
+                 smtp_check: Callable[[], bool] = admin_mailer.smtp_configured,
+                 portal_sign_ins: Callable[[List[str]], Dict[str, Any]] = _default_portal_sign_ins):
         self._client_factory = client_factory
+        self._portal_sign_ins = portal_sign_ins
         self._reset_sender = reset_sender
         self._smtp_check = smtp_check
         self._session_revoker = session_revoker
@@ -120,8 +129,23 @@ class AdminAccountService:
         if role != "all":
             rows = [row for row in rows if row.role == role]
         rows.sort(key=lambda row: (row.role != ROLE_SUPER_ADMIN, (row.email or "").lower(), row.id))
-        return AdminAccountPage(data=rows[page.offset:page.offset + page.limit], total_count=len(rows),
+        shown = self._with_portal_sign_ins(rows[page.offset:page.offset + page.limit])
+        return AdminAccountPage(data=shown, total_count=len(rows),
                                 facets=facets, password_reset_available=self.password_reset_available())
+
+    def _with_portal_sign_ins(self, rows: List[AdminAccountRow]) -> List[AdminAccountRow]:
+        """``last_sign_in_at`` = the last ADMIN PORTAL sign-in, from ``admin_devices``. Supabase's own
+        ``last_sign_in_at`` is account-wide (a user portal sign-in moves it), so it is not used. No portal
+        sign-in recorded: null ("Never")."""
+        if not rows:
+            return rows
+        try:
+            latest = self._portal_sign_ins([row.id for row in rows])
+        except Exception as exc:
+            logger.error(f"admins list: last portal sign-ins not read: {type(exc).__name__}")
+            raise AdminUpstreamError(SIGN_INS_LOOKUP_FAILED) from exc
+        return [AdminAccountRow.model_validate({**row.model_dump(), "last_sign_in_at": latest.get(row.id.lower())})
+                for row in rows]
 
     def password_reset_available(self) -> bool:
         """The reset link can be emailed: SMTP and ``ADMIN_PASSWORD_RESET_URL`` are set. The portal disables
@@ -149,7 +173,6 @@ class AdminAccountService:
         user_id = str(user.id)
         return AdminAccountRow(id=user_id, email=getattr(user, "email", None), role=_role_of(user),
                                created_at=getattr(user, "created_at", None),
-                               last_sign_in_at=getattr(user, "last_sign_in_at", None),
                                is_current_user=user_id.lower() == str(current_user_id).lower())
 
     # ---------- reset password ----------

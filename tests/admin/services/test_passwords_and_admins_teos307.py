@@ -107,7 +107,8 @@ def _signed_in(client, user_id=ADMIN_ID):
         user=make_auth_user(ROLE_ADMIN, user_id=user_id))
 
 
-def test_change_password_sets_it_signs_out_others_and_returns_the_new_session(auth, client, audit):
+def test_change_password_sets_it_signs_out_other_admin_sessions_and_returns_the_new_session(auth, client, audit,
+                                                                                            devices):
     _signed_in(client)
 
     result = auth.change_password(make_admin(), "Old-Passw0rd!x", GOOD, "1.2.3.4", CTX)
@@ -115,7 +116,10 @@ def test_change_password_sets_it_signs_out_others_and_returns_the_new_session(au
     client.auth.sign_in_with_password.assert_called_once_with({"email": "admin@example.com",
                                                                "password": "Old-Passw0rd!x"})
     client.auth.admin.update_user_by_id.assert_called_once_with(ADMIN_ID, {"password": GOOD})
-    client.auth.admin.sign_out.assert_called_once_with("new-access", "others")
+    # only the admin portal: the other device rows are revoked and the caller's old session ends;
+    # no account-wide "others" sign-out, so the user portal sessions stay signed in
+    assert ("revoke_all", ADMIN_ID, "password_change", None) in devices.calls
+    client.auth.admin.sign_out.assert_called_once_with("access-token", "local")
     assert result.access_token == "new-access" and result.refresh_token == "new-refresh"
     assert result.other_sessions_signed_out is True
     (ctx, table, operation, details), = audit.rows
@@ -175,7 +179,7 @@ def test_change_password_session_of_another_account_is_refused(auth, client):
     client.auth.admin.update_user_by_id.assert_not_called()
 
 
-def test_change_password_reports_when_the_other_sessions_stay(auth, client, audit):
+def test_change_password_reports_when_the_old_session_stays(auth, client, audit):
     _signed_in(client)
     client.auth.admin.sign_out.side_effect = AuthRetryableError("down", 503)
 
@@ -183,6 +187,25 @@ def test_change_password_reports_when_the_other_sessions_stay(auth, client, audi
 
     assert result.other_sessions_signed_out is False
     assert audit.rows[0][3]["other_sessions_signed_out"] is False
+
+
+def test_change_password_reports_when_the_other_admin_devices_stay(auth, client, audit, devices):
+    _signed_in(client)
+    devices.fail, devices.fail_only = RuntimeError("db down"), {"revoke_all"}
+
+    result = auth.change_password(make_admin(), "Old-Passw0rd!x", GOOD, "1.2.3.4", CTX)
+
+    assert result.access_token == "new-access"  # the password is changed anyway
+    assert result.other_sessions_signed_out is False
+
+
+def test_change_password_never_signs_out_the_whole_account(auth, client):
+    _signed_in(client)
+
+    auth.change_password(make_admin(), "Old-Passw0rd!x", GOOD, "1.2.3.4", CTX)
+
+    scopes = [call.args[1] for call in client.auth.admin.sign_out.call_args_list]
+    assert "others" not in scopes and "global" not in scopes
 
 
 def test_change_password_audit_failure_does_not_fail_the_change(client, store):
@@ -308,7 +331,13 @@ def mailed():
 
 
 @pytest.fixture
-def accounts(client, audit, revoked, mailed):
+def portal_sign_ins():
+    """admin_devices.last_sign_in_at per admin (lower-case id), the Admins page "Last sign-in"."""
+    return {}
+
+
+@pytest.fixture
+def accounts(client, audit, revoked, mailed, portal_sign_ins):
     client.auth.admin.generate_link.return_value = SimpleNamespace(
         properties=SimpleNamespace(hashed_token=RESET_TOKEN, verification_type="recovery",
                                    action_link="https://project.supabase.co/auth/v1/verify?token=x"))
@@ -316,7 +345,9 @@ def accounts(client, audit, revoked, mailed):
                                session_revoker=lambda uid: revoked.append(uid) or {"sessions": 1, "refresh_tokens": 0},
                                reset_url=lambda: "https://admin.example.com/reset-password",
                                reset_sender=lambda email, link: mailed.append((email, link)),
-                               smtp_check=lambda: True)
+                               smtp_check=lambda: True,
+                               portal_sign_ins=lambda ids: {i.lower(): portal_sign_ins[i.lower()]
+                                                            for i in ids if i.lower() in portal_sign_ins})
 
 
 def test_list_keeps_admins_only_super_admins_first_with_facets(accounts, client):
@@ -331,6 +362,47 @@ def test_list_keeps_admins_only_super_admins_first_with_facets(accounts, client)
     assert page.total_count == 3 and page.facets == {"all": 3, "super_admin": 1, "admin": 2}
     assert [row.is_current_user for row in page.data] == [True, False, False]
     client.auth.admin.list_users.assert_called_once_with(page=1, per_page=1000)
+
+
+def test_last_sign_in_is_the_admin_portal_one_not_supabases(accounts, client, portal_sign_ins):
+    """Supabase's last_sign_in_at is account-wide (a user portal sign-in moves it): never shown."""
+    portal = datetime(2026, 11, 10, 9, 30, tzinfo=timezone.utc)
+    user_portal_only = _user("b", "amy@x.com", ROLE_ADMIN)
+    user_portal_only.last_sign_in_at = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)
+    signed_in = _user("C-UPPER", "zed@x.com", ROLE_ADMIN)
+    signed_in.last_sign_in_at = datetime(2026, 11, 10, 12, 0, tzinfo=timezone.utc)
+    client.auth.admin.list_users.return_value = [user_portal_only, signed_in]
+    portal_sign_ins["c-upper"] = portal.isoformat()
+
+    page = accounts.list(None, "all", PageParams(page=1, page_size=20), ADMIN_ID)
+
+    by_email = {row.email: row.last_sign_in_at for row in page.data}
+    assert by_email == {"amy@x.com": None, "zed@x.com": portal}
+
+
+def test_last_sign_ins_are_read_only_for_the_page_shown(client):
+    asked = []
+    client.auth.admin.list_users.return_value = [_user(str(i), f"ops{i}@x.com", ROLE_ADMIN) for i in range(5)]
+    service = AdminAccountService(client_factory=lambda: client, reset_url=lambda: None, smtp_check=lambda: False,
+                                  portal_sign_ins=lambda ids: asked.append(list(ids)) or {})
+
+    service.list(None, "all", PageParams(page=2, page_size=2), ADMIN_ID)
+
+    assert asked == [["2", "3"]]
+
+
+def test_last_sign_ins_lookup_failure_is_502(client):
+    client.auth.admin.list_users.return_value = [_user("b", "amy@x.com", ROLE_ADMIN)]
+
+    def down(ids):
+        raise RuntimeError("db down")
+
+    service = AdminAccountService(client_factory=lambda: client, reset_url=lambda: None, smtp_check=lambda: False,
+                                  portal_sign_ins=down)
+
+    with pytest.raises(AdminUpstreamError) as err:
+        service.list(None, "all", PageParams(page=1, page_size=20), ADMIN_ID)
+    assert err.value.details == "SIGN_INS_LOOKUP_FAILED"
 
 
 def test_list_search_role_tab_and_paging(accounts, client):
@@ -420,7 +492,8 @@ def test_reset_without_smtp_is_503_unavailable_and_generates_nothing(client, aud
                                                   (True, None, False)])
 def test_list_says_whether_the_reset_link_is_available(client, smtp, url, available):
     client.auth.admin.list_users.return_value = [_user("b", "amy@x.com", ROLE_ADMIN)]
-    service = AdminAccountService(client_factory=lambda: client, reset_url=lambda: url, smtp_check=lambda: smtp)
+    service = AdminAccountService(client_factory=lambda: client, reset_url=lambda: url, smtp_check=lambda: smtp,
+                                  portal_sign_ins=lambda ids: {})
 
     page = service.list(None, "all", PageParams(page=1, page_size=20), ADMIN_ID)
 

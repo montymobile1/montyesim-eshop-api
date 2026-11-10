@@ -7160,6 +7160,8 @@ CREATE POLICY contact_us_select_admin ON public.contact_us
 --   session_id    Supabase session (auth.sessions.id, JWT claim session_id) of this browser;
 --                 every /admin request must come from a session that has an active row here
 --   revoked_*     a revoked row is history only: its session is ended, it is never matched again
+--   last_sign_in_at the last ADMIN PORTAL sign-in from this browser (password on a trusted device,
+--                 or the email code); the Admins page shows the latest per admin. Refreshes don't move it
 --   last_token_iat  iat (JWT issued-at, seconds) of the newest access token the API handed to this
 --                 device; a token of the session issued later (refreshed directly against
 --                 Supabase, not through the API) is refused
@@ -7181,11 +7183,16 @@ CREATE TABLE IF NOT EXISTS public.admin_devices
     revoked_by    uuid        NULL,
     revoke_reason text        NULL,
     last_token_iat bigint     NULL,
+    last_sign_in_at timestamptz NULL,
     CONSTRAINT admin_devices_name_len CHECK (name IS NULL OR char_length(name) BETWEEN 1 AND 60)
 );
 
 -- added after the first draft of this file: also on a table created by an earlier run
 ALTER TABLE public.admin_devices ADD COLUMN IF NOT EXISTS last_token_iat bigint NULL;
+ALTER TABLE public.admin_devices ADD COLUMN IF NOT EXISTS last_sign_in_at timestamptz NULL;
+-- the Admins page: each admin's latest portal sign-in
+CREATE INDEX IF NOT EXISTS admin_devices_admin_sign_in_idx
+    ON public.admin_devices (admin_id, last_sign_in_at DESC) WHERE last_sign_in_at IS NOT NULL;
 
 -- one active row per admin and browser; revoked rows are kept as history
 CREATE UNIQUE INDEX IF NOT EXISTS admin_devices_active_hash_uq
