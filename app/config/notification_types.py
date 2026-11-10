@@ -14,6 +14,7 @@ class NotificationCategoryType(IntEnum):
     CONSUMPTION_100_BUNDLE_DETAIL = 8
     WALLET_TOP_UP_SUCCEEDED = 9
     WALLET_TOP_UP_FAILED = 10
+    ORDER_REFUNDED = 11  # unknown to current app builds: shown from title/body, no redirection
 
 
 @dataclass
@@ -128,7 +129,15 @@ def get_notification_content(category: NotificationCategoryType, **kwargs) -> No
                 "category": str(NotificationCategoryType.WALLET_TOP_UP_SUCCEEDED.value),
                 "message": "Wallet Top Up Successful",
             }
-        )
+        ),
+        NotificationCategoryType.ORDER_REFUNDED: NotificationContent(
+            title="Payment Refunded",
+            message=f"We couldn't complete your order, so your payment of {kwargs.get('amount', '')} was refunded.",
+            data={
+                "category": str(NotificationCategoryType.ORDER_REFUNDED.value),
+                "message": "Payment refunded",
+            }
+        ),
     }
 
     return notifications.get(category)
@@ -207,4 +216,11 @@ def send_wallet_top_up_succeeded_notification(amount: str) -> NotificationConten
 def send_wallet_top_up_failed_notification() -> NotificationContent:
     return get_notification_content(
         category=NotificationCategoryType.WALLET_TOP_UP_FAILED
+    )
+
+
+def send_order_refunded_notification(amount: str) -> NotificationContent:
+    return get_notification_content(
+        category=NotificationCategoryType.ORDER_REFUNDED,
+        amount=amount
     )

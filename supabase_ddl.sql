@@ -6917,6 +6917,61 @@ REVOKE ALL ON FUNCTION public.admin_revoke_user_sessions(uuid) FROM PUBLIC, anon
 GRANT EXECUTE ON FUNCTION public.admin_revoke_user_sessions(uuid) TO service_role;
 
 
+-- ----------------------------------------------------------------------------
+-- 150_user_order_refund.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  150_user_order_refund.sql  (refund on eSIM Hub failure)
+
+  One row per paid order whose eSIM Hub order / top-up failed: the automatic refund (Card: Stripe
+  refund, Wallet: credit back) or the manual review it needs instead. A separate table, not columns
+  on user_order: UserOrderModel forbids unknown columns, so new user_order columns would break
+  every order read of the running code.
+
+  status
+    pending        claimed, the refund is being executed
+    refunded       the money went back to the customer
+    failed         the Stripe refund call failed; retryable by support
+    manual_review  no automatic refund (ambiguous Hub failure, DCB, LinkAja, wallet credit error)
+
+  The primary key on order_id is the double-refund guard: the claim is
+  INSERT ... ON CONFLICT (order_id) DO NOTHING, and every later change is
+  UPDATE ... WHERE order_id = ? AND status = <expected>. Service role only.
+
+  Idempotent.
+*/
+
+CREATE TABLE IF NOT EXISTS public.user_order_refund
+(
+    order_id           uuid        NOT NULL PRIMARY KEY
+        REFERENCES public.user_order (id) ON DELETE CASCADE,
+    user_id            uuid        NOT NULL,
+    payment_type       varchar(20) NOT NULL,
+    status             varchar(20) NOT NULL
+        CONSTRAINT user_order_refund_status_check
+            CHECK (status IN ('pending', 'refunded', 'failed', 'manual_review')),
+    reason             text,
+    amount             numeric,
+    currency           varchar(10),
+    reference          varchar,
+    payment_intent_id  varchar,
+    tax_transaction_id varchar,
+    tax_reversal_id    varchar,
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    updated_at         timestamptz NOT NULL DEFAULT now(),
+    refunded_at        timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS user_order_refund_status_idx
+    ON public.user_order_refund (status, created_at DESC);
+
+ALTER TABLE public.user_order_refund ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.user_order_refund FROM anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.user_order_refund TO service_role;
+
+
 -- ============================================================================
 -- Row level security on the per-user tables (TEOS-268)
 -- ============================================================================

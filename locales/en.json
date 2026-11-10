@@ -45,6 +45,8 @@
   "VERIFY_FAILED": "Verification failed.",
   "DELETE_ACCOUNT_FAILED": "Failed to delete account.",
   "REQUEST_FAILED": "Request failed. Please try again.",
+  "ORDER_FAILED_REFUNDED": "We couldn't complete your order, so the amount was refunded to your wallet.",
+  "ORDER_UNDER_REVIEW": "We couldn't confirm your order. Our team is reviewing it and will contact you shortly.",
   "INVALID_PAYMENT_TYPE": "Invalid payment type provided.",
   "USER_PROFILE_NOT_FOUND": "User profile not found.",
   "USER_PROFILE_BUNDLE_NOT_FOUND": "User profile bundle not found.",

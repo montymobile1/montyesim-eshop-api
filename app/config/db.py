@@ -13,6 +13,14 @@ class OrderStatusEnum(StrEnum):
     CANCELED = "canceled"
 
 
+class OrderRefundStatusEnum(StrEnum):
+    """Status of a row in `user_order_refund` (refund of a paid order whose eSIM Hub call failed)."""
+    PENDING = "pending"              # claimed: a refund is being executed
+    REFUNDED = "refunded"            # the money went back to the customer
+    FAILED = "failed"                # the Stripe refund call failed; retryable (OrderRefundService.retry_failed_refund)
+    MANUAL_REVIEW = "manual_review"  # no automatic refund: someone has to decide
+
+
 class UserOrderType(StrEnum):
     ASSIGN = "Assign"
     BUNDLE_TOP_UP = "Topup"
@@ -91,6 +99,7 @@ class DatabaseTables(StrEnum):
     TABLE_USER_WALLET = "user_wallet"
     TABLE_USER_WALLET_TRANSACTION = "user_wallet_transaction"
     TABLE_USER_ORDER = "user_order"
+    TABLE_USER_ORDER_REFUND = "user_order_refund"
     TABLE_USER_PROFILE_BUNDLE = "user_profile_bundle"
     TABLE_USER_PROFILE = "user_profile"
     TABLE_USER_COPY = "users_copy"
