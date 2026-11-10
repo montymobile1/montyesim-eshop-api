@@ -5,9 +5,10 @@ Supabase session plus the admin's role and permissions. Only accounts whose
 ``app_metadata.role`` is an admin role get a session; any other account's fresh session is
 revoked immediately and the request is refused with 403.
 
-TEOS-307 adds the admin's own password change (current password checked, every other session signed
-out) and the last step of a password reset sent from the Admins page (the reset link's session sets
-the new password, then every session of the account is signed out).
+TEOS-307 adds the admin's own password change (current password checked, every other admin portal session
+signed out) and the last step of a password reset sent from the Admins page (the reset link's token sets the new
+password, then every admin portal session of the account is signed out). The account's user portal sessions are
+never touched: the two portals' sessions don't affect each other.
 
 TEOS-255 trusted devices (adminDocs ``TEOS-255-256-api-contract.md``): after the password, a browser that is
 not a trusted device of the admin gets no session but an email code (``DeviceVerificationService``); the session
@@ -55,13 +56,6 @@ ACTION_PASSWORD_RESET = "password_reset"
 # TEOS-255
 SESSION_ID_MISSING = "SESSION_ID_MISSING"
 DEVICE_LOOKUP_FAILED = "DEVICE_LOOKUP_FAILED"
-
-
-def _default_session_revoker(user_id: str) -> Dict[str, int]:
-    """Every session and refresh token of the account deleted (TEOS-149 ``admin_revoke_user_sessions``)."""
-    from app.repo.admin.user_repo import UserAdminRepo
-    from app.services.admin.user_service import revoke_user_sessions
-    return revoke_user_sessions(UserAdminRepo(), user_id)
 
 
 def _default_audit():
@@ -179,13 +173,11 @@ class LoginRateLimiter:
 
 class AdminAuthService:
     def __init__(self, client_factory: Callable = supabase_client, rate_limiter: Optional[LoginRateLimiter] = None,
-                 session_revoker: Callable[[str], Dict[str, int]] = _default_session_revoker,
                  audit_factory: Callable = _default_audit,
                  device_service_factory: Callable = _default_device_service,
                  verification_service: Optional[DeviceVerificationService] = None):
         self._client_factory = client_factory
         self._rate_limiter = rate_limiter or LoginRateLimiter.from_env()
-        self._session_revoker = session_revoker
         self._audit_factory = audit_factory
         self._device_service_factory = device_service_factory
         self._device_service = None
@@ -387,11 +379,29 @@ class AdminAuthService:
         except AuthError as exc:
             self._revoke(client, session.access_token)  # the link's session is never handed out
             raise password_update_error(exc)
-        signed_out = self._sign_out_everywhere(user_id)
         ctx = AuditContext(actor_id=user_id, ip=ip)
+        signed_out = self._sign_out_admin_portal(client, user_id, session.access_token, ctx)
         self._audit_password(ctx, user_id, user.email, ACTION_PASSWORD_RESET, sessions_signed_out=signed_out)
-        self._devices_call("password reset", lambda: self.devices.revoke_all(user_id, REASON_PASSWORD_RESET, ctx))
         return AdminPasswordReset(sessions_signed_out=signed_out)
+
+    def _sign_out_admin_portal(self, client, user_id: str, link_access_token: str, ctx: AuditContext) -> bool:
+        """After a reset: every ADMIN PORTAL session ends (all the admin's device rows are revoked, each row's
+        session ended) and so does the link's own recovery session. Sessions without a device row (the user
+        portal) stay signed in (user's decision 2026-11-10: the two portals' sessions don't affect each other).
+        True when both steps worked; the password is already changed, so a failure is logged, never raised."""
+        revoked = True
+        try:
+            self.devices.revoke_all(user_id, REASON_PASSWORD_RESET, ctx)
+        except Exception as exc:
+            logger.error(f"admin password reset: admin devices not revoked: {type(exc).__name__}: {exc}")
+            revoked = False
+        link_ended = True
+        try:
+            client.auth.admin.sign_out(link_access_token, "local")
+        except Exception as exc:
+            logger.error(f"admin password reset: the link's session not signed out: {type(exc).__name__}")
+            link_ended = False
+        return revoked and link_ended
 
     def _sign_out_other_admin_sessions(self, client, user: AdminUser, new_access_token: str,
                                        ctx: AuditContext) -> bool:
@@ -430,15 +440,6 @@ class AdminAuthService:
             call()
         except Exception as exc:
             logger.error(f"admin {what}: trusted devices update failed: {type(exc).__name__}: {exc}")
-
-    def _sign_out_everywhere(self, user_id: str) -> bool:
-        try:
-            deleted = self._session_revoker(user_id)
-            logger.info(f"admin password reset: sessions of {user_id} revoked: {deleted}")
-            return True
-        except Exception as exc:
-            logger.error(f"admin password reset: could not revoke the sessions of {user_id}: {type(exc).__name__}")
-            return False
 
     def _audit_password(self, ctx: AuditContext, user_id: str, email: Optional[str], action: str, **details) -> None:
         """One audit row. The password is already changed and cannot be put back, so a failed audit insert

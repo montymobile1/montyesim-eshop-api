@@ -598,7 +598,6 @@ def account_service(device_revoker):
     client = MagicMock(name="supabase-client")
     client.auth.admin.get_user_by_id.return_value = SimpleNamespace(user=make_auth_user(user_id=OTHER_ID))
     return AdminAccountService(client_factory=lambda: client, audit_factory=FakeAccountAudit,
-                               session_revoker=lambda user_id: {"sessions": 1},
                                device_revoker=device_revoker)
 
 

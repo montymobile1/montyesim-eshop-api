@@ -11,9 +11,10 @@
   verified when the new password is submitted. Without SMTP the feature is
   unavailable: the list says so (``password_reset_available``) and the action answers 503. Nothing changes on
   the account until the admin sets the new password there (``POST /auth/reset-password``), which then signs
-  out every session of the account.
+  out every admin portal session of the account (the user portal stays signed in).
 - revoke access: the admin role is removed (the account is kept: it may also be an app customer) and every
-  session of the account is signed out, and every trusted device row is revoked (TEOS-255). The audit
+  trusted device row is revoked (TEOS-255), which ends every admin portal session; the account's user portal
+  sessions stay signed in (the person stays a customer). The audit
   row is written after the change; when it cannot be written the role is put back and 502 is returned,
   like a ban.
 
@@ -37,7 +38,7 @@ from app.schemas.admin.admins import (AdminAccessRevoked, AdminAccountPage, Admi
                                       AdminPasswordResetSent, AdminRoleFilter)
 from app.schemas.admin.common import PageParams
 from app.services.admin.auth_service import (AUTH_SERVICE_UNAVAILABLE, AUTH_USERS_TABLE, OPERATION_UPDATE,
-                                             _default_audit, _default_session_revoker, _is_upstream_failure)
+                                             _default_audit, _is_upstream_failure)
 from app.services.admin import admin_mailer
 
 #: GoTrue admin list page size, and a safety cap on pages read per request (100k accounts)
@@ -97,7 +98,6 @@ def _is_rate_limited(exc: AuthError) -> bool:
 
 class AdminAccountService:
     def __init__(self, client_factory: Callable = supabase_client,
-                 session_revoker: Callable[[str], Dict[str, int]] = _default_session_revoker,
                  audit_factory: Callable = _default_audit,
                  reset_url: Callable[[], Optional[str]] = _reset_url,
                  device_revoker: Callable[[str, AuditContext], int] = _default_device_revoker,
@@ -108,7 +108,6 @@ class AdminAccountService:
         self._portal_sign_ins = portal_sign_ins
         self._reset_sender = reset_sender
         self._smtp_check = smtp_check
-        self._session_revoker = session_revoker
         self._audit_factory = audit_factory
         self._reset_url = reset_url
         self._device_revoker = device_revoker
@@ -223,9 +222,10 @@ class AdminAccountService:
 
     def revoke_access(self, admin_id: str, ctx: AuditContext) -> AdminAccessRevoked:
         """409 ``cannot_target_self``; 404 ``admin_not_found``; 502 when Supabase Auth fails (nothing
-        changed) or when the audit row cannot be written (the role is put back). ``sessions_signed_out``
-        false: the role is removed, so the API refuses the account's next request anyway (403), but its
-        sessions could not be deleted."""
+        changed) or when the audit row cannot be written (the role is put back). Every ADMIN PORTAL session
+        ends (all the admin's device rows are revoked); the account's user portal sessions stay signed in (the
+        person stays a customer). ``sessions_signed_out`` false: the role is removed, so the API refuses the
+        account's next request anyway (403), but its admin devices could not be revoked."""
         user = self._target(admin_id, ctx)
         user_id = str(user.id)
         previous_role = _role_of(user)
@@ -233,14 +233,10 @@ class AdminAccountService:
         self._set_role(client, user_id, None)
         signed_out = True
         try:
-            self._session_revoker(user_id)
-        except Exception as exc:
-            logger.error(f"admin revoke access: could not revoke the sessions of {user_id}: {type(exc).__name__}")
-            signed_out = False
-        try:
-            self._device_revoker(user_id, ctx)
+            self._device_revoker(user_id, ctx)  # ends every admin portal session; the user portal is untouched
         except Exception as exc:  # TEOS-255: the role is gone, the per-request check refuses the account anyway
             logger.error(f"admin revoke access: could not revoke the devices of {user_id}: {type(exc).__name__}")
+            signed_out = False
         try:
             self._audit_factory().log(ctx, AUTH_USERS_TABLE, OPERATION_UPDATE, record_id=user_id, rows_affected=1,
                                       old={"role": previous_role}, new={"role": None},

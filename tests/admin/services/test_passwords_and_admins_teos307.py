@@ -72,7 +72,6 @@ def devices():
 def auth(client, store, audit, revoked, devices):
     limiter = LoginRateLimiter(max_failures=5, window_seconds=300, store_factory=lambda: store)
     return AdminAuthService(client_factory=lambda: client, rate_limiter=limiter,
-                            session_revoker=lambda uid: revoked.append(uid) or {"sessions": 1, "refresh_tokens": 1},
                             audit_factory=lambda: audit, device_service_factory=lambda: devices)
 
 
@@ -232,14 +231,17 @@ def _recovery(role=ROLE_ADMIN):
     return SimpleNamespace(session=SimpleNamespace(access_token="recovery-access"), user=make_auth_user(role))
 
 
-def test_reset_password_verifies_the_token_sets_it_and_signs_out_every_session(auth, client, audit, revoked):
+def test_reset_password_verifies_the_token_sets_it_and_signs_out_the_admin_portal(auth, client, audit, devices):
     client.auth.verify_otp.return_value = _recovery()
 
     result = auth.complete_password_reset("hashed-recovery-token", GOOD, "1.2.3.4")
 
     client.auth.verify_otp.assert_called_once_with({"token_hash": "hashed-recovery-token", "type": "recovery"})
     client.auth.admin.update_user_by_id.assert_called_once_with(ADMIN_ID, {"password": GOOD})
-    assert revoked == [ADMIN_ID] and result.sessions_signed_out is True
+    # every admin device revoked + the link's own session ended; nothing account-wide (the user portal stays)
+    assert ("revoke_all", ADMIN_ID, "password_reset", None) in devices.calls
+    client.auth.admin.sign_out.assert_called_once_with("recovery-access", "local")
+    assert result.sessions_signed_out is True
     ctx, _, _, details = audit.rows[0]
     assert ctx.actor_id == ADMIN_ID and details["action"] == "password_reset"
 
@@ -341,8 +343,8 @@ def accounts(client, audit, revoked, mailed, portal_sign_ins):
     client.auth.admin.generate_link.return_value = SimpleNamespace(
         properties=SimpleNamespace(hashed_token=RESET_TOKEN, verification_type="recovery",
                                    action_link="https://project.supabase.co/auth/v1/verify?token=x"))
-    return AdminAccountService(client_factory=lambda: client, device_revoker=lambda *a, **k: 0, audit_factory=lambda: audit,
-                               session_revoker=lambda uid: revoked.append(uid) or {"sessions": 1, "refresh_tokens": 0},
+    return AdminAccountService(client_factory=lambda: client, audit_factory=lambda: audit,
+                               device_revoker=lambda uid, ctx: revoked.append(uid) or 1,
                                reset_url=lambda: "https://admin.example.com/reset-password",
                                reset_sender=lambda email, link: mailed.append((email, link)),
                                smtp_check=lambda: True,
@@ -545,8 +547,8 @@ def test_revoke_removes_the_role_signs_out_and_audits(accounts, client, audit, r
 
 def test_revoke_audit_failure_puts_the_role_back(client, revoked):
     client.auth.admin.get_user_by_id.return_value = SimpleNamespace(user=_user(OTHER_ID, "amy@x.com", ROLE_ADMIN))
-    service = AdminAccountService(client_factory=lambda: client, device_revoker=lambda *a, **k: 0, audit_factory=lambda: FakeAudit(fail=True),
-                                  session_revoker=lambda uid: {"sessions": 0, "refresh_tokens": 0})
+    service = AdminAccountService(client_factory=lambda: client, device_revoker=lambda *a, **k: 0,
+                                  audit_factory=lambda: FakeAudit(fail=True))
 
     with pytest.raises(AdminUpstreamError):
         service.revoke_access(OTHER_ID, CTX)
@@ -557,9 +559,9 @@ def test_revoke_audit_failure_puts_the_role_back(client, revoked):
 def test_revoke_when_sessions_cannot_be_deleted_still_removes_the_role(client, audit):
     client.auth.admin.get_user_by_id.return_value = SimpleNamespace(user=_user(OTHER_ID, "amy@x.com", ROLE_ADMIN))
 
-    def fail(uid):
+    def fail(uid, ctx):
         raise RuntimeError("db down")
 
-    service = AdminAccountService(client_factory=lambda: client, device_revoker=lambda *a, **k: 0, audit_factory=lambda: audit, session_revoker=fail)
+    service = AdminAccountService(client_factory=lambda: client, device_revoker=fail, audit_factory=lambda: audit)
 
     assert service.revoke_access(OTHER_ID, CTX).sessions_signed_out is False
