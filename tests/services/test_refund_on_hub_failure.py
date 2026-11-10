@@ -17,7 +17,7 @@ import stripe
 
 from app.config.constants import ErrorMessages, PaymentStatusEnum, UserWalletTransactionSource
 from app.config.db import OrderRefundStatusEnum, OrderStatusEnum, PaymentTypeEnum, UserOrderType
-from app.exceptions import BadRequestException, EsimHubException, HubOrderFailedException, \
+from app.exceptions import BadRequestException, EsimHubException, HubOrderFailedException, OrderFulfilmentFailedException, \
     OrderNotFulfilledException
 from app.models.order_refund import UserOrderRefundModel
 from app.models.user import UserOrderModel
@@ -720,3 +720,222 @@ async def test_linkaja_hub_failure_is_flagged_for_review():
     assert await service.provision(order) is failure
     refunds.flag_hub_failure_for_review.assert_called_once_with(order=order, payment_type=PaymentTypeEnum.LINK_AJA,
                                                                 failure=failure)
+
+
+# =========================================================================== 9. Failures before the Hub is called
+# Paid, then the order fails before the eSIM Hub is ever called: nothing can have been delivered, so it
+# is a definite failure and is refunded exactly like a Hub refusal (not only Hub errors).
+
+
+@pytest.mark.asyncio
+async def test_top_up_with_unknown_iccid_is_a_definite_failure_and_the_hub_is_not_called(bundle_service):
+    service, hub = bundle_service
+    service._BundleService__user_profile_repo.get_first_by.return_value = None      # no eSIM with this iccid
+    hub.create_reseller_topup = AsyncMock()
+    result = await service.top_up_bundle(_bundle(), _order(order_type=UserOrderType.BUNDLE_TOP_UP), "unknown",
+                                         USER_ID, OrderStatusEnum.SUCCESS)
+    assert isinstance(result, HubOrderFailedException) and result.definite
+    assert (result.code, result.details) == (400, "Payment failed")                # same response as before
+    assert "unknown" in result.reason and "before the eSIM Hub was called" in result.reason
+    hub.create_reseller_topup.assert_not_called()
+    written = service._BundleService__user_order_repo.update_by.call_args.args[1]
+    assert written["order_status"] == OrderStatusEnum.FAILURE
+
+
+@pytest.mark.asyncio
+async def test_top_up_error_before_the_hub_call_is_definite(bundle_service):
+    service, hub = bundle_service
+    service._BundleService__user_repo.get_by_id.side_effect = RuntimeError("db read failed")
+    hub.create_reseller_topup = AsyncMock()
+    result = await service.top_up_bundle(_bundle(), _order(order_type=UserOrderType.BUNDLE_TOP_UP), "8900",
+                                         USER_ID, OrderStatusEnum.SUCCESS)
+    assert isinstance(result, HubOrderFailedException) and result.definite
+    hub.create_reseller_topup.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_buy_bundle_error_before_the_hub_call_is_definite_and_fails_promo(bundle_service):
+    service, hub = bundle_service
+    service._BundleService__user_repo.get_by_id.side_effect = RuntimeError("db read failed")
+    hub.create_reseller_order = AsyncMock()
+    result = await service.buy_bundle(_order(promo_code="PROMO10"), _bundle(), USER_ID, OrderStatusEnum.SUCCESS,
+                                      PaymentTypeEnum.CARD, rule_id="r1")
+    assert isinstance(result, HubOrderFailedException) and result.definite
+    assert "before the eSIM Hub was called" in result.reason
+    hub.create_reseller_order.assert_not_called()
+    service._BundleService__promotion_service.update_promotion_usage.assert_awaited_once_with(
+        user_id=USER_ID, code="PROMO10", status="failed", rule_id="r1", order_id=ORDER_ID)
+    written = service._BundleService__user_order_repo.update_by.call_args.kwargs["data"]
+    assert written["order_status"] == OrderStatusEnum.FAILURE
+
+
+@pytest.mark.asyncio
+async def test_top_up_success_is_unchanged(bundle_service):
+    service, hub = bundle_service
+    service._BundleService__user_profile_repo.get_first_by.return_value = SimpleNamespace(
+        id="p1", esim_hub_order_id="hub-1")
+    service._BundleService__user_profile_bundle_repo.get_first_by.return_value = SimpleNamespace(
+        bundle_expired=False)
+    hub.create_reseller_topup = AsyncMock(return_value=SimpleNamespace(orderId="hub-2"))
+    with patch('app.services.bundle_service.fcm_service'):
+        result = await service.top_up_bundle(_bundle(), _order(order_type=UserOrderType.BUNDLE_TOP_UP), "8900",
+                                             USER_ID, OrderStatusEnum.SUCCESS)
+    assert result.status == "success"
+    assert hub.create_reseller_topup.await_args.kwargs["esim_hub_order_id"] == "hub-1"
+    assert hub.create_reseller_topup.await_args.kwargs["outcome"].kind is None
+    written = service._BundleService__user_order_repo.update_by.call_args.args[1]
+    assert written["order_status"] == OrderStatusEnum.SUCCESS
+
+
+def test_pending_order_is_marked_failed_before_the_refund():
+    service, repo, _ = _refund_service()                       # fresh order is still pending
+    order_repo = service._OrderRefundService__user_order_repo
+    calls = []
+    order_repo.update_by.side_effect = lambda where, data: calls.append(("order", data["order_status"]))
+    with patch.object(stripe.Refund, "create",
+                      side_effect=lambda **kw: calls.append(("refund", None)) or _stripe_refund()):
+        assert service.handle_card_hub_failure(_order(), _failure(True), PI_ID) == RefundResult.REFUNDED
+    assert calls == [("order", OrderStatusEnum.FAILURE), ("refund", None)]
+
+
+def test_order_that_cannot_be_marked_failed_is_not_refunded():
+    service, repo, _ = _refund_service()
+    service._OrderRefundService__user_order_repo.update_by.side_effect = RuntimeError("db write failed")
+    with patch.object(stripe.Refund, "create") as refund:
+        assert service.handle_card_hub_failure(_order(), _failure(True), PI_ID) == RefundResult.MANUAL_REVIEW
+    refund.assert_not_called()
+    assert repo.status() == OrderRefundStatusEnum.MANUAL_REVIEW
+
+
+def test_order_marked_fulfilled_is_never_refunded():
+    service, repo, _ = _refund_service(order=_order(order_status=OrderStatusEnum.SUCCESS))
+    with patch.object(stripe.Refund, "create") as refund:
+        assert service.handle_card_hub_failure(_order(), _failure(True), PI_ID) == RefundResult.MANUAL_REVIEW
+    refund.assert_not_called()
+
+
+def test_already_failed_order_is_not_written_again():
+    service, _, _ = _refund_service(order=_order(order_status=OrderStatusEnum.FAILURE))
+    with patch.object(stripe.Refund, "create", return_value=_stripe_refund()):
+        assert service.handle_card_hub_failure(_order(), _failure(True), PI_ID) == RefundResult.REFUNDED
+    service._OrderRefundService__user_order_repo.update_by.assert_not_called()
+
+
+# --- Stripe webhook: failures the webhook itself detects after payment
+
+
+def test_webhook_top_up_without_iccid_is_refunded(callback_service):
+    service, refunds = callback_service
+    order = _order(order_type=UserOrderType.BUNDLE_TOP_UP)
+    service._CallbackService__user_order_repo.get_by_id.return_value = order
+    service._CallbackService__bundle_service.top_up_bundle = AsyncMock()
+    with patch.object(stripe.tax.Transaction, "create_from_calculation") as tax:
+        result = _run_webhook(service, _event(UserOrderType.BUNDLE_TOP_UP, iccid=None))
+    assert (result.status_code, result.detail) == (400, "Invalid iccid")          # response unchanged
+    tax.assert_not_called()                                                         # nothing to reverse
+    service._CallbackService__bundle_service.top_up_bundle.assert_not_called()
+    kwargs = refunds.handle_card_hub_failure.call_args.kwargs
+    assert kwargs["order"] is order and kwargs["payment_intent_id"] == PI_ID and kwargs["tax_transaction_id"] is None
+    assert kwargs["failure"].definite and "iccid" in kwargs["failure"].reason
+
+
+def test_webhook_unreadable_bundle_data_is_refunded(callback_service):
+    service, refunds = callback_service
+    service._CallbackService__user_order_repo.get_by_id.return_value = _order(bundle_data="{not json")
+    service._CallbackService__bundle_service.buy_bundle = AsyncMock()
+    result = _run_webhook(service, _event())
+    assert isinstance(result, OrderFulfilmentFailedException) and result.definite
+    service._CallbackService__bundle_service.buy_bundle.assert_not_called()
+    assert refunds.handle_card_hub_failure.call_args.kwargs["failure"] is result
+
+
+def test_webhook_unreadable_bundle_data_on_a_failed_payment_is_unchanged(callback_service):
+    service, refunds = callback_service
+    service._CallbackService__user_order_repo.get_by_id.return_value = _order(bundle_data="{not json")
+    event = _event()
+    event["type"] = "payment_intent.failed"
+    with pytest.raises(Exception):
+        _run_webhook(service, event)
+    refunds.handle_card_hub_failure.assert_not_called()
+
+
+def test_webhook_unknown_order_type_is_refunded(callback_service):
+    service, refunds = callback_service
+    service._CallbackService__user_order_repo.get_by_id.return_value = _order()
+    result = _run_webhook(service, _event(order_type="Something_Else"))
+    assert result.status == "success"                                              # response unchanged
+    assert refunds.handle_card_hub_failure.call_args.kwargs["failure"].definite
+
+
+def test_webhook_top_up_with_unknown_iccid_end_to_end_refunds_once(callback_service, bundle_service):
+    """Real webhook + real BundleService + real refund service: one Stripe refund, Hub never called,
+    the redelivered event is skipped."""
+    service, _ = callback_service
+    bundles, hub = bundle_service
+    hub.create_reseller_topup = AsyncMock()
+    bundles._BundleService__user_profile_repo.get_first_by.return_value = None     # iccid unknown
+    service._CallbackService__bundle_service = bundles
+    refund_service, repo, _ = _refund_service()
+    service._CallbackService__order_refund_service = refund_service
+
+    state = {"order": _order(order_type=UserOrderType.BUNDLE_TOP_UP)}
+
+    def write(where, data):
+        state["order"] = state["order"].model_copy(update=data)
+
+    bundles._BundleService__user_order_repo.update_by.side_effect = write
+    service._CallbackService__user_order_repo.get_by_id.side_effect = lambda _id: state["order"]
+    refund_service._OrderRefundService__user_order_repo.get_by_id.side_effect = lambda _id: state["order"]
+
+    with patch.object(stripe.Refund, "create", return_value=_stripe_refund()) as refund:
+        first = _run_webhook(service, _event(UserOrderType.BUNDLE_TOP_UP, iccid="8900", tax=False))
+        second = _run_webhook(service, _event(UserOrderType.BUNDLE_TOP_UP, iccid="8900", tax=False))
+    assert isinstance(first, OrderFulfilmentFailedException) and first.definite
+    assert second.status == "success"                                               # redelivery skipped
+    hub.create_reseller_topup.assert_not_called()
+    refund.assert_called_once()
+    assert refund.call_args.kwargs["idempotency_key"] == f"refund-{ORDER_ID}"
+    assert state["order"].order_status == OrderStatusEnum.FAILURE
+    assert repo.status() == OrderRefundStatusEnum.REFUNDED
+
+
+# --- Wallet: a top-up with an unknown iccid after the debit
+
+
+@pytest.mark.asyncio
+async def test_wallet_top_up_with_unknown_iccid_is_credited_back(wallet_purchase, bundle_service):
+    service, wallet, repo = wallet_purchase
+    bundles, hub = bundle_service
+    hub.create_reseller_topup = AsyncMock()
+    bundles._BundleService__user_profile_repo.get_first_by.return_value = None
+    service._UserBundleService__bundle_service = bundles
+    with pytest.raises(OrderNotFulfilledException) as raised:
+        await _pay_with_wallet(service, UserOrderType.BUNDLE_TOP_UP)
+    assert raised.value.name == ErrorMessages.ORDER_FAILED_REFUNDED
+    assert wallet.balance == 100.0
+    hub.create_reseller_topup.assert_not_called()
+
+
+# --- LinkAja: any failure after payment is flagged (no automatic LinkAja refund)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("order_overrides", [
+    {"bundle_data": None},                                      # no stored bundle
+    {"order_type": UserOrderType.BUNDLE_TOP_UP},                # LinkAja top-ups are not supported
+])
+async def test_linkaja_failure_before_provisioning_is_flagged_and_re_raised(order_overrides):
+    from app.services.link_aja_callback_service import LinkAjaCallbackService
+    from app.exceptions import CustomException
+    refunds = MagicMock()
+    bundle_service = MagicMock(buy_bundle=AsyncMock())
+    service = LinkAjaCallbackService(link_aja_service=MagicMock(), user_order_repo=MagicMock(),
+                                     bundle_service=bundle_service, task_executor=MagicMock(),
+                                     order_refund_service=refunds)
+    order = _order(payment_type=PaymentTypeEnum.LINK_AJA, **order_overrides)
+    with pytest.raises(CustomException):
+        await service.provision(order)
+    bundle_service.buy_bundle.assert_not_called()
+    kwargs = refunds.flag_hub_failure_for_review.call_args.kwargs
+    assert kwargs["order"] is order and kwargs["payment_type"] == PaymentTypeEnum.LINK_AJA
+    assert isinstance(kwargs["error"], CustomException)

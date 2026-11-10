@@ -64,7 +64,7 @@ from loguru import logger
 
 from app.config.constants import ErrorMessages
 from app.config.db import OrderStatusEnum, PaymentTypeEnum, UserOrderType
-from app.exceptions import CustomException, HubOrderFailedException
+from app.exceptions import CustomException, OrderFulfilmentFailedException
 from app.models.user import UserOrderModel
 from app.repo import UserOrderRepo
 from app.schemas.home import BundleDTO
@@ -461,25 +461,30 @@ class LinkAjaCallbackService:
 
         Public so the background task (and tests) can run exactly what the
         notify scheduled; it is never reachable from the network directly.
+
+        The order is paid when this runs: any failure (raised or returned) is flagged for
+        manual review, since there is no automatic LinkAja refund yet. Results pass through as is.
         """
+        try:
+            result = await self.__provision(order)
+        except Exception as error:
+            self.__refunds().flag_hub_failure_for_review(order=order, payment_type=PaymentTypeEnum.LINK_AJA,
+                                                         error=error)
+            raise
+        if isinstance(result, OrderFulfilmentFailedException):
+            self.__refunds().flag_hub_failure_for_review(order=order, payment_type=PaymentTypeEnum.LINK_AJA,
+                                                         failure=result)
+        return result
+
+    async def __provision(self, order: UserOrderModel):
         bundle = self.__load_bundle(order)
 
         if order.order_type == UserOrderType.ASSIGN:
             logger.info(f"[LinkAja] provisioning assign order {order.id}")
-            try:
-                result = await self.__bundle_service.buy_bundle(
-                    user_order=order, bundle=bundle, user_id=order.user_id,
-                    payment_status=OrderStatusEnum.SUCCESS,
-                    payment_type=PaymentTypeEnum.LINK_AJA)
-            except Exception as error:
-                # Paid through LinkAja: no automatic LinkAja refund yet, flag it for support.
-                self.__refunds().flag_hub_failure_for_review(order=order, payment_type=PaymentTypeEnum.LINK_AJA,
-                                                             error=error)
-                raise
-            if isinstance(result, HubOrderFailedException):
-                self.__refunds().flag_hub_failure_for_review(order=order, payment_type=PaymentTypeEnum.LINK_AJA,
-                                                             failure=result)
-            return result
+            return await self.__bundle_service.buy_bundle(
+                user_order=order, bundle=bundle, user_id=order.user_id,
+                payment_status=OrderStatusEnum.SUCCESS,
+                payment_type=PaymentTypeEnum.LINK_AJA)
 
         if order.order_type == UserOrderType.BUNDLE_TOP_UP:
             # Top-ups are not enabled for LinkAja (see the report). Beyond the

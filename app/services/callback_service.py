@@ -18,7 +18,7 @@ from app.config.notification_types import send_consumption_80_bundle_notificatio
     send_wallet_top_up_failed_notification
 from app.config.push_notification_manager import fcm_service
 from app.config.utils import parse_iso_datetime, truncate_two_decimals_decimal_rounded
-from app.exceptions import HubOrderFailedException
+from app.exceptions import OrderFulfilmentFailedException
 from app.models.user import OrderStatusEnum, UserOrderType, UsersCopyModel, UserOrderModel, UserProfileBundleModel, \
     UserProfileModel
 from app.repo import UserOrderRepo, UserProfileRepo, UserRepo, UserProfileBundleRepo
@@ -292,9 +292,15 @@ class CallbackService:
         rule_id = metadata.get("rule_id", None)
         tax_calculation = metadata.get("tax_calculation", None)
         user_order = self.__user_order_repo.get_by_id(order_id)
-        bundle = BundleDTO.model_validate_json(user_order.bundle_data)
         payment_status = OrderStatusEnum.SUCCESS if event.get(
             "type") == "payment_intent.succeeded" else OrderStatusEnum.FAILURE
+        bundle, bundle_error = None, None
+        try:
+            bundle = BundleDTO.model_validate_json(user_order.bundle_data)
+        except Exception as e:
+            if user_order is None or payment_status != OrderStatusEnum.SUCCESS:
+                raise  # unchanged; only a paid order with unreadable bundle data is refunded below
+            bundle_error = e
         if payment_status == OrderStatusEnum.FAILURE:
             logger.info(f"payment failed for order {order_id}")
             if promo_code:
@@ -303,6 +309,19 @@ class CallbackService:
                                                                     rule_id=rule_id, order_id=order_id))
             return HTTPException(status_code=200, detail="Payment Failed")
         if payment_status == OrderStatusEnum.SUCCESS and self.__already_processed(user_order):
+            return ResponseHelper.success_response()
+        # Paid, but the order can never be fulfilled: refund before any tax transaction is recorded.
+        if bundle_error is not None:
+            logger.error(f"unreadable bundle data for paid order {user_order.id}: {bundle_error}")
+            return self.__refund_unfulfillable(user_order, payment_intent_id,
+                                               f"the order's bundle data could not be read: {bundle_error}")
+        if order_type == UserOrderType.BUNDLE_TOP_UP and not iccid:
+            logger.error(f"invalid iccid ({iccid}) for topup request ({user_order.id})")
+            self.__refund_unfulfillable(user_order, payment_intent_id, "top-up paid without an iccid")
+            return HTTPException(status_code=400, detail="Invalid iccid")
+        if order_type not in (UserOrderType.ASSIGN, UserOrderType.BUNDLE_TOP_UP):
+            logger.error(f"unsupported order type ({order_type}) for paid order ({user_order.id})")
+            self.__refund_unfulfillable(user_order, payment_intent_id, f"unsupported order type {order_type}")
             return ResponseHelper.success_response()
         tax_transaction_id = None
         if payment_status == OrderStatusEnum.SUCCESS and tax_calculation:
@@ -325,9 +344,6 @@ class CallbackService:
                                                  payment_type=PaymentTypeEnum.CARD),
                 user_order=user_order, payment_intent_id=payment_intent_id, tax_transaction_id=tax_transaction_id)
         elif payment_status == OrderStatusEnum.SUCCESS and order_type == UserOrderType.BUNDLE_TOP_UP:
-            if not iccid:
-                logger.error(f"invalid iccid ({iccid}) for topup request ({user_order.id})")
-                return HTTPException(status_code=400, detail="Invalid iccid")
             return self.__fulfil_card_order(
                 self.__bundle_service.top_up_bundle(bundle=bundle, user_order=user_order, iccid=iccid,
                                                     user_id=user_id,
@@ -346,11 +362,19 @@ class CallbackService:
                                                      payment_intent_id=payment_intent_id,
                                                      tax_transaction_id=tax_transaction_id, error=error)
             raise
-        if isinstance(result, HubOrderFailedException):
+        if isinstance(result, OrderFulfilmentFailedException):
             self.__refunds().handle_card_hub_failure(order=user_order, failure=result,
                                                      payment_intent_id=payment_intent_id,
                                                      tax_transaction_id=tax_transaction_id)
         return result
+
+    def __refund_unfulfillable(self, user_order: UserOrderModel, payment_intent_id: Optional[str],
+                               reason: str) -> OrderFulfilmentFailedException:
+        """A paid order the webhook itself found unfulfillable (the Hub was never called): definite."""
+        failure = OrderFulfilmentFailedException("Payment failed", definite=True, reason=reason)
+        self.__refunds().handle_card_hub_failure(order=user_order, failure=failure,
+                                                 payment_intent_id=payment_intent_id, tax_transaction_id=None)
+        return failure
 
     def __already_processed(self, user_order: UserOrderModel) -> bool:
         """A redelivered payment_intent.succeeded must not fulfil (or refund) an order twice."""

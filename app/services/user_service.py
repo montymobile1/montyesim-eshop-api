@@ -17,7 +17,7 @@ from app.config.db import DatabaseTables, PaymentTypeEnum, ConfigKeysEnum
 from app.config.helper import get_config
 from app.config.utils import create_payment_intent, create_payment_ephemeral, stripe_get_payment_details, \
     truncate_two_decimals_decimal
-from app.exceptions import BadRequestException, CustomException, HubOrderFailedException, \
+from app.exceptions import BadRequestException, CustomException, OrderFulfilmentFailedException, \
     OrderNotFulfilledException
 from app.models.user import UserModel, UserOrderType, OrderStatusEnum, UserOrderModel, UsersCopyModel, UserWalletModel, \
     UserProfileModel, UserProfileBundleModel
@@ -640,7 +640,7 @@ class UserBundleService:
             self.__refunds().flag_hub_failure_for_review(order=user_order, payment_type=PaymentTypeEnum.DCB,
                                                          error=error)
             raise
-        if isinstance(result, HubOrderFailedException):
+        if isinstance(result, OrderFulfilmentFailedException):
             self.__refunds().flag_hub_failure_for_review(order=user_order, payment_type=PaymentTypeEnum.DCB,
                                                          failure=result)
         return result
@@ -692,7 +692,7 @@ class UserBundleService:
                                                                    payment_status=OrderStatusEnum.SUCCESS,
                                                                    payment_type=PaymentTypeEnum.WALLET,
                                                                    iccid=iccid)
-            if isinstance(result, HubOrderFailedException):
+            if isinstance(result, OrderFulfilmentFailedException):
                 raise self.__wallet_order_not_fulfilled(user_order, result, None, bundle_price, wallet.currency)
             response = PaymentIntentResponse(order_id=user_order.id, payment_status=PaymentStatusEnum.COMPLETED)
             return ResponseHelper.success_data_response(response, 0)
@@ -704,7 +704,7 @@ class UserBundleService:
             raise CustomException(code=400, name=ErrorMessages.REQUEST_FAILED,
                                   details=f"Error while creating order: {e}")
 
-    def __wallet_order_not_fulfilled(self, user_order: UserOrderModel, failure: Optional[HubOrderFailedException],
+    def __wallet_order_not_fulfilled(self, user_order: UserOrderModel, failure: Optional[OrderFulfilmentFailedException],
                                      error: Optional[Exception], amount: float,
                                      currency: str) -> OrderNotFulfilledException:
         """The wallet was debited but the order was not fulfilled: credit it back when that is safe,

@@ -1,13 +1,16 @@
-"""Refund of a paid order whose eSIM Hub order / top-up failed.
+"""Refund of a paid order that could not be fulfilled.
 
-Called only from failure paths: after `BundleService.buy_bundle` / `top_up_bundle` returned a
-`HubOrderFailedException` (or raised) for an order the customer already paid. A successful purchase
+Called only from failure paths: after `BundleService.buy_bundle` / `top_up_bundle` returned an
+`OrderFulfilmentFailedException` (or raised), or a payment flow found the order unfulfillable itself
+(e.g. a top-up without a known iccid), for an order the customer already paid. A successful purchase
 never reaches this module.
 
 Rules
 -----
-* Automatic refund only when the Hub *definitely* created nothing (HTTP 200 with "success": false,
-  see app/services/integration/esim_hub_outcome.py) and nothing was provisioned for the order.
+* Automatic refund only for a *definite* failure: the eSIM Hub refused (HTTP 200 with "success":
+  false, see app/services/integration/esim_hub_outcome.py) or was never called, and nothing was
+  provisioned for the order. The order is marked `failure` before the money moves, so a redelivered
+  payment webhook can no longer fulfil it.
   Card: full Stripe refund of the PaymentIntent (exactly what was captured: after promo, incl. tax)
   plus a full reversal of the Stripe Tax transaction. Wallet: the exact debited amount credited back.
 * Everything else is flagged for manual review and alerted: ambiguous Hub failures, DCB and LinkAja
@@ -32,11 +35,11 @@ from soupsieve.util import lower
 
 from app.config.config import get_email_template, send_email
 from app.config.constants import UserWalletTransactionSource
-from app.config.db import OrderRefundStatusEnum, PaymentTypeEnum
+from app.config.db import OrderRefundStatusEnum, OrderStatusEnum, PaymentTypeEnum
 from app.config.helper import get_config
 from app.config.notification_types import send_order_refunded_notification
 from app.config.push_notification_manager import fcm_service
-from app.exceptions import HubOrderFailedException
+from app.exceptions import OrderFulfilmentFailedException
 from app.models.order_refund import UserOrderRefundModel
 from app.models.user import UserOrderModel
 from app.repo import UserOrderRepo, UserProfileBundleRepo, UserRepo
@@ -72,7 +75,7 @@ class OrderRefundService:
 
     # ------------------------------------------------------------------ entry points
 
-    def handle_card_hub_failure(self, order: UserOrderModel, failure: Optional[HubOrderFailedException],
+    def handle_card_hub_failure(self, order: UserOrderModel, failure: Optional[OrderFulfilmentFailedException],
                                 payment_intent_id: Optional[str], tax_transaction_id: Optional[str] = None,
                                 error: Optional[BaseException] = None) -> RefundResult:
         """Stripe webhook (Assign / Topup, app and MCP card checkout): the Hub call failed after payment."""
@@ -80,7 +83,7 @@ class OrderRefundService:
             order, PaymentTypeEnum.CARD, failure, error,
             {"payment_intent_id": payment_intent_id, "tax_transaction_id": tax_transaction_id}))
 
-    def handle_wallet_hub_failure(self, order: UserOrderModel, failure: Optional[HubOrderFailedException],
+    def handle_wallet_hub_failure(self, order: UserOrderModel, failure: Optional[OrderFulfilmentFailedException],
                                   amount: float, currency: str,
                                   error: Optional[BaseException] = None) -> RefundResult:
         """Wallet purchase / top-up: `amount` is exactly what was debited, in the wallet's `currency`."""
@@ -88,7 +91,7 @@ class OrderRefundService:
             order, PaymentTypeEnum.WALLET, failure, error, {"amount": float(amount), "currency": currency}))
 
     def flag_hub_failure_for_review(self, order: UserOrderModel, payment_type: str,
-                                    failure: Optional[HubOrderFailedException] = None,
+                                    failure: Optional[OrderFulfilmentFailedException] = None,
                                     error: Optional[BaseException] = None) -> RefundResult:
         """DCB / LinkAja: no automatic refund yet; flag for manual review and alert."""
         return self.__guarded(order, lambda: self.__flag(
@@ -130,14 +133,14 @@ class OrderRefundService:
                          f"manual follow-up required: {e}")
             return RefundResult.MANUAL_REVIEW
 
-    def __handle(self, order: UserOrderModel, payment_type: str, failure: Optional[HubOrderFailedException],
+    def __handle(self, order: UserOrderModel, payment_type: str, failure: Optional[OrderFulfilmentFailedException],
                  error: Optional[BaseException], details: dict) -> RefundResult:
         reason = self.__reason(failure, error)
         if failure is None or not failure.definite:
-            return self.__flag(order, payment_type, f"ambiguous eSIM Hub failure, not refunded: {reason}")
-        provisioned = self.__provisioning_found(order.id)
+            return self.__flag(order, payment_type, f"ambiguous failure, not refunded: {reason}")
+        current, provisioned = self.__fresh_order_state(order.id)
         if provisioned:
-            return self.__flag(order, payment_type, f"eSIM Hub reported a failure but {provisioned}; not refunded")
+            return self.__flag(order, payment_type, f"definite failure reported but {provisioned}; not refunded")
 
         row = self.__refund_repo.insert_if_absent({
             "order_id": order.id,
@@ -150,25 +153,35 @@ class OrderRefundService:
         if row is None:
             logger.warning(f"[refund] order {order.id}: already claimed by an earlier attempt, nothing done")
             return RefundResult.ALREADY_HANDLED
-        logger.info(f"[refund] order {order.id}: definite eSIM Hub failure, refunding ({payment_type})")
+        if current.order_status != OrderStatusEnum.FAILURE:
+            # Failures detected before BundleService ran leave the order pending: close it first, so a
+            # redelivered payment webhook skips it instead of provisioning an order that was refunded.
+            try:
+                self.__user_order_repo.update_by({"id": order.id}, {"order_status": OrderStatusEnum.FAILURE})
+            except Exception as e:
+                return self.__to_manual_review(row, f"could not mark the order failed ({e}); not refunded")
+        logger.info(f"[refund] order {order.id}: definite failure, refunding ({payment_type}): {reason}")
         return self.__execute(row)
 
-    def __provisioning_found(self, order_id: str) -> Optional[str]:
-        """Why the order must not be refunded automatically, or None. Read fresh from the database."""
+    def __fresh_order_state(self, order_id: str) -> Tuple[Optional[UserOrderModel], Optional[str]]:
+        """The order read fresh from the database, and why it must not be refunded automatically
+        (None when it may be)."""
         try:
             current = self.__user_order_repo.get_by_id(order_id)
             if current is None:
-                return "the order could not be read"
+                return None, "the order could not be read"
+            if current.order_status == OrderStatusEnum.SUCCESS:
+                return current, "the order is marked fulfilled"
             if current.esim_order_id:
-                return f"the order has eSIM Hub order {current.esim_order_id}"
+                return current, f"the order has eSIM Hub order {current.esim_order_id}"
             if self.__user_profile_bundle_repo.get_first_by({"user_order_id": order_id}):
-                return "a bundle was provisioned for the order"
-            return None
+                return current, "a bundle was provisioned for the order"
+            return current, None
         except Exception as e:
-            return f"provisioning could not be checked ({e})"
+            return None, f"provisioning could not be checked ({e})"
 
     @staticmethod
-    def __reason(failure: Optional[HubOrderFailedException], error: Optional[BaseException]) -> str:
+    def __reason(failure: Optional[OrderFulfilmentFailedException], error: Optional[BaseException]) -> str:
         if failure is not None:
             return failure.reason
         if error is not None:
@@ -192,7 +205,7 @@ class OrderRefundService:
             refund = stripe.Refund.create(
                 payment_intent=row.payment_intent_id,
                 reason="requested_by_customer",
-                metadata={"order_id": row.order_id, "cause": "esim_hub_failure"},
+                metadata={"order_id": row.order_id, "cause": "order_not_fulfilled"},
                 idempotency_key=f"{STRIPE_REFUND_IDEMPOTENCY_PREFIX}{row.order_id}",
             )
             amount = (getattr(refund, "amount", 0) or 0) / 100
