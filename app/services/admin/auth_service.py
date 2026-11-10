@@ -315,8 +315,10 @@ class AdminAuthService:
         (429 once the IP or the email is at the limit). 400 ``current_password_invalid`` when it is wrong
         (not 401: the portal must not take it for an expired session); 422 ``same_password`` when the new
         password is the current one; 422 ``weak_password`` when Supabase refuses it. Then the password is
-        set and every OTHER session of the account is signed out, the caller's old one included: the
-        caller gets the session of the check, already valid with the new password."""
+        set and every OTHER ADMIN PORTAL session is signed out (the admin's other device rows are revoked),
+        the caller's old one included: the caller gets the session of the check, already valid with the new
+        password. The account's USER PORTAL sessions (no device row) stay signed in (user's decision
+        2026-11-10: they only reach the customer features)."""
         if new_password == current_password:
             raise AdminValidationError(SAME_PASSWORD, name=ErrorMessages.ADMIN_PASSWORD_REUSED)
         email = (user.email or "").strip()
@@ -345,10 +347,10 @@ class AdminAuthService:
         except AuthError as exc:
             self._revoke(client, session.access_token)  # the check session is never handed out
             raise password_update_error(exc)
-        others_signed_out = self._sign_out_others(client, session.access_token)
+        others_signed_out = self._sign_out_other_admin_sessions(client, user, session.access_token, ctx)
         self._audit_password(ctx, user.id, user.email, ACTION_PASSWORD_CHANGE,
                              other_sessions_signed_out=others_signed_out)
-        self._devices_after_password_change(user, session.access_token, ctx)
+        self._devices_after_password_change(user, session.access_token)
         new_session = self._admin_session(client, session, response.user)
         new_session.device_id = user.device_id
         return AdminPasswordChanged(**new_session.model_dump(), other_sessions_signed_out=others_signed_out)
@@ -391,11 +393,31 @@ class AdminAuthService:
         self._devices_call("password reset", lambda: self.devices.revoke_all(user_id, REASON_PASSWORD_RESET, ctx))
         return AdminPasswordReset(sessions_signed_out=signed_out)
 
-    def _devices_after_password_change(self, user: AdminUser, new_access_token: str, ctx: AuditContext) -> None:
-        """TEOS-255 (D10): every OTHER device is revoked; the caller's row moves to the new session and stays
-        trusted. The password is already changed, so a failure here is logged, never raised."""
-        self._devices_call(PASSWORD_CHANGE_STEP, lambda: self.devices.revoke_all(
-            str(user.id), REASON_PASSWORD_CHANGE, ctx, except_device_id=user.device_id))
+    def _sign_out_other_admin_sessions(self, client, user: AdminUser, new_access_token: str,
+                                       ctx: AuditContext) -> bool:
+        """The admin portal sessions other than the new one end: every OTHER device row of the admin is revoked
+        (``revoke_all`` ends each row's session) and the caller's old session is signed out. Sessions without a
+        device row (the user portal) are left alone. True when both steps worked; the password is already
+        changed, so a failure is logged, never raised."""
+        revoked = True
+        try:
+            self.devices.revoke_all(str(user.id), REASON_PASSWORD_CHANGE, ctx, except_device_id=user.device_id)
+        except Exception as exc:
+            logger.error(f"admin change password: other admin devices not revoked: {type(exc).__name__}: {exc}")
+            revoked = False
+        old_ended = True
+        if user.token and user.token != new_access_token:
+            try:
+                client.auth.admin.sign_out(user.token, "local")
+            except Exception as exc:
+                logger.error(f"admin change password: the old session not signed out: {type(exc).__name__}")
+                old_ended = False
+        return revoked and old_ended
+
+    def _devices_after_password_change(self, user: AdminUser, new_access_token: str) -> None:
+        """TEOS-255 (D10): the caller's row moves to the new session and stays trusted (the other rows were
+        revoked by ``_sign_out_other_admin_sessions``). The password is already changed, so a failure here is
+        logged, never raised."""
         new_session_id = token_session_id(new_access_token)
         if user.device_id and new_session_id:
             self._devices_call(PASSWORD_CHANGE_STEP, lambda: self.devices.move_session(user.device_id, new_session_id))
@@ -408,15 +430,6 @@ class AdminAuthService:
             call()
         except Exception as exc:
             logger.error(f"admin {what}: trusted devices update failed: {type(exc).__name__}: {exc}")
-
-    @staticmethod
-    def _sign_out_others(client, access_token: str) -> bool:
-        try:
-            client.auth.admin.sign_out(access_token, "others")
-            return True
-        except Exception as exc:
-            logger.error(f"admin change password: could not sign out the other sessions: {type(exc).__name__}")
-            return False
 
     def _sign_out_everywhere(self, user_id: str) -> bool:
         try:

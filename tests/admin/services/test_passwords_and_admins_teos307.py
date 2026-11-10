@@ -107,7 +107,8 @@ def _signed_in(client, user_id=ADMIN_ID):
         user=make_auth_user(ROLE_ADMIN, user_id=user_id))
 
 
-def test_change_password_sets_it_signs_out_others_and_returns_the_new_session(auth, client, audit):
+def test_change_password_sets_it_signs_out_other_admin_sessions_and_returns_the_new_session(auth, client, audit,
+                                                                                            devices):
     _signed_in(client)
 
     result = auth.change_password(make_admin(), "Old-Passw0rd!x", GOOD, "1.2.3.4", CTX)
@@ -115,7 +116,10 @@ def test_change_password_sets_it_signs_out_others_and_returns_the_new_session(au
     client.auth.sign_in_with_password.assert_called_once_with({"email": "admin@example.com",
                                                                "password": "Old-Passw0rd!x"})
     client.auth.admin.update_user_by_id.assert_called_once_with(ADMIN_ID, {"password": GOOD})
-    client.auth.admin.sign_out.assert_called_once_with("new-access", "others")
+    # only the admin portal: the other device rows are revoked and the caller's old session ends;
+    # no account-wide "others" sign-out, so the user portal sessions stay signed in
+    assert ("revoke_all", ADMIN_ID, "password_change", None) in devices.calls
+    client.auth.admin.sign_out.assert_called_once_with("access-token", "local")
     assert result.access_token == "new-access" and result.refresh_token == "new-refresh"
     assert result.other_sessions_signed_out is True
     (ctx, table, operation, details), = audit.rows
@@ -175,7 +179,7 @@ def test_change_password_session_of_another_account_is_refused(auth, client):
     client.auth.admin.update_user_by_id.assert_not_called()
 
 
-def test_change_password_reports_when_the_other_sessions_stay(auth, client, audit):
+def test_change_password_reports_when_the_old_session_stays(auth, client, audit):
     _signed_in(client)
     client.auth.admin.sign_out.side_effect = AuthRetryableError("down", 503)
 
@@ -183,6 +187,25 @@ def test_change_password_reports_when_the_other_sessions_stay(auth, client, audi
 
     assert result.other_sessions_signed_out is False
     assert audit.rows[0][3]["other_sessions_signed_out"] is False
+
+
+def test_change_password_reports_when_the_other_admin_devices_stay(auth, client, audit, devices):
+    _signed_in(client)
+    devices.fail, devices.fail_only = RuntimeError("db down"), {"revoke_all"}
+
+    result = auth.change_password(make_admin(), "Old-Passw0rd!x", GOOD, "1.2.3.4", CTX)
+
+    assert result.access_token == "new-access"  # the password is changed anyway
+    assert result.other_sessions_signed_out is False
+
+
+def test_change_password_never_signs_out_the_whole_account(auth, client):
+    _signed_in(client)
+
+    auth.change_password(make_admin(), "Old-Passw0rd!x", GOOD, "1.2.3.4", CTX)
+
+    scopes = [call.args[1] for call in client.auth.admin.sign_out.call_args_list]
+    assert "others" not in scopes and "global" not in scopes
 
 
 def test_change_password_audit_failure_does_not_fail_the_change(client, store):
