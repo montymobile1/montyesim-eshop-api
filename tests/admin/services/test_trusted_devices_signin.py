@@ -196,15 +196,20 @@ class FakeSupabase:
         self.password_response = None
         self.refresh_response = None
         self.links: List[str] = []
+        self.refreshed: List[str] = []  # TEOS-320: refresh tokens actually sent to Supabase
         self.auth = SimpleNamespace(
             sign_in_with_password=self._sign_in_with_password,
-            verify_otp=self._verify_otp, refresh_session=lambda token: self.refresh_response,
+            verify_otp=self._verify_otp, refresh_session=self._refresh_session,
             admin=SimpleNamespace(get_user_by_id=self._get_user_by_id, update_user_by_id=lambda uid, attrs: None,
                                   generate_link=self._generate_link,
                                   sign_out=lambda token, scope: self.signed_out.append((token, scope))))
 
     def __call__(self):
         return self
+
+    def _refresh_session(self, token):
+        self.refreshed.append(token)
+        return self.refresh_response
 
     def _sign_in_with_password(self, credentials):
         return self.password_response or auth_response("password-session")
@@ -250,6 +255,8 @@ class FakeDevices:
         self.calls: List[tuple] = []
         self.fail: Optional[Exception] = None
         self.fail_only: Optional[set] = None  # with ``fail``: only these methods fail
+        self.refresh_tokens: Dict[str, str] = {}  # TEOS-320: refresh token -> session_id
+        self.refresh_session_source = None  # fallback token -> session_id (the fixture: Supabase's next refresh)
 
     def add(self, admin_id=ADMIN_ID, info=DEVICE, trusted=True, session_id="sess-1", revoked=False,
             last_token_iat=None):
@@ -291,6 +298,17 @@ class FakeDevices:
         rows = [r for r in self.rows.values() if r["session_id"] == session_id]
         active = [r for r in rows if not r["revoked_at"]]
         return dict((active or rows or [None])[0]) if rows else None
+
+    def refresh_token_session(self, token):
+        """The SQL admin_refresh_token_session: the session of a refresh token, without using it."""
+        self._call("refresh_token_session", token)
+        session_id = self.refresh_tokens.get(token)
+        if session_id is None and self.refresh_session_source:
+            session_id = self.refresh_session_source(token)
+        if not session_id:
+            return None
+        owner = next((r["admin_id"] for r in self.rows.values() if r["session_id"] == session_id), ADMIN_ID)
+        return {"session_id": session_id, "user_id": owner}
 
     def move_session(self, device_id, new_session_id):
         self._call("move_session", device_id, new_session_id)
@@ -366,6 +384,9 @@ def verifications(supabase, verification_repo, otp_repo, audit, clock, monkeypat
 @pytest.fixture
 def service(supabase, devices, audit, verifications):
     limiter = LoginRateLimiter(5, 300, store_factory=lambda: FakeLoginAttemptStore(FakeClock()))
+    # a refresh token belongs to the session Supabase would refresh
+    devices.refresh_session_source = lambda token: (token_session_id(supabase.refresh_response.session.access_token)
+                                                    if supabase.refresh_response else None)
     return AdminAuthService(client_factory=supabase, rate_limiter=limiter, audit_factory=lambda: audit,
                             device_service_factory=lambda: devices,
                             verification_service=verifications)
@@ -1019,20 +1040,23 @@ def test_refresh_of_a_device_whose_trust_expired_is_401(service, supabase, devic
     supabase.refresh_response = auth_response("sess-9")
 
     _raises(lambda: service.refresh("refresh-token", DEVICE, "1.2.3.4"), 401, "device_trust_expired")
+    assert supabase.refreshed == [] and supabase.signed_out == []  # TEOS-320: refused before the token is used
 
 
 def test_refused_revoked_device_writes_one_audit_row(supabase_auth, lookup, monkeypatch):
     audits = []
     monkeypatch.setattr(admin_security, "refusal_audit",
-                        lambda row, admin_id, ip: audits.append((row["id"], admin_id, row["revoked_at"] is not None)))
+                        lambda row, admin_id, ip, reason, **details: audits.append(
+                            (row["id"] if row else None, admin_id, reason, details["code"])))
     _get_user(supabase_auth)
     row = lookup.add(session_id="sess-1", revoked=True)
 
     _raises(lambda: resolve_admin(session_token("sess-1")), 401, "device_revoked")
-    assert audits == [(row["id"], ADMIN_ID, True)]
+    assert audits == [(row["id"], ADMIN_ID, "device_revoked", "device_revoked")]
 
+    # TEOS-321: a session without a row is audited too
     _raises(lambda: resolve_admin(session_token("no-row")), 401, "device_session_required")
-    assert len(audits) == 1  # only revoked devices: a session without a row is not this event
+    assert audits[1] == (None, ADMIN_ID, "no_device_row", "device_session_required")
 
 
 def test_refused_session_audit_failure_still_gives_the_401(supabase_auth, lookup, monkeypatch):
@@ -1145,13 +1169,84 @@ def test_refresh_of_an_otp_session_is_allowed(service, supabase, devices):
     ("none", DEVICE, "device_session_required"),
     ("revoked", DEVICE, "device_revoked"),
     ("active", device_info(device_key=str(uuid.uuid4())), "device_session_required"),  # case 25: copied token
+    ("active", device_info(browser="Firefox"), "device_session_required"),
 ])
-def test_case_07_25_refresh_refused_and_the_refreshed_session_signed_out(service, supabase, devices, setup, info, code):
+def test_case_07_25_refresh_refused_before_the_token_is_used(service, supabase, devices, setup, info, code):
+    """TEOS-320: the refusal never reaches Supabase, so nothing is rotated or signed out."""
     if setup != "none":
         devices.add(session_id="sess-9", revoked=setup == "revoked")
     supabase.refresh_response = auth_response("sess-9")
 
     _raises(lambda: service.refresh("refresh-token", info), 401, code)
+
+    assert supabase.refreshed == [] and supabase.signed_out == []
+
+
+def test_teos320_refresh_from_another_browser_leaves_the_real_browser_signed_in(service, supabase, devices, lookup,
+                                                                               supabase_auth, monkeypatch):
+    """QA's steps: control refreshes, a refresh with another browser (401), then the real browser's access
+    token and refresh token still work, and the refused attempt is in the audit log."""
+    audits = []
+    monkeypatch.setattr(admin_security, "refusal_audit",
+                        lambda row, admin_id, ip, reason, **details: audits.append((row, admin_id, ip, reason, details)))
+    _get_user(supabase_auth)
+    row = devices.add(session_id="sess-9")
+    devices.refresh_tokens["rt-owner"] = "sess-9"
+    supabase.refresh_response = auth_response("sess-9", iat=1000)
+    owner = service.refresh("rt-owner", DEVICE, "1.2.3.4")
+
+    _raises(lambda: service.refresh("rt-owner", device_info(device_key=str(uuid.uuid4()), browser="Firefox"),
+                                    "9.9.9.9"), 401, "device_session_required")
+
+    assert supabase.refreshed == ["rt-owner"] and supabase.signed_out == []
+    assert resolve_admin(owner.access_token).device_id == row["id"]  # the access token still works
+    supabase.refresh_response = auth_response("sess-9", iat=2000)
+    assert service.refresh("rt-owner", DEVICE, "1.2.3.4").device_id == row["id"]  # and so does the refresh
+    assert devices.rows[row["id"]]["revoked_at"] is None
+    assert len(audits) == 1
+    audited_row, admin_id, ip, reason, details = audits[0]
+    assert (audited_row["id"], admin_id, ip, reason) == (row["id"], ADMIN_ID, "9.9.9.9", "device_mismatch")
+    assert details == {"code": "device_session_required", "path": "/api/v1/admin/auth/refresh", "session_id": "sess-9"}
+
+
+def test_teos320_mismatch_audit_failure_still_gives_the_401(service, supabase, devices, monkeypatch):
+    devices.add(session_id="sess-9")
+    supabase.refresh_response = auth_response("sess-9")
+    def broken(*args, **kwargs):
+        raise RuntimeError("audit down")
+    monkeypatch.setattr(admin_security, "refusal_audit", broken)
+
+    _raises(lambda: service.refresh("refresh-token", device_info(browser="Firefox")), 401, "device_session_required")
+    assert supabase.refreshed == []
+
+
+def test_teos320_unknown_refresh_token_is_401_without_supabase(service, supabase, devices):
+    devices.add(session_id="sess-9")
+
+    with pytest.raises(AdminError) as err:
+        service.refresh("never-issued", DEVICE)
+
+    assert err.value.code == 401 and err.value.details == "INVALID_REFRESH_TOKEN"
+    assert supabase.refreshed == []
+
+
+def test_teos320_refresh_token_lookup_failure_is_502_fail_closed(service, supabase, devices):
+    devices.add(session_id="sess-9")
+    supabase.refresh_response = auth_response("sess-9")
+    devices.fail, devices.fail_only = RuntimeError("db down"), {"refresh_token_session"}
+
+    _raises(lambda: service.refresh("refresh-token", DEVICE), 502)
+    assert supabase.refreshed == []
+
+
+def test_teos320_refreshed_session_is_still_checked_after_the_refresh(service, supabase, devices):
+    """Safety net: Supabase answers with a session that has no device row (should not happen): refused and
+    that refreshed session is signed out."""
+    devices.add(session_id="sess-9")
+    devices.refresh_tokens["refresh-token"] = "sess-9"
+    supabase.refresh_response = auth_response("unexpected")
+
+    _raises(lambda: service.refresh("refresh-token", DEVICE), 401, "device_session_required")
 
     assert supabase.signed_out == [(supabase.refresh_response.session.access_token, "local")]
 

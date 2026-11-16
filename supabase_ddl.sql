@@ -7332,6 +7332,53 @@ GRANT EXECUTE ON FUNCTION public.admin_end_session(uuid) TO service_role;
 
 
 -- ----------------------------------------------------------------------------
+-- admin_refresh_token_session (TEOS-320): the Supabase session a refresh token belongs to, read
+-- BEFORE the API refreshes it. POST /admin/auth/refresh checks that session's device row (revoked,
+-- trust expired, another browser) first and refuses without using the token: Supabase rotates a
+-- refresh token on use, so a refusal after the refresh signed the real browser out.
+-- Returns {"session_id": uuid, "user_id": text} for a known token (revoked or not: Supabase still
+-- accepts a just-rotated token for a few seconds and decides that itself), else NULL.
+-- Only reads auth.refresh_tokens; same owner requirement as admin_end_session.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_refresh_token_session(p_token text)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $$
+DECLARE
+    v_session_id uuid;
+    v_user_id    text;
+BEGIN
+    IF p_token IS NULL OR length(p_token) = 0 THEN
+        RETURN NULL;
+    END IF;
+    -- current_user is the owner here (SECURITY DEFINER): without RLS bypass the select sees nothing
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles
+                    WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
+        RAISE EXCEPTION USING ERRCODE = '42501',
+            MESSAGE = 'admin_refresh_token_session: the function owner must bypass row level security';
+    END IF;
+
+    SELECT rt.session_id, rt.user_id::text
+      INTO v_session_id, v_user_id
+      FROM auth.refresh_tokens rt
+     WHERE rt.token = p_token
+     LIMIT 1;
+
+    IF v_session_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+    RETURN jsonb_build_object('session_id', v_session_id, 'user_id', v_user_id);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_refresh_token_session(text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_refresh_token_session(text) TO service_role;
+
+
+-- ----------------------------------------------------------------------------
 -- admin_devices_on_password_change (TEOS-255 "trust ends on a password change"): whenever an account's
 -- password changes, wherever it is changed (admin portal, Supabase dashboard, a reset link), its trusted
 -- admin devices stop being trusted: the next sign-in on each of them asks for the email code. Sessions are

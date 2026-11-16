@@ -123,7 +123,8 @@ def super_admin_user_obj():
 
 @pytest.fixture(autouse=True)
 def _no_refused_session_audit(monkeypatch):
-    """TEOS-255: a refused revoked-device session writes an audit row; tests never reach the real audit store
-    (the tests of that audit replace it again)."""
+    """TEOS-255 / TEOS-321: a refused device session writes an audit row; tests never reach the real audit store
+    (the tests of that audit replace it again). The rate cap starts empty in every test."""
     import app.dependencies.admin_security as admin_security
-    monkeypatch.setattr(admin_security, "refusal_audit", lambda row, admin_id, ip: None)
+    monkeypatch.setattr(admin_security, "refusal_audit", lambda *args, **kwargs: None)
+    admin_security.refusal_dedupe.clear()

@@ -227,6 +227,13 @@ class TrustedDeviceService:
             return None
         return self._repo().by_session(str(session_id))
 
+    def refresh_token_session(self, refresh_token: str) -> Optional[Dict[str, Any]]:
+        """TEOS-320: the session (``session_id``, ``user_id``) of a refresh token, before it is used; None
+        when the token is unknown."""
+        if not refresh_token:
+            return None
+        return self._repo().refresh_token_session(refresh_token)
+
     def move_session(self, device_id: str, new_session_id: str) -> None:
         """TEOS-307 change password: the caller's row now holds the new session (the old one was signed out)."""
         self._repo().update(str(device_id), {"session_id": new_session_id,
