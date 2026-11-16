@@ -106,19 +106,26 @@ def _signed_in(client, user_id=ADMIN_ID):
         user=make_auth_user(ROLE_ADMIN, user_id=user_id))
 
 
-def test_change_password_sets_it_signs_out_other_admin_sessions_and_returns_the_new_session(auth, client, audit,
-                                                                                            devices):
-    _signed_in(client)
+def test_change_password_teos336_returns_a_session_opened_after_the_update(auth, client, audit, devices):
+    """TEOS-336: Supabase ends every session of the account on the password update (the check's included), so
+    the caller gets a session opened afterwards with the NEW password; the other device rows are revoked."""
+    order = []
+    check = SimpleNamespace(session=make_session(access_token="check-access", refresh_token="check-refresh"),
+                            user=make_auth_user(ROLE_ADMIN, user_id=ADMIN_ID))
+    fresh = SimpleNamespace(session=make_session(access_token="new-access", refresh_token="new-refresh"),
+                            user=make_auth_user(ROLE_ADMIN, user_id=ADMIN_ID))
+
+    def sign_in(credentials):
+        order.append(("sign_in", credentials["password"]))
+        return check if credentials["password"] == "Old-Passw0rd!x" else fresh
+    client.auth.sign_in_with_password.side_effect = sign_in
+    client.auth.admin.update_user_by_id.side_effect = lambda uid, attrs: order.append(("update", attrs["password"]))
 
     result = auth.change_password(make_admin(), "Old-Passw0rd!x", GOOD, "1.2.3.4", CTX)
 
-    client.auth.sign_in_with_password.assert_called_once_with({"email": "admin@example.com",
-                                                               "password": "Old-Passw0rd!x"})
-    client.auth.admin.update_user_by_id.assert_called_once_with(ADMIN_ID, {"password": GOOD})
-    # only the admin portal: the other device rows are revoked and the caller's old session ends;
-    # no account-wide "others" sign-out, so the user portal sessions stay signed in
+    assert order == [("sign_in", "Old-Passw0rd!x"), ("update", GOOD), ("sign_in", GOOD)]
     assert ("revoke_all", ADMIN_ID, "password_change", None) in devices.calls
-    client.auth.admin.sign_out.assert_called_once_with("access-token", "local")
+    client.auth.admin.sign_out.assert_not_called()  # Supabase already ended them all
     assert result.access_token == "new-access" and result.refresh_token == "new-refresh"
     assert result.other_sessions_signed_out is True
     (ctx, table, operation, details), = audit.rows
@@ -178,14 +185,21 @@ def test_change_password_session_of_another_account_is_refused(auth, client):
     client.auth.admin.update_user_by_id.assert_not_called()
 
 
-def test_change_password_reports_when_the_old_session_stays(auth, client, audit):
-    _signed_in(client)
-    client.auth.admin.sign_out.side_effect = AuthRetryableError("down", 503)
+@pytest.mark.parametrize("failure", [AuthRetryableError("down", 503), WRONG, None])
+def test_change_password_teos336_sign_in_with_the_new_password_failing_is_502(auth, client, audit, devices, failure):
+    """The password is changed anyway: devices revoked and audited, then 502 (the admin signs in again)."""
+    responses = [SimpleNamespace(session=make_session(access_token="check-access"),
+                                 user=make_auth_user(ROLE_ADMIN, user_id=ADMIN_ID)),
+                 failure if failure is not None else SimpleNamespace(session=None, user=None)]
+    client.auth.sign_in_with_password.side_effect = responses
 
-    result = auth.change_password(make_admin(), "Old-Passw0rd!x", GOOD, "1.2.3.4", CTX)
+    with pytest.raises(AdminUpstreamError) as err:
+        auth.change_password(make_admin(), "Old-Passw0rd!x", GOOD, "1.2.3.4", CTX)
 
-    assert result.other_sessions_signed_out is False
-    assert audit.rows[0][3]["other_sessions_signed_out"] is False
+    assert err.value.details == "PASSWORD_CHANGED_SIGN_IN_FAILED"
+    client.auth.admin.update_user_by_id.assert_called_once_with(ADMIN_ID, {"password": GOOD})
+    assert ("revoke_all", ADMIN_ID, "password_change", None) in devices.calls
+    assert audit.rows[0][3]["action"] == "password_change"
 
 
 def test_change_password_reports_when_the_other_admin_devices_stay(auth, client, audit, devices):
@@ -238,9 +252,9 @@ def test_reset_password_verifies_the_token_sets_it_and_signs_out_the_admin_porta
 
     client.auth.verify_otp.assert_called_once_with({"token_hash": "hashed-recovery-token", "type": "recovery"})
     client.auth.admin.update_user_by_id.assert_called_once_with(ADMIN_ID, {"password": GOOD})
-    # every admin device revoked + the link's own session ended; nothing account-wide (the user portal stays)
+    # TEOS-336: Supabase ended every session of the account (the link's included); every admin device revoked
     assert ("revoke_all", ADMIN_ID, "password_reset", None) in devices.calls
-    client.auth.admin.sign_out.assert_called_once_with("recovery-access", "local")
+    client.auth.admin.sign_out.assert_not_called()
     assert result.sessions_signed_out is True
     ctx, _, _, details = audit.rows[0]
     assert ctx.actor_id == ADMIN_ID and details["action"] == "password_reset"

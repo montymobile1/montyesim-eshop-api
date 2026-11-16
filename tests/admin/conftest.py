@@ -122,6 +122,14 @@ def super_admin_user_obj():
 
 
 @pytest.fixture(autouse=True)
+def _no_leaked_password_lookup(monkeypatch):
+    """TEOS-334: no test asks Have I Been Pwned; every password is "not leaked" unless a test says otherwise."""
+    from app.services.admin import leaked_password
+    monkeypatch.setattr(leaked_password, "range_fetcher", lambda prefix: "")
+    monkeypatch.delenv("ADMIN_PASSWORD_LEAK_CHECK", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _no_refused_session_audit(monkeypatch):
     """TEOS-255 / TEOS-321: a refused device session writes an audit row; tests never reach the real audit store
     (the tests of that audit replace it again). The rate cap starts empty in every test."""
