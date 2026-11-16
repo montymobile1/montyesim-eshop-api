@@ -1,0 +1,80 @@
+# Schema checks for supabase_ddl.sql (TEOS-271 / TEOS-326).
+#   static: parses supabase_ddl.sql (RLS on the per-user tables, SECURITY DEFINER functions pinned to
+#           search_path '' and closed to anon/authenticated/PUBLIC, the single-DDL rule). No database.
+#   live:   loads supabase_ddl.sql into a fresh PostgreSQL 15 that looks like Supabase
+#           (tests/rls/supabase_stub.py) and checks the catalogue, plus plpgsql_check under search_path ''.
+name: ddl-checks
+
+on:
+  pull_request:
+  push:
+    branches: [qa, production]
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # tests/conftest.py imports the FCM service, which loads a Firebase service account at import time
+      # (esim-app.json is git-ignored). A throwaway one, with a key generated here, is enough: nothing is sent.
+      - name: Throwaway Firebase credentials
+        run: |
+          openssl genrsa -out "$RUNNER_TEMP/fcm-ci.pem" 2048 2>/dev/null
+          python - <<'EOF'
+          import json, os
+          tmp = os.environ["RUNNER_TEMP"]
+          json.dump({"type": "service_account", "project_id": "ci-dummy", "private_key_id": "ci",
+                     "private_key": open(f"{tmp}/fcm-ci.pem").read(),
+                     "client_email": "ci@ci-dummy.iam.gserviceaccount.com", "client_id": "0",
+                     "token_uri": "https://oauth2.googleapis.com/token"}, open(f"{tmp}/fcm-ci.json", "w"))
+          EOF
+          echo "FCM_CONFIG_FILE=$RUNNER_TEMP/fcm-ci.json" >> "$GITHUB_ENV"
+      - name: DDL assertions (no database)
+        run: python -m pytest -q -p no:cacheprovider tests/rls/test_rls_ddl_assertion.py tests/maintenance
+
+  live:
+    runs-on: ubuntu-latest
+    env:
+      DDL_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # tests/conftest.py imports the FCM service, which loads a Firebase service account at import time
+      # (esim-app.json is git-ignored). A throwaway one, with a key generated here, is enough: nothing is sent.
+      - name: Throwaway Firebase credentials
+        run: |
+          openssl genrsa -out "$RUNNER_TEMP/fcm-ci.pem" 2048 2>/dev/null
+          python - <<'EOF'
+          import json, os
+          tmp = os.environ["RUNNER_TEMP"]
+          json.dump({"type": "service_account", "project_id": "ci-dummy", "private_key_id": "ci",
+                     "private_key": open(f"{tmp}/fcm-ci.pem").read(),
+                     "client_email": "ci@ci-dummy.iam.gserviceaccount.com", "client_id": "0",
+                     "token_uri": "https://oauth2.googleapis.com/token"}, open(f"{tmp}/fcm-ci.json", "w"))
+          EOF
+          echo "FCM_CONFIG_FILE=$RUNNER_TEMP/fcm-ci.json" >> "$GITHUB_ENV"
+      # Not a `services:` container: plpgsql_check is installed into it from the image's PGDG apt repository,
+      # with the server package upgraded to the same minor version, then the container is restarted.
+      - name: PostgreSQL 15 with plpgsql_check
+        run: |
+          docker run -d --name pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:15
+          docker exec pg bash -c "apt-get update -qq && apt-get install -y -qq --only-upgrade postgresql-15 \
+                                  && apt-get install -y -qq postgresql-15-plpgsql-check"
+          docker restart pg
+          for i in $(seq 1 30); do docker exec pg pg_isready -U postgres && break; sleep 2; done
+      - name: Load supabase_ddl.sql
+        run: python tests/rls/supabase_stub.py "$DDL_TEST_DATABASE_URL"
+      - name: Live catalogue checks
+        run: python -m pytest -q -p no:cacheprovider -rs tests/rls/test_rls_ddl_assertion.py -k live
