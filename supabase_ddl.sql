@@ -1020,6 +1020,7 @@ grant execute on function update_timestamp
 () to service_role;
 
 create function sync_users_copy() returns trigger security definer
+    set search_path = ''
     language plpgsql
 as
 $$
@@ -1052,16 +1053,6 @@ END;
 $$;
 
 alter function sync_users_copy() owner to postgres;
-
-grant
-execute
-on
-function
-sync_users_copy
-() to anon;
-
-grant execute on function sync_users_copy
-() to authenticated;
 
 grant execute on function sync_users_copy
 () to service_role;
@@ -1519,6 +1510,7 @@ grant execute on function search_bundles_with_pagination
 
 create function search_bundles(p_search_term text, p_page integer DEFAULT 0,
                                p_page_size integer DEFAULT 10) returns json security definer
+    set search_path = ''
     language plpgsql
 as
 $$
@@ -1534,7 +1526,7 @@ SELECT json_agg(t)
 INTO
     v_items
 FROM (SELECT *
-      FROM bundle
+      FROM public.bundle
       WHERE
           -- Search in id (converted to text)
           id::text ILIKE '%' || p_search_term || '%'
@@ -1552,7 +1544,7 @@ FROM (SELECT *
 SELECT COUNT(*)
 INTO
     v_total_count
-FROM bundle
+FROM public.bundle
 WHERE id::text ILIKE '%' || p_search_term || '%'
     OR bundle_name ILIKE '%' || p_search_term || '%'
     OR data->>'bundle_name' ILIKE '%' || p_search_term || '%'
@@ -1573,16 +1565,6 @@ END;
 $$;
 
 alter function search_bundles(text, integer, integer) owner to postgres;
-
-grant
-execute
-on
-function
-search_bundles
-(text, integer, integer) to anon;
-
-grant execute on function search_bundles
-(text, integer, integer) to authenticated;
 
 grant execute on function search_bundles
 (text, integer, integer) to service_role;
@@ -1713,8 +1695,8 @@ SELECT json_agg(t)
 INTO
     v_items
 FROM (SELECT DISTINCT b.*
-      FROM bundle b
-               LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+      FROM public.bundle b
+               LEFT JOIN public.bundle_tag bt ON b.id = bt.bundle_id
       WHERE (
           p_search_term IS NULL OR
           b.id::text ILIKE '%' || p_search_term || '%' OR
@@ -1732,8 +1714,8 @@ FROM (SELECT DISTINCT b.*
 SELECT COUNT(DISTINCT b.id)
 INTO
     v_total_count
-FROM bundle b
-         LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+FROM public.bundle b
+         LEFT JOIN public.bundle_tag bt ON b.id = bt.bundle_id
 WHERE (
     p_search_term IS NULL OR
     b.id::text ILIKE '%' || p_search_term || '%' OR
@@ -1758,24 +1740,15 @@ RETURN json_build_object(
        );
 END;
 $$
-LANGUAGE plpgsql SECURITY DEFINER;
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
 
 alter function search_bundles(text, integer, integer, uuid[]) owner to postgres;
-
-grant
-execute
-on
-function
-search_bundles
-(text, integer, integer, uuid[]) to anon;
-
-grant execute on function search_bundles
-(text, integer, integer, uuid[]) to authenticated;
 
 grant execute on function search_bundles
 (text, integer, integer, uuid[]) to service_role;
 
 create function search_bundle(p_search_term text, p_page integer DEFAULT 0, p_page_size integer DEFAULT 10) returns json security definer
+    set search_path = ''
     language plpgsql
 as
 $$
@@ -1791,7 +1764,7 @@ SELECT json_agg(t)
 INTO
     v_items
 FROM (SELECT *
-      FROM bundle
+      FROM public.bundle
       WHERE
           -- Search in id (converted to text)
           id::text ILIKE '%' || p_search_term || '%'
@@ -1809,7 +1782,7 @@ FROM (SELECT *
 SELECT COUNT(*)
 INTO
     v_total_count
-FROM bundle
+FROM public.bundle
 WHERE id::text ILIKE '%' || p_search_term || '%'
     OR bundle_name ILIKE '%' || p_search_term || '%'
     OR data->>'bundle_name' ILIKE '%' || p_search_term || '%'
@@ -1831,21 +1804,12 @@ $$;
 
 alter function search_bundle(text, integer, integer) owner to postgres;
 
-grant
-execute
-on
-function
-search_bundle
-(text, integer, integer) to anon;
-
-grant execute on function search_bundle
-(text, integer, integer) to authenticated;
-
 grant execute on function search_bundle
 (text, integer, integer) to service_role;
 
 create function search_bundle(p_search_term text, p_page integer DEFAULT 0, p_page_size integer DEFAULT 10,
                               p_tag_ids uuid[] DEFAULT NULL ::uuid[]) returns json security definer
+    set search_path = ''
     language plpgsql
 as
 $$
@@ -1861,8 +1825,8 @@ SELECT json_agg(t)
 INTO
     v_items
 FROM (SELECT DISTINCT b.*
-      FROM bundle b
-               LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+      FROM public.bundle b
+               LEFT JOIN public.bundle_tag bt ON b.id = bt.bundle_id
       WHERE (
           p_search_term IS NULL OR
           b.id::text ILIKE '%' || p_search_term || '%' OR
@@ -1880,8 +1844,8 @@ FROM (SELECT DISTINCT b.*
 SELECT COUNT(DISTINCT b.id)
 INTO
     v_total_count
-FROM bundle b
-         LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+FROM public.bundle b
+         LEFT JOIN public.bundle_tag bt ON b.id = bt.bundle_id
 WHERE (
     p_search_term IS NULL OR
     b.id::text ILIKE '%' || p_search_term || '%' OR
@@ -1908,16 +1872,6 @@ END;
 $$;
 
 alter function search_bundle(text, integer, integer, uuid[]) owner to postgres;
-
-grant
-execute
-on
-function
-search_bundle
-(text, integer, integer, uuid[]) to anon;
-
-grant execute on function search_bundle
-(text, integer, integer, uuid[]) to authenticated;
 
 grant execute on function search_bundle
 (text, integer, integer, uuid[]) to service_role;
@@ -2297,25 +2251,15 @@ DECLARE
   action_name TEXT;
   event_name TEXT;
 BEGIN
-  SELECT name INTO action_name FROM promotion_rule_action WHERE id = NEW.promotion_rule_action_id;
-  SELECT name INTO event_name FROM promotion_rule_event WHERE id = NEW.promotion_rule_event_id;
+  SELECT name INTO action_name FROM public.promotion_rule_action WHERE id = NEW.promotion_rule_action_id;
+  SELECT name INTO event_name FROM public.promotion_rule_event WHERE id = NEW.promotion_rule_event_id;
 
   NEW.name := action_name || '-' || event_name || '-' || NEW.max_usage::text;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = '';
 
 alter function update_promotion_rule_name() owner to postgres;
-
-grant
-execute
-on
-function
-update_promotion_rule_name
-() to anon;
-
-grant execute on function update_promotion_rule_name
-() to authenticated;
 
 grant execute on function update_promotion_rule_name
 () to service_role;
@@ -2335,7 +2279,7 @@ BEGIN
     FOREACH code IN ARRAY string_to_array(NEW.bundle_code, ',')
     LOOP
         SELECT COUNT(*) INTO exists_count
-        FROM bundle
+        FROM public.bundle
         WHERE data->>'bundle_code' = trim(code);
 
         IF exists_count = 0 THEN
@@ -2345,19 +2289,9 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = '';
 
 alter function validate_bundle_codes() owner to postgres;
-
-grant
-execute
-on
-function
-validate_bundle_codes
-() to anon;
-
-grant execute on function validate_bundle_codes
-() to authenticated;
 
 grant execute on function validate_bundle_codes
 () to service_role;
@@ -3806,7 +3740,7 @@ CREATE OR REPLACE FUNCTION public.admin_write_audit(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_details jsonb;
@@ -3881,7 +3815,7 @@ CREATE OR REPLACE FUNCTION public.admin_rotate_cache_key()
 RETURNS text
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_value text;
@@ -3909,7 +3843,7 @@ CREATE OR REPLACE FUNCTION public.admin_insert_audited(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_rel      regclass;
@@ -3980,7 +3914,7 @@ CREATE OR REPLACE FUNCTION public.admin_update_audited(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_rel     regclass;
@@ -4093,7 +4027,7 @@ CREATE OR REPLACE FUNCTION public.admin_delete_audited(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_rel     regclass;
@@ -4238,7 +4172,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_search    text    := nullif(btrim(coalesce(p_search, '')), '');
@@ -4424,7 +4358,7 @@ CREATE OR REPLACE FUNCTION public.admin_set_bundle_status(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_current boolean;
@@ -4498,7 +4432,7 @@ CREATE OR REPLACE FUNCTION public.admin_set_all_bundles_status(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_ids     jsonb;
@@ -4560,7 +4494,7 @@ CREATE OR REPLACE FUNCTION public.admin_set_bundle_tags(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_tag_ids  uuid[];
@@ -4887,7 +4821,7 @@ CREATE OR REPLACE FUNCTION public.admin_insert_group_with_tags(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_group    public.tag_group;
@@ -4950,7 +4884,7 @@ CREATE OR REPLACE FUNCTION public.admin_edit_tag_group(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_group        public.tag_group;
@@ -5111,7 +5045,7 @@ CREATE OR REPLACE FUNCTION public.admin_delete_group(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_group        public.tag_group;
@@ -5177,7 +5111,7 @@ CREATE OR REPLACE FUNCTION public.admin_reorder_tags(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_group   public.tag_group;
@@ -5285,7 +5219,7 @@ RETURNS TABLE (group_id bigint, bundle_count integer)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
     SELECT t.tag_group_id, count(DISTINCT bt.bundle_id)::integer
       FROM public.tag AS t
@@ -5399,7 +5333,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_pattern text;
@@ -5535,7 +5469,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_result jsonb;
@@ -5681,7 +5615,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_search text;
@@ -5871,7 +5805,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_now     timestamp := timezone('utc', now());
@@ -6000,7 +5934,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_pattern text;
@@ -6278,7 +6212,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_result jsonb;
@@ -6434,7 +6368,7 @@ CREATE OR REPLACE FUNCTION public.admin_upsert_settings(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_items     jsonb  := coalesce(p_items, '[]'::jsonb);
@@ -6776,7 +6710,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_since    timestamptz;
@@ -6819,7 +6753,7 @@ RETURNS void
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_row public.admin_login_attempt%ROWTYPE;
@@ -6886,7 +6820,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
-SET search_path = pg_catalog, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_refresh_tokens integer;
@@ -7256,7 +7190,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_attempts integer;
@@ -7301,7 +7235,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
-SET search_path = pg_catalog, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_refresh_tokens integer;
@@ -7390,7 +7324,7 @@ CREATE OR REPLACE FUNCTION public.admin_devices_on_password_change()
 RETURNS trigger
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 BEGIN
     UPDATE public.admin_devices
@@ -7432,7 +7366,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_pattern text;
@@ -7516,3 +7450,196 @@ REVOKE ALL ON TABLE public.admin_otp FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON SEQUENCE public.admin_otp_id_seq FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.admin_otp TO service_role;
 GRANT USAGE, SELECT ON SEQUENCE public.admin_otp_id_seq TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- TEOS-326: SECURITY DEFINER functions in public
+-- Every SECURITY DEFINER function above runs with SET search_path = '' and schema-qualified
+-- names, so a caller cannot redirect it through its own search_path or pg_temp. Nobody but
+-- service_role (the API's key) may execute them; the reason for each grant is the function's
+-- COMMENT. tests/rls/test_rls_ddl_assertion.py keeps it that way (and its live variant checks
+-- the catalogue). Existing databases get the same change from the TEOS-326 per-database script.
+-- ----------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.sync_users_copy() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.sync_users_copy() TO service_role;
+COMMENT ON FUNCTION public.sync_users_copy() IS
+    'SECURITY DEFINER, search_path ''''. trigger on auth.users (on_auth_users_changed): copies sign-ups/updates/deletes to public.users_copy. Firing a trigger does not check EXECUTE; service_role is granted only so that the API role can execute every function in public. Nobody calls it directly.';
+
+REVOKE ALL ON FUNCTION public.search_bundles(text, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.search_bundles(text, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.search_bundles(text, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. legacy, not called by the API or any current client (the old supabase-js portal called it with the admin''s JWT). EXECUTE for service_role only; anon/authenticated removed (TEOS-326).';
+
+REVOKE ALL ON FUNCTION public.search_bundles(text, integer, integer, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.search_bundles(text, integer, integer, uuid[]) TO service_role;
+COMMENT ON FUNCTION public.search_bundles(text, integer, integer, uuid[]) IS
+    'SECURITY DEFINER, search_path ''''. legacy, not called by the API or any current client (the old supabase-js portal called it with the admin''s JWT). EXECUTE for service_role only; anon/authenticated removed (TEOS-326).';
+
+REVOKE ALL ON FUNCTION public.search_bundle(text, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.search_bundle(text, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.search_bundle(text, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. legacy, not called by the API or any client. EXECUTE for service_role only; anon/authenticated removed (TEOS-326).';
+
+REVOKE ALL ON FUNCTION public.search_bundle(text, integer, integer, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.search_bundle(text, integer, integer, uuid[]) TO service_role;
+COMMENT ON FUNCTION public.search_bundle(text, integer, integer, uuid[]) IS
+    'SECURITY DEFINER, search_path ''''. legacy, not called by the API or any client. EXECUTE for service_role only; anon/authenticated removed (TEOS-326).';
+
+REVOKE ALL ON FUNCTION public.admin_write_audit(text, text, text, jsonb, jsonb, uuid, text, text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_write_audit(text, text, text, jsonb, jsonb, uuid, text, text, jsonb) TO service_role;
+COMMENT ON FUNCTION public.admin_write_audit(text, text, text, jsonb, jsonb, uuid, text, text, jsonb) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/audit_log_repo.py, and by the other admin_* functions';
+
+REVOKE ALL ON FUNCTION public.admin_rotate_cache_key() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_rotate_cache_key() TO service_role;
+COMMENT ON FUNCTION public.admin_rotate_cache_key() IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the other admin_* functions (APP_CACHE_KEY rotation); the API never calls it directly';
+
+REVOKE ALL ON FUNCTION public.admin_insert_audited(text, jsonb, uuid, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_insert_audited(text, jsonb, uuid, text, text, boolean) TO service_role;
+COMMENT ON FUNCTION public.admin_insert_audited(text, jsonb, uuid, text, text, boolean) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/base.py (generic audited insert)';
+
+REVOKE ALL ON FUNCTION public.admin_update_audited(text, text, jsonb, uuid, text, text, text, boolean, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_update_audited(text, text, jsonb, uuid, text, text, text, boolean, jsonb) TO service_role;
+COMMENT ON FUNCTION public.admin_update_audited(text, text, jsonb, uuid, text, text, text, boolean, jsonb) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/base.py (generic audited update)';
+
+REVOKE ALL ON FUNCTION public.admin_delete_audited(text, text, uuid, text, text, boolean, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_delete_audited(text, text, uuid, text, text, boolean, jsonb) TO service_role;
+COMMENT ON FUNCTION public.admin_delete_audited(text, text, uuid, text, text, boolean, jsonb) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/base.py (generic audited delete)';
+
+REVOKE ALL ON FUNCTION public.admin_search_bundles(text, uuid[], boolean, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_search_bundles(text, uuid[], boolean, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_search_bundles(text, uuid[], boolean, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/bundle_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_set_bundle_status(uuid, boolean, uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_bundle_status(uuid, boolean, uuid, text, text) TO service_role;
+COMMENT ON FUNCTION public.admin_set_bundle_status(uuid, boolean, uuid, text, text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/bundle_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_set_all_bundles_status(boolean, uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_all_bundles_status(boolean, uuid, text, text) TO service_role;
+COMMENT ON FUNCTION public.admin_set_all_bundles_status(boolean, uuid, text, text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/bundle_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_set_bundle_tags(uuid, uuid[], uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_bundle_tags(uuid, uuid[], uuid, text, text) TO service_role;
+COMMENT ON FUNCTION public.admin_set_bundle_tags(uuid, uuid[], uuid, text, text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/bundle_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_insert_group_with_tags(text, integer, text, jsonb, uuid, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_insert_group_with_tags(text, integer, text, jsonb, uuid, text, text, boolean) TO service_role;
+COMMENT ON FUNCTION public.admin_insert_group_with_tags(text, integer, text, jsonb, uuid, text, text, boolean) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/tag_group_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_edit_tag_group(bigint, text, integer, text, jsonb, jsonb, uuid[], uuid, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_edit_tag_group(bigint, text, integer, text, jsonb, jsonb, uuid[], uuid, text, text, boolean) TO service_role;
+COMMENT ON FUNCTION public.admin_edit_tag_group(bigint, text, integer, text, jsonb, jsonb, uuid[], uuid, text, text, boolean) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/tag_group_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_delete_group(bigint, uuid, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_delete_group(bigint, uuid, text, text, boolean) TO service_role;
+COMMENT ON FUNCTION public.admin_delete_group(bigint, uuid, text, text, boolean) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/tag_group_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_reorder_tags(bigint, uuid[], uuid, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_reorder_tags(bigint, uuid[], uuid, text, text, boolean) TO service_role;
+COMMENT ON FUNCTION public.admin_reorder_tags(bigint, uuid[], uuid, text, text, boolean) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/tag_group_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_group_bundle_counts(bigint[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_group_bundle_counts(bigint[]) TO service_role;
+COMMENT ON FUNCTION public.admin_group_bundle_counts(bigint[]) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/tag_group_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text, text) TO service_role;
+COMMENT ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text, text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/user_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_wallet_transactions(uuid, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_wallet_transactions(uuid, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_wallet_transactions(uuid, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/user_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_referral_transactions(uuid, text, text, date, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_referral_transactions(uuid, text, text, date, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_referral_transactions(uuid, text, text, date, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/user_repo.py and referral_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_search_promotions(text, text, uuid[], text[], boolean, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_search_promotions(text, text, uuid[], text[], boolean, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_search_promotions(text, text, uuid[], text[], boolean, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/promotion_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_promotion_usage(text, uuid, uuid[], timestamp, timestamp, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_promotion_usage(text, uuid, uuid[], timestamp, timestamp, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_promotion_usage(text, uuid, uuid[], timestamp, timestamp, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/promotion_usage_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_audit_log_search(text, text, uuid, timestamp, timestamp, text, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_audit_log_search(text, text, uuid, timestamp, timestamp, text, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_audit_log_search(text, text, uuid, timestamp, timestamp, text, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/audit_log_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_upsert_settings(jsonb, text[], uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_upsert_settings(jsonb, text[], uuid, text, text) TO service_role;
+COMMENT ON FUNCTION public.admin_upsert_settings(jsonb, text[], uuid, text, text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/app_config_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_login_attempt_begin(text, text, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_login_attempt_begin(text, text, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_login_attempt_begin(text, text, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/login_attempt_repo.py (admin login rate limit)';
+
+REVOKE ALL ON FUNCTION public.admin_login_attempt_finish(bigint, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_login_attempt_finish(bigint, text) TO service_role;
+COMMENT ON FUNCTION public.admin_login_attempt_finish(bigint, text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/login_attempt_repo.py (admin login rate limit)';
+
+REVOKE ALL ON FUNCTION public.admin_revoke_user_sessions(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_revoke_user_sessions(uuid) TO service_role;
+COMMENT ON FUNCTION public.admin_revoke_user_sessions(uuid) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/user_repo.py (ban: ends the user''s sessions)';
+
+REVOKE ALL ON FUNCTION public.admin_device_verification_failed_attempt(uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_device_verification_failed_attempt(uuid, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_device_verification_failed_attempt(uuid, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/trusted_device_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_end_session(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_end_session(uuid) TO service_role;
+COMMENT ON FUNCTION public.admin_end_session(uuid) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/trusted_device_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_devices_on_password_change() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_devices_on_password_change() TO service_role;
+COMMENT ON FUNCTION public.admin_devices_on_password_change() IS
+    'SECURITY DEFINER, search_path ''''. trigger on auth.users (password change ends the admin''s device trust). Firing a trigger does not check EXECUTE; service_role is granted only so that the API role can execute every function in public. Nobody calls it directly.';
+
+REVOKE ALL ON FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) TO service_role;
+COMMENT ON FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/users_copy_repo.py';
+
+REVOKE ALL ON FUNCTION public.update_promotion_rule_name() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.update_promotion_rule_name() TO service_role;
+COMMENT ON FUNCTION public.update_promotion_rule_name() IS
+    'trigger on promotion_rule (SECURITY INVOKER). Pinned to search_path '''' with qualified names because it fires inside admin_insert_audited / admin_update_audited, whose empty search_path it would otherwise inherit. Firing does not check EXECUTE; granted to service_role only.';
+
+REVOKE ALL ON FUNCTION public.validate_bundle_codes() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.validate_bundle_codes() TO service_role;
+COMMENT ON FUNCTION public.validate_bundle_codes() IS
+    'trigger on promotion (SECURITY INVOKER). Pinned to search_path '''' with qualified names because it fires inside admin_insert_audited / admin_update_audited, whose empty search_path it would otherwise inherit. Firing does not check EXECUTE; granted to service_role only.';
+
+-- Functions created later by postgres: not executable by PUBLIC (PostgreSQL's built-in default,
+-- which only a global rule can remove: a per-schema REVOKE does not override it) nor by
+-- anon/authenticated (Supabase's per-schema default); service_role keeps EXECUTE. Placed at the
+-- end so that it does not change the grants of the functions this file creates. supabase_admin's
+-- default privileges cannot be changed by postgres on Supabase: Supabase support ticket (TEOS-326).
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role;

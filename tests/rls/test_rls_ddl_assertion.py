@@ -10,6 +10,7 @@ The SQL is read with comments and quoted bodies removed, the way PostgreSQL read
 nest, so a ``/*`` inside a comment opens another one. Such a comment once hid the end of
 supabase_ddl.sql (everything after it was never run); the scanner fails on it.
 """
+import os
 import re
 from pathlib import Path
 
@@ -170,3 +171,227 @@ def test_a_later_disable_or_drop_is_caught():
     assert not state["notification"]["forced"]
     assert "user_order_select_own" not in state["user_order"]["policies"]
     assert "device_insert" in state["device"]["policies"]
+
+
+# ---------- TEOS-326: SECURITY DEFINER functions ----------
+#
+# Replayed from the statements of supabase_ddl.sql, in order: which functions are SECURITY DEFINER at the
+# end, their SET search_path, who may EXECUTE them (a new function starts executable by PUBLIC, anon,
+# authenticated and service_role: PostgreSQL's default plus Supabase's default privileges) and their COMMENT.
+
+#: roles that must never execute a SECURITY DEFINER function
+CLOSED_TO = {"public", "anon", "authenticated"}
+_TYPE_ALIASES = {"int": "integer", "int4": "integer", "int8": "bigint", "bool": "boolean",
+                 "timestamp without time zone": "timestamp", "character varying": "varchar"}
+
+
+def _split_top(text: str):
+    """``text`` split on commas outside parentheses."""
+    parts, depth, cur = [], 0, ""
+    for ch in text:
+        depth += ch == "("
+        depth -= ch == ")"
+        if ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    return [p.strip() for p in parts + [cur] if p.strip()]
+
+
+def _arg_types(args: str):
+    """'p_a text, p_b integer default 0, uuid[]' -> ('text', 'integer', 'uuid[]')."""
+    types = []
+    for arg in _split_top(re.sub(r"\s+", " ", args.lower())):
+        arg = re.split(r"\s+default\s+|\s*=\s*", arg)[0].strip()
+        arg = re.sub(r"^(in|variadic)\s+", "", arg)
+        words = arg.split(" ")
+        if len(words) > 1 and re.fullmatch(r"[a-z_][a-z0-9_]*", words[0]) \
+                and words[0] not in ("double", "character", "timestamp", "time", "bit"):
+            arg = " ".join(words[1:])  # drop the parameter name
+        types.append(_TYPE_ALIASES.get(arg, arg))
+    return tuple(types)
+
+
+_SIG = r"(?:public\.)?([a-z_]+)\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)"
+
+
+def definer_state(sql: str):
+    """(name, arg types) -> {"definer", "search_path", "execute": roles, "comment"} after the file ran."""
+    functions = {}
+    for stmt in statements(sql):
+        if m := re.match(rf"create (or replace )?function {_SIG}", stmt):
+            key = (m.group(2), _arg_types(m.group(3)))
+            header = stmt.replace("$$", " ")
+            path = re.search(r"\bset search_path\s*(?:=|to)\s*('[^']*'|[a-z_\"$, ]+?)(?=\s+(?:as|language|security|"
+                             r"stable|volatile|immutable|returns|set|cost|parallel|strict)\b|\s*$)", header)
+            previous = functions.get(key)
+            functions[key] = {
+                "definer": bool(re.search(r"\bsecurity definer\b", header)),
+                "search_path": path.group(1).strip() if path else None,
+                # CREATE OR REPLACE keeps the privileges and the comment of an existing function
+                "execute": previous["execute"] if previous else {"public", "anon", "authenticated", "service_role"},
+                "comment": previous["comment"] if previous else None,
+            }
+        elif m := re.fullmatch(rf"drop function (?:if exists )?{_SIG}(?: cascade| restrict)?", stmt):
+            functions.pop((m.group(1), _arg_types(m.group(2))), None)
+        elif m := re.fullmatch(rf"(grant|revoke) (?:all|execute)(?: privileges)? on function {_SIG} (?:to|from) ([a-z_, ]+)", stmt):
+            fn = functions.get((m.group(2), _arg_types(m.group(3))))
+            if fn:
+                roles = {r.strip() for r in m.group(4).split(",")}
+                fn["execute"] = fn["execute"] | roles if m.group(1) == "grant" else fn["execute"] - roles
+        elif m := re.fullmatch(rf"alter function {_SIG} (set search_path\s*(?:=|to)\s*(.+)|reset search_path|reset all)", stmt):
+            fn = functions.get((m.group(1), _arg_types(m.group(2))))
+            if fn:
+                fn["search_path"] = m.group(4).strip() if m.group(4) else None
+        elif m := re.fullmatch(rf"comment on function {_SIG} is (.+)", stmt, flags=re.S):
+            fn = functions.get((m.group(1), _arg_types(m.group(2))))
+            if fn:
+                fn["comment"] = None if m.group(3).strip() == "null" else m.group(3)
+    return {key: fn for key, fn in functions.items() if fn["definer"]}
+
+
+@pytest.fixture(scope="module")
+def definers():
+    return definer_state(DDL.read_text())
+
+
+def _label(key):
+    return f"{key[0]}({', '.join(key[1])})"
+
+
+def test_the_ddl_has_its_security_definer_functions(definers):
+    names = {name for name, _ in definers}
+    assert {"sync_users_copy", "search_bundle", "search_bundles", "admin_insert_audited",
+            "admin_revoke_user_sessions"} <= names
+    assert len(definers) >= 33
+
+
+def test_every_security_definer_function_pins_an_empty_search_path(definers):
+    bad = {_label(k): fn["search_path"] for k, fn in definers.items() if fn["search_path"] not in ("''", '""')}
+    assert not bad, f"SECURITY DEFINER without SET search_path = '': {bad}"
+
+
+def test_no_security_definer_function_is_executable_by_public_anon_or_authenticated(definers):
+    bad = {_label(k): sorted(fn["execute"] & CLOSED_TO) for k, fn in definers.items() if fn["execute"] & CLOSED_TO}
+    assert not bad, f"REVOKE ALL ON FUNCTION ... FROM PUBLIC, anon, authenticated is missing for {bad}"
+
+
+def test_service_role_executes_every_security_definer_function(definers):
+    bad = [_label(k) for k, fn in definers.items() if "service_role" not in fn["execute"]]
+    assert not bad, f"GRANT EXECUTE ... TO service_role is missing for {bad}"
+
+
+def test_every_security_definer_function_says_why_it_is_granted(definers):
+    bad = [_label(k) for k, fn in definers.items() if not fn["comment"]]
+    assert not bad, f"COMMENT ON FUNCTION (the reason for its grants) is missing for {bad}"
+
+
+def test_triggers_fired_by_admin_writes_are_pinned_too():
+    """promotion / promotion_rule triggers fire inside admin_insert/update_audited and would inherit their
+    empty search_path: they must not depend on the caller's search_path either."""
+    sql = DDL.read_text()
+    for name in ("validate_bundle_codes", "update_promotion_rule_name"):
+        stmt = next(s for s in statements(sql) if re.match(rf"create (or replace )?function (public\.)?{name}\(", s))
+        assert "set search_path = ''" in stmt, name
+
+
+def test_new_postgres_functions_are_not_executable_by_public():
+    stmts = statements(DDL.read_text())
+    assert "alter default privileges for role postgres revoke execute on functions from public" in stmts
+    assert ("alter default privileges for role postgres in schema public revoke execute on functions "
+            "from anon, authenticated") in stmts
+
+
+def test_a_later_grant_or_unpinned_definer_is_caught():
+    sql = DDL.read_text() + """
+        GRANT EXECUTE ON FUNCTION public.admin_end_session(uuid) TO anon;
+        ALTER FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) RESET search_path;
+        CREATE FUNCTION public.leaky(p_id uuid) RETURNS int LANGUAGE sql SECURITY DEFINER AS $$ SELECT 1 $$;
+    """
+    state = definer_state(sql)
+    assert "anon" in state[("admin_end_session", ("uuid",))]["execute"]
+    assert state[("admin_lookup_admins", ("text", "integer", "integer", "uuid"))]["search_path"] is None
+    leaky = state[("leaky", ("uuid",))]
+    assert leaky["search_path"] is None and "public" in leaky["execute"] and leaky["comment"] is None
+
+
+def test_signature_parsing():
+    assert _arg_types("p_search_term text, p_page integer DEFAULT 0, p_tag_ids uuid[] DEFAULT NULL ::uuid[]") == \
+           ("text", "integer", "uuid[]")
+    assert _arg_types("text, integer, timestamp, numeric(10, 2)") == ("text", "integer", "timestamp", "numeric(10, 2)")
+    assert _arg_types("p_from timestamp without time zone default null") == ("timestamp",)
+
+
+# ---------- TEOS-326, live: the catalogue of a database loaded with supabase_ddl.sql ----------
+# DDL_TEST_DATABASE_URL: a disposable database with the Supabase roles (tests/rls/supabase_stub.py loads
+# one). Never point it at a real environment: it only reads, but it is meant for the freshly loaded DDL.
+
+DDL_DATABASE_URL = os.getenv("DDL_TEST_DATABASE_URL", "")
+live = pytest.mark.skipif(not DDL_DATABASE_URL, reason="DDL_TEST_DATABASE_URL not set")
+
+
+def _query(sql, *params):
+    import psycopg
+    with psycopg.connect(DDL_DATABASE_URL) as conn:
+        return conn.execute(sql, params or None).fetchall()
+
+
+@live
+def test_live_no_security_definer_function_is_executable_by_anon_or_public():
+    rows = _query("""
+        SELECT p.oid::regprocedure::text
+          FROM pg_proc p
+         WHERE p.pronamespace = 'public'::regnamespace AND p.prosecdef
+           AND (has_function_privilege('anon', p.oid, 'EXECUTE')
+                OR has_function_privilege('authenticated', p.oid, 'EXECUTE')
+                OR EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
+                            WHERE a.grantee = 0))""")
+    assert rows == [], f"SECURITY DEFINER functions executable by anon/authenticated/PUBLIC: {rows}"
+
+
+@live
+def test_live_every_security_definer_function_has_a_search_path():
+    rows = _query("""
+        SELECT p.oid::regprocedure::text FROM pg_proc p
+         WHERE p.pronamespace = 'public'::regnamespace AND p.prosecdef
+           AND NOT EXISTS (SELECT 1 FROM unnest(p.proconfig) c WHERE c LIKE 'search_path=%')""")
+    assert rows == [], f"SECURITY DEFINER functions without search_path= in proconfig: {rows}"
+
+
+@live
+def test_live_service_role_executes_every_function_in_public():
+    rows = _query("""SELECT p.oid::regprocedure::text FROM pg_proc p
+                      WHERE p.pronamespace = 'public'::regnamespace
+                        AND NOT has_function_privilege('service_role', p.oid, 'EXECUTE')""")
+    assert rows == [], f"the API (service_role) cannot execute: {rows}"
+
+
+@live
+def test_live_definer_bodies_compile_with_an_empty_search_path():
+    """plpgsql_check, when installed: every statement of every SECURITY DEFINER function (and of the triggers
+    they fire) resolves with search_path = '' -- an unqualified name would fail here, not in production."""
+    if not _query("SELECT 1 FROM pg_available_extensions WHERE name = 'plpgsql_check'"):
+        pytest.skip("plpgsql_check is not available on this server")
+    import psycopg
+    with psycopg.connect(DDL_DATABASE_URL) as conn:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS plpgsql_check")
+        conn.execute("SET search_path = ''")
+        rows = conn.execute("""
+            SELECT p.oid::regprocedure::text, r.lineno, r.message
+              FROM pg_catalog.pg_proc p
+              JOIN pg_catalog.pg_language l ON l.oid = p.prolang AND l.lanname = 'plpgsql'
+              LEFT JOIN LATERAL (SELECT t.tgrelid FROM pg_catalog.pg_trigger t WHERE t.tgfoid = p.oid LIMIT 1) t ON true
+             CROSS JOIN LATERAL plpgsql_check_function_tb(p.oid, coalesce(t.tgrelid, 0), fatal_errors => false,
+                       other_warnings => false, extra_warnings => false, performance_warnings => false) r
+             WHERE p.pronamespace = 'public'::regnamespace
+               AND (p.prosecdef OR p.proname IN ('validate_bundle_codes', 'update_promotion_rule_name'))
+               AND r.level = 'error'""".replace("plpgsql_check_function_tb",
+                                                 f"{_plpgsql_check_schema(conn)}.plpgsql_check_function_tb")).fetchall()
+        conn.rollback()
+    assert rows == [], f"unqualified references under search_path '': {rows}"
+
+
+def _plpgsql_check_schema(conn):
+    return conn.execute("SELECT n.nspname FROM pg_catalog.pg_extension e JOIN pg_catalog.pg_namespace n "
+                        "ON n.oid = e.extnamespace WHERE e.extname = 'plpgsql_check'").fetchone()[0]
