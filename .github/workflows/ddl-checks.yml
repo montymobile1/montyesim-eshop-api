@@ -23,6 +23,20 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
+      # tests/conftest.py imports the FCM service, which loads a Firebase service account at import time
+      # (esim-app.json is git-ignored). A throwaway one, with a key generated here, is enough: nothing is sent.
+      - name: Throwaway Firebase credentials
+        run: |
+          openssl genrsa -out "$RUNNER_TEMP/fcm-ci.pem" 2048 2>/dev/null
+          python - <<'EOF'
+          import json, os
+          tmp = os.environ["RUNNER_TEMP"]
+          json.dump({"type": "service_account", "project_id": "ci-dummy", "private_key_id": "ci",
+                     "private_key": open(f"{tmp}/fcm-ci.pem").read(),
+                     "client_email": "ci@ci-dummy.iam.gserviceaccount.com", "client_id": "0",
+                     "token_uri": "https://oauth2.googleapis.com/token"}, open(f"{tmp}/fcm-ci.json", "w"))
+          EOF
+          echo "FCM_CONFIG_FILE=$RUNNER_TEMP/fcm-ci.json" >> "$GITHUB_ENV"
       - name: DDL assertions (no database)
         run: python -m pytest -q -p no:cacheprovider tests/rls/test_rls_ddl_assertion.py tests/maintenance
 
@@ -37,6 +51,20 @@ jobs:
           python-version: "3.11"
           cache: pip
       - run: pip install -r requirements.txt
+      # tests/conftest.py imports the FCM service, which loads a Firebase service account at import time
+      # (esim-app.json is git-ignored). A throwaway one, with a key generated here, is enough: nothing is sent.
+      - name: Throwaway Firebase credentials
+        run: |
+          openssl genrsa -out "$RUNNER_TEMP/fcm-ci.pem" 2048 2>/dev/null
+          python - <<'EOF'
+          import json, os
+          tmp = os.environ["RUNNER_TEMP"]
+          json.dump({"type": "service_account", "project_id": "ci-dummy", "private_key_id": "ci",
+                     "private_key": open(f"{tmp}/fcm-ci.pem").read(),
+                     "client_email": "ci@ci-dummy.iam.gserviceaccount.com", "client_id": "0",
+                     "token_uri": "https://oauth2.googleapis.com/token"}, open(f"{tmp}/fcm-ci.json", "w"))
+          EOF
+          echo "FCM_CONFIG_FILE=$RUNNER_TEMP/fcm-ci.json" >> "$GITHUB_ENV"
       # Not a `services:` container: plpgsql_check is installed into it from the image's PGDG apt repository,
       # with the server package upgraded to the same minor version, then the container is restarted.
       - name: PostgreSQL 15 with plpgsql_check
