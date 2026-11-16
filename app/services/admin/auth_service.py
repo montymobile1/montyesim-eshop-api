@@ -25,10 +25,10 @@ from loguru import logger
 from app.config.admin_permissions import permissions_for
 from app.config.config import supabase_client
 from app.config.constants import ErrorMessages
-from app.dependencies.admin_security import (AdminUser, audit_refused_session, device_session_error,
-                                             is_recovery_session, token_iat, token_session_id)
+from app.dependencies.admin_security import (AdminUser, audit_refused_session, device_session_refusal,
+                                             is_recovery_session, refusal_error, token_iat, token_session_id)
 from app.exceptions.admin import (AdminError, AdminForbidden, AdminRateLimited, AdminUnauthorized,
-                                  AdminUpstreamError, AdminValidationError, coded)
+                                  AdminUpstreamError, AdminValidationError)
 from app.repo.admin.base import AuditContext
 from app.repo.admin.login_attempt_repo import OUTCOME_ABORTED, OUTCOME_SUCCESS, LoginAttemptRepo
 from app.schemas.admin.auth import AdminPasswordChanged, AdminPasswordReset, AdminProfile, AdminSession
@@ -56,6 +56,7 @@ ACTION_PASSWORD_RESET = "password_reset"
 # TEOS-255
 SESSION_ID_MISSING = "SESSION_ID_MISSING"
 DEVICE_LOOKUP_FAILED = "DEVICE_LOOKUP_FAILED"
+REFRESH_PATH = "/api/v1/admin/auth/refresh"  # TEOS-321: the route in session_refused audit rows
 
 
 def _default_audit():
@@ -94,6 +95,11 @@ def _parse_rate_limit(value: Optional[str]) -> tuple[int, int]:
     logger.warning(f"invalid ADMIN_LOGIN_RATE_LIMIT {value!r}, using {DEFAULT_LOGIN_RATE_LIMIT}")
     attempts, seconds = DEFAULT_LOGIN_RATE_LIMIT.split("/")
     return int(attempts), int(seconds)
+
+
+def _same_browser(row: Dict[str, Any], device: Optional[AdminDeviceInfo]) -> bool:
+    """TEOS-255: ``device`` is the browser of the session's device row (same hash)."""
+    return device is not None and device_hash(device) == row.get("device_hash")
 
 
 def _is_upstream_failure(exc: AuthError) -> bool:
@@ -262,9 +268,18 @@ class AdminAuthService:
 
     def refresh(self, refresh_token: str, device: Optional[AdminDeviceInfo] = None,
                 ip: Optional[str] = None) -> AdminSession:
-        """New tokens from a refresh token. TEOS-255: the refreshed session must still have an active device row
-        and ``device`` must be that row's browser, else 401 (``device_revoked`` / ``device_session_required``)
-        and the refreshed session is signed out."""
+        """New tokens from a refresh token. TEOS-255: the session must still have an active device row and
+        ``device`` must be that row's browser, else 401 (``device_revoked`` / ``device_trust_expired`` /
+        ``device_session_required``).
+
+        TEOS-320: that check runs BEFORE the token is used. Supabase rotates a refresh token on use, so a
+        refusal after the refresh left the session's own browser with dead tokens: anyone holding a copy of
+        the token could sign the admin out. Now a refused refresh never reaches Supabase and the session
+        keeps working in its own browser. An unknown refresh token is 401 ``INVALID_REFRESH_TOKEN``. The
+        check after the refresh stays as a safety net (it signs the refreshed session out).
+        TEOS-321: every refusal writes a ``session_refused`` audit row (another browser: reason
+        ``device_mismatch``)."""
+        self._check_refresh_device(refresh_token, device, ip)
         client = self._client_factory()
         try:
             response = client.auth.refresh_session(refresh_token)
@@ -280,15 +295,14 @@ class AdminAuthService:
             # TEOS-307: a reset link's session never becomes a portal session
             raise AdminUnauthorized(INVALID_REFRESH_TOKEN)
         role, permissions = self._require_admin_role(client, session, user)
-        row = self._session_device(token_session_id(session.access_token))
-        error = device_session_error(row, str(user.id))
-        if error is None and (device is None or device_hash(device) != row.get("device_hash")):
-            logger.info("admin refresh refused: another browser than the session's device")
-            error = coded(AdminUnauthorized, "device_session_required", ErrorMessages.ADMIN_DEVICE_SESSION_REQUIRED)
-        if error is not None:
-            audit_refused_session(row, str(user.id), ip)
+        session_id = token_session_id(session.access_token)
+        row = self._session_device(session_id)
+        reason = self._refresh_refusal(row, str(user.id), device)
+        if reason is not None:
+            logger.info(f"admin refresh refused after the refresh: {reason}")
+            audit_refused_session(row, str(user.id), ip, reason, path=REFRESH_PATH, session_id=session_id)
             self._revoke(client, session.access_token)
-            raise error
+            raise refusal_error(reason)
         try:  # the API's own new token: newer tokens of this session are refused (refreshed outside the API)
             self.devices.record_token(str(row["id"]), token_iat(session.access_token))
         except Exception:
@@ -296,6 +310,37 @@ class AdminAuthService:
             raise
         self.devices.touch(str(row["id"]), ip)  # last use for the Devices page; never raises
         return self._session_model(session, user, role, permissions, device_id=str(row["id"]))
+
+    def _check_refresh_device(self, refresh_token: str, device: Optional[AdminDeviceInfo],
+                              ip: Optional[str]) -> None:
+        """TEOS-320: the device check of ``refresh`` on the token's session, without using the token.
+        Raises the 401; 502 when the session or device lookup fails (fail closed)."""
+        try:
+            known = self.devices.refresh_token_session(refresh_token)
+        except AdminError:
+            raise
+        except Exception as exc:
+            logger.error(f"admin refresh: refresh token lookup failed: {type(exc).__name__}")
+            raise AdminUpstreamError(DEVICE_LOOKUP_FAILED)
+        if not known or not known.get("session_id"):
+            raise AdminUnauthorized(INVALID_REFRESH_TOKEN)
+        admin_id = str(known.get("user_id") or "")
+        session_id = str(known["session_id"])
+        row = self._session_device(session_id)
+        reason = self._refresh_refusal(row, admin_id, device)
+        if reason is not None:
+            logger.info(f"admin refresh refused before use: {reason}")
+            audit_refused_session(row, admin_id, ip, reason, path=REFRESH_PATH, session_id=session_id)
+            raise refusal_error(reason)
+
+    @staticmethod
+    def _refresh_refusal(row: Optional[Dict[str, Any]], admin_id: str,
+                         device: Optional[AdminDeviceInfo]) -> Optional[str]:
+        """Why a refresh of the session of ``row`` is refused (see ``REFUSAL_CODES``), else None."""
+        reason = device_session_refusal(row, admin_id)
+        if reason is None and not _same_browser(row, device):
+            reason = "device_mismatch"
+        return reason
 
     # ---------- TEOS-307: passwords ----------
 

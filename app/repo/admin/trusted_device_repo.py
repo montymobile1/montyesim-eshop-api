@@ -114,6 +114,12 @@ class AdminDeviceRepo(AdminBaseRepository):
         """Deletes one Supabase session and its refresh tokens (SQL ``admin_end_session``)."""
         return _unwrap(self.rpc("admin_end_session", {"p_session_id": session_id}))
 
+    def refresh_token_session(self, refresh_token: str) -> Optional[Dict[str, Any]]:
+        """TEOS-320: ``{"session_id", "user_id"}`` of the Supabase session a refresh token belongs to, read
+        without using the token (SQL ``admin_refresh_token_session``); None for an unknown token."""
+        result = _unwrap(self.rpc("admin_refresh_token_session", {"p_token": refresh_token}))
+        return result if result.get("session_id") else None
+
 
 class AdminDeviceVerificationRepo(AdminBaseRepository):
     def __init__(self):

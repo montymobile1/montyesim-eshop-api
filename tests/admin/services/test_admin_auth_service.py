@@ -50,6 +50,7 @@ def limiter(store):
 def devices():
     fake = FakeDevices()
     fake.add(session_id="sess-1")
+    fake.refresh_tokens["refresh-token"] = "sess-1"  # TEOS-320: the refresh checks the token's session first
     return fake
 
 

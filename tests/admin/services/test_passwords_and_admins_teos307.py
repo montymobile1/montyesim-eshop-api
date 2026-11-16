@@ -19,7 +19,7 @@ from app.schemas.admin.common import PageParams
 from app.services.admin.admin_account_service import AdminAccountService
 from app.services.admin.auth_service import AdminAuthService, LoginRateLimiter
 from tests.admin.conftest import FakeClock, FakeLoginAttemptStore, make_admin, make_auth_user, make_session
-from tests.admin.services.test_trusted_devices_signin import FakeDevices
+from tests.admin.services.test_trusted_devices_signin import DEVICE, FakeDevices
 
 ADMIN_ID = "11111111-1111-1111-1111-111111111111"
 OTHER_ID = "22222222-2222-2222-2222-222222222222"
@@ -307,12 +307,17 @@ def test_email_link_session_is_refused_on_admin_routes(supabase_auth, monkeypatc
     assert resolve_admin(token("password")).role == ROLE_SUPER_ADMIN
 
 
-def test_refresh_of_an_email_link_session_is_refused(auth, client):
+def test_refresh_of_an_email_link_session_is_refused(auth, client, devices):
+    devices.add(session_id="sess-1")  # TEOS-320: passes the device check before the refresh
+    devices.refresh_tokens["refresh-token"] = "sess-1"
     client.auth.refresh_session.return_value = SimpleNamespace(
         session=make_session(access_token=token("recovery")), user=make_auth_user(ROLE_ADMIN))
 
-    with pytest.raises(AdminUnauthorized):
-        auth.refresh("refresh-token")
+    with pytest.raises(AdminUnauthorized) as err:
+        auth.refresh("refresh-token", DEVICE)
+
+    assert err.value.details == "INVALID_REFRESH_TOKEN"
+    client.auth.refresh_session.assert_called_once_with("refresh-token")  # refused by the recovery rule
 
 
 # ---------- Admins page ----------
