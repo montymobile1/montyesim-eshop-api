@@ -46,7 +46,9 @@ def is_leaked(password: str) -> bool:
     disabled, or when HIBP could not be asked (fail open)."""
     if not password or not leak_check_enabled():
         return False
-    digest = hashlib.sha1(password.encode("utf-8")).hexdigest().upper()  # noqa: S324 - HIBP's format, not storage
+    # SHA-1 only because HIBP's range API is keyed by SHA-1 prefixes: the hash is never stored nor used to protect
+    # anything, and only its first 5 characters leave the server (k-anonymity)
+    digest = hashlib.sha1(password.encode("utf-8"), usedforsecurity=False).hexdigest().upper()
     prefix, suffix = digest[:5], digest[5:]
     try:
         body = range_fetcher(prefix)
