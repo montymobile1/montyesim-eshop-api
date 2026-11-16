@@ -7279,7 +7279,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = pg_catalog, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_session_id uuid;
@@ -7614,6 +7614,11 @@ REVOKE ALL ON FUNCTION public.admin_end_session(uuid) FROM PUBLIC, anon, authent
 GRANT EXECUTE ON FUNCTION public.admin_end_session(uuid) TO service_role;
 COMMENT ON FUNCTION public.admin_end_session(uuid) IS
     'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/trusted_device_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_refresh_token_session(text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_refresh_token_session(text) TO service_role;
+COMMENT ON FUNCTION public.admin_refresh_token_session(text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/trusted_device_repo.py (TEOS-320: the session of a refresh token, read before the refresh)';
 
 REVOKE ALL ON FUNCTION public.admin_devices_on_password_change() FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_devices_on_password_change() TO service_role;
