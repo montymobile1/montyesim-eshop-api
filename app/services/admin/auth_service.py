@@ -34,6 +34,7 @@ from app.repo.admin.login_attempt_repo import OUTCOME_ABORTED, OUTCOME_SUCCESS, 
 from app.schemas.admin.auth import AdminPasswordChanged, AdminPasswordReset, AdminProfile, AdminSession
 from app.schemas.admin.trusted_devices import AdminCodeResent, AdminDeviceInfo, AdminLoginVerification
 from app.services.admin.device_verification_service import DeviceVerificationService
+from app.services.admin import leaked_password
 from app.services.admin.device_hash import device_hash
 from app.services.admin.trusted_device_service import REASON_PASSWORD_CHANGE, REASON_PASSWORD_RESET
 
@@ -56,6 +57,7 @@ ACTION_PASSWORD_RESET = "password_reset"
 # TEOS-255
 SESSION_ID_MISSING = "SESSION_ID_MISSING"
 DEVICE_LOOKUP_FAILED = "DEVICE_LOOKUP_FAILED"
+PASSWORD_CHANGED_SIGN_IN_FAILED = "PASSWORD_CHANGED_SIGN_IN_FAILED"  # TEOS-336
 REFRESH_PATH = "/api/v1/admin/auth/refresh"  # TEOS-321: the route in session_refused audit rows
 
 
@@ -95,6 +97,13 @@ def _parse_rate_limit(value: Optional[str]) -> tuple[int, int]:
     logger.warning(f"invalid ADMIN_LOGIN_RATE_LIMIT {value!r}, using {DEFAULT_LOGIN_RATE_LIMIT}")
     attempts, seconds = DEFAULT_LOGIN_RATE_LIMIT.split("/")
     return int(attempts), int(seconds)
+
+
+def _refuse_leaked(new_password: str) -> None:
+    """TEOS-334: 422 ``weak_password`` for a password found in Have I Been Pwned's list (fail open)."""
+    if leaked_password.is_leaked(new_password):
+        logger.info("admin password refused: found in the leaked passwords list")
+        raise AdminValidationError(WEAK_PASSWORD, name=ErrorMessages.ADMIN_PASSWORD_WEAK)
 
 
 def _same_browser(row: Dict[str, Any], device: Optional[AdminDeviceInfo]) -> bool:
@@ -352,12 +361,17 @@ class AdminAuthService:
         (429 once the IP or the email is at the limit). 400 ``current_password_invalid`` when it is wrong
         (not 401: the portal must not take it for an expired session); 422 ``same_password`` when the new
         password is the current one; 422 ``weak_password`` when Supabase refuses it. Then the password is
-        set and every OTHER ADMIN PORTAL session is signed out (the admin's other device rows are revoked),
-        the caller's old one included: the caller gets the session of the check, already valid with the new
-        password. The account's USER PORTAL sessions (no device row) stay signed in (user's decision
-        2026-11-10: they only reach the customer features)."""
+        set.
+
+        TEOS-336 (decision 2026-11-16): Supabase Auth ends EVERY session of the account when the password is
+        updated (user portal, other admin browsers, the caller's, the check's). That is accepted: a new
+        password signs the account out everywhere. The admin's other device rows are revoked, and the caller
+        gets a session opened AFTER the update with the new password (its device row moves to it and keeps its
+        trust). If that sign-in fails, the password is changed anyway: 502 ``PASSWORD_CHANGED_SIGN_IN_FAILED``
+        and the admin signs in again with the new password."""
         if new_password == current_password:
             raise AdminValidationError(SAME_PASSWORD, name=ErrorMessages.ADMIN_PASSWORD_REUSED)
+        _refuse_leaked(new_password)  # TEOS-334: before anything is checked or changed
         email = (user.email or "").strip()
         attempt_id = self._rate_limiter.begin(ip, email)
         check_client = self._client_factory()
@@ -376,32 +390,51 @@ class AdminAuthService:
                 or str(response.user.id).lower() != str(user.id).lower()):
             raise self._current_password_invalid()
         self._rate_limiter.succeeded(attempt_id)
-        session = response.session
+        check_session = response.session
         # a client that signed in sends the user's token on its admin calls: use a fresh one
         client = self._client_factory()
         try:
             client.auth.admin.update_user_by_id(str(user.id), {"password": new_password})
         except AuthError as exc:
-            self._revoke(client, session.access_token)  # the check session is never handed out
+            self._revoke(client, check_session.access_token)  # the check session is never handed out
             raise password_update_error(exc)
-        others_signed_out = self._sign_out_other_admin_sessions(client, user, session.access_token, ctx)
+        # Supabase has now ended every session of the account, the check's included (TEOS-336)
+        others_signed_out = self._revoke_other_admin_devices(user, ctx)
         self._audit_password(ctx, user.id, user.email, ACTION_PASSWORD_CHANGE,
                              other_sessions_signed_out=others_signed_out)
+        session, session_user = self._sign_in_with_new_password(email, new_password)
         self._devices_after_password_change(user, session.access_token)
-        new_session = self._admin_session(client, session, response.user)
+        new_session = self._admin_session(client, session, session_user)
         new_session.device_id = user.device_id
         return AdminPasswordChanged(**new_session.model_dump(), other_sessions_signed_out=others_signed_out)
+
+    def _sign_in_with_new_password(self, email: str, new_password: str) -> Tuple[Any, Any]:
+        """TEOS-336: the caller's session after a password change, opened with the new password (Supabase ended
+        all the earlier ones). Not counted by the login rate limit. The password is already changed: a failure is
+        502 ``PASSWORD_CHANGED_SIGN_IN_FAILED`` (the admin signs in again)."""
+        sign_in_client = self._client_factory()
+        try:
+            response = sign_in_client.auth.sign_in_with_password({"email": email, "password": new_password})
+        except Exception as exc:
+            logger.error(f"admin change password: sign-in with the new password failed: {type(exc).__name__}")
+            raise AdminUpstreamError(PASSWORD_CHANGED_SIGN_IN_FAILED)
+        if not response or not response.session or not response.user:
+            logger.error("admin change password: sign-in with the new password returned no session")
+            raise AdminUpstreamError(PASSWORD_CHANGED_SIGN_IN_FAILED)
+        return response.session, response.user
 
     def complete_password_reset(self, token: str, new_password: str, ip: Optional[str]) -> AdminPasswordReset:
         """Last step of a reset sent from the Admins page: ``token`` is the recovery token of the email link
         (``#token=`` of the portal page, Supabase's ``hashed_token``). It is verified here, once: 400
         ``reset_link_invalid`` when it is invalid, expired or already used; 403 when the account is no longer an
         admin; 422 ``same_password`` / ``weak_password`` (the new password breaking our rules is refused by the
-        request schema before the token is used). Then every session of the account is signed out, so the admin
-        signs in again with the new password. A Supabase refusal after the token was verified (422 / 502) used
+        request schema before the token is used). Then every session of the account is signed out (TEOS-336:
+        Supabase Auth ends them all on the password update, user portal included; every admin device row is
+        revoked), so the admin signs in again with the new password. A Supabase refusal after the token was verified (422 / 502) used
         the link up: the super admin sends a new one."""
         if not token:
             raise self._reset_link_invalid()
+        _refuse_leaked(new_password)  # TEOS-334: before the link's token is used, so the link still works
         link_client = self._client_factory()  # the recovery session lands on this client only
         try:
             response = link_client.auth.verify_otp({"token_hash": token, "type": "recovery"})
@@ -425,53 +458,30 @@ class AdminAuthService:
             self._revoke(client, session.access_token)  # the link's session is never handed out
             raise password_update_error(exc)
         ctx = AuditContext(actor_id=user_id, ip=ip)
-        signed_out = self._sign_out_admin_portal(client, user_id, session.access_token, ctx)
+        signed_out = self._revoke_admin_devices(user_id, REASON_PASSWORD_RESET, ctx)
         self._audit_password(ctx, user_id, user.email, ACTION_PASSWORD_RESET, sessions_signed_out=signed_out)
         return AdminPasswordReset(sessions_signed_out=signed_out)
 
-    def _sign_out_admin_portal(self, client, user_id: str, link_access_token: str, ctx: AuditContext) -> bool:
-        """After a reset: every ADMIN PORTAL session ends (all the admin's device rows are revoked, each row's
-        session ended) and so does the link's own recovery session. Sessions without a device row (the user
-        portal) stay signed in (user's decision 2026-11-10: the two portals' sessions don't affect each other).
-        True when both steps worked; the password is already changed, so a failure is logged, never raised."""
-        revoked = True
-        try:
-            self.devices.revoke_all(user_id, REASON_PASSWORD_RESET, ctx)
-        except Exception as exc:
-            logger.error(f"admin password reset: admin devices not revoked: {type(exc).__name__}: {exc}")
-            revoked = False
-        link_ended = True
-        try:
-            client.auth.admin.sign_out(link_access_token, "local")
-        except Exception as exc:
-            logger.error(f"admin password reset: the link's session not signed out: {type(exc).__name__}")
-            link_ended = False
-        return revoked and link_ended
+    def _revoke_other_admin_devices(self, user: AdminUser, ctx: AuditContext) -> bool:
+        """After a password change: every OTHER device row of the admin is revoked (the caller's moves to the new
+        session). Their Supabase sessions were already ended by the password update (TEOS-336)."""
+        return self._revoke_admin_devices(str(user.id), REASON_PASSWORD_CHANGE, ctx, except_device_id=user.device_id)
 
-    def _sign_out_other_admin_sessions(self, client, user: AdminUser, new_access_token: str,
-                                       ctx: AuditContext) -> bool:
-        """The admin portal sessions other than the new one end: every OTHER device row of the admin is revoked
-        (``revoke_all`` ends each row's session) and the caller's old session is signed out. Sessions without a
-        device row (the user portal) are left alone. True when both steps worked; the password is already
+    def _revoke_admin_devices(self, user_id: str, reason: str, ctx: AuditContext,
+                              except_device_id: Optional[str] = None) -> bool:
+        """Revokes the admin's device rows (all, or all but ``except_device_id``), so the Devices page and the
+        per-request check agree with the sessions Supabase ended. True when it worked; the password is already
         changed, so a failure is logged, never raised."""
-        revoked = True
         try:
-            self.devices.revoke_all(str(user.id), REASON_PASSWORD_CHANGE, ctx, except_device_id=user.device_id)
+            self.devices.revoke_all(user_id, reason, ctx, except_device_id=except_device_id)
         except Exception as exc:
-            logger.error(f"admin change password: other admin devices not revoked: {type(exc).__name__}: {exc}")
-            revoked = False
-        old_ended = True
-        if user.token and user.token != new_access_token:
-            try:
-                client.auth.admin.sign_out(user.token, "local")
-            except Exception as exc:
-                logger.error(f"admin change password: the old session not signed out: {type(exc).__name__}")
-                old_ended = False
-        return revoked and old_ended
+            logger.error(f"admin {reason}: admin devices not revoked: {type(exc).__name__}: {exc}")
+            return False
+        return True
 
     def _devices_after_password_change(self, user: AdminUser, new_access_token: str) -> None:
         """TEOS-255 (D10): the caller's row moves to the new session and stays trusted (the other rows were
-        revoked by ``_sign_out_other_admin_sessions``). The password is already changed, so a failure here is
+        revoked by ``_revoke_other_admin_devices``). The password is already changed, so a failure here is
         logged, never raised."""
         new_session_id = token_session_id(new_access_token)
         if user.device_id and new_session_id:
