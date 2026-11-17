@@ -239,7 +239,7 @@ def test_default_audit_row_fields(monkeypatch):
 
     class FakeAuditService:
         def log(self, ctx, table, operation, **kwargs):
-            logged.append((ctx.actor_id, ctx.ip, table, operation, kwargs))
+            logged.append((ctx.actor_id, ctx.ip, ctx.reason, table, operation, kwargs))
 
     monkeypatch.setattr("app.services.admin.audit_service.AuditService", FakeAuditService)
     row = {"id": "dev-1", "session_id": "sess-1", "revoked_at": "2026-11-12T10:00:00+00:00",
@@ -250,11 +250,13 @@ def test_default_audit_row_fields(monkeypatch):
     admin_security._default_refusal_audit(None, ADMIN_ID, None, "no_device_row", code="device_session_required",
                                           path=PATH, session_id="direct")
 
-    assert logged[0] == (ADMIN_ID, "9.9.9.9", "admin_devices", "UPDATE",
-                         {"record_id": "dev-1", "action": "session_refused", "reason": "device_revoked",
+    # TEOS-321 reopen: the reason is the context's (admin_write_audit stores operation_details.reason from it)
+    assert logged[0] == (ADMIN_ID, "9.9.9.9", "device_revoked", "admin_devices", "UPDATE",
+                         {"record_id": "dev-1", "action": "session_refused",
                           "admin_id": ADMIN_ID, "device_id": "dev-1", "revoke_reason": "user_revoked",
                           "code": "device_revoked", "path": PATH, "session_id": "sess-1"})
-    assert logged[1][4]["record_id"] == "direct" and logged[1][4]["device_id"] is None
+    assert logged[1][2] == "no_device_row"
+    assert logged[1][5]["record_id"] == "direct" and logged[1][5]["device_id"] is None
 
 
 def test_api_route_passes_the_ip_and_route(api_client, supabase_auth, lookup, audits, monkeypatch):
