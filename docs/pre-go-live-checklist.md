@@ -83,8 +83,9 @@ venv/bin/python scripts/security_check.py --log-drain '<drain name>' \
 Set the variables in the shell (or from the secret store), not in a file that is committed.
 
 - [ ] Exit code **0**. `1` means at least one FAIL. `3` means a check could not run: the Auth settings or the log
-  drain were not given, or (as `security_check`) the pgaudit preload could not be read. `2` means the script could
-  not run at all.
+  drain were not given, or the connected role was refused a query. A refused query never stops the run: that
+  check is UNKNOWN and its note names what was refused (as `security_check`, the pgaudit preload). `2` means the
+  script could not run at all.
 - [ ] Every `ACCEPTED` row has a SOC reference in its reason.
 - [ ] The `A.1 exposure:` line shows `total=0`. This line is **our approximation of the SOC's Appendix A.1 query**,
   not the SOC's query itself (that query is not in this repository). It has the same eight counts as the A.1

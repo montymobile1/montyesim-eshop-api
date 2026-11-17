@@ -108,6 +108,42 @@ def test_the_teos329_sweep_is_the_last_section_of_the_ddl():
     assert statements(sql[marker:].split("\n", 1)[1]) == ["do $$"]
 
 
+def _fake_ctx(refuse):
+    """Context whose query returns no rows, and raises NotReadable for SQL containing any of ``refuse``."""
+    def query(sql, params=()):
+        if any(r in sql for r in refuse):
+            raise sc.NotReadable('permission denied: permission denied to examine "shared_preload_libraries"')
+        if "pg_extension WHERE extname = 'pgaudit'" in sql or "current_user" in sql:
+            return [("security_check",)]
+        if "pg_db_role_setting" in sql and "log_parameter" not in sql:
+            return [("authenticator: pgaudit.role",)]
+        return []
+    return sc.Context(query, CLEAN_AUTH, "", "drain", 17, ("public",))
+
+
+def test_permission_denied_makes_the_check_unknown_and_the_run_continues():
+    results = sc.run_checks(_fake_ctx(["server_version_num"]))
+    by_id = {r.id: r for r in results}
+    assert by_id["T12"].status == sc.UNKNOWN and "permission denied to examine" in by_id["T12"].note
+    assert set(by_id) == {i for check in sc.CHECKS for i in check.ids}       # every other check still ran
+    assert by_id["B1"].status == sc.PASS and by_id["T11a"].status == sc.UNKNOWN
+
+
+def test_pgaudit_falls_back_when_the_preload_is_refused():
+    audit = {r.id: r for r in sc.check_audit(_fake_ctx(["pg_settings", "current_setting('pgaudit.log'"]))}["T11a"]
+    assert audit.status == sc.UNKNOWN and audit.objects == ["authenticator: pgaudit.role"]
+    assert "security_check" in audit.note and "permission denied to examine" in audit.note
+
+
+def test_a_bug_in_a_check_is_unknown_not_a_crash():
+    @sc.reports("X1", "X2")
+    def check_broken(ctx):
+        raise KeyError("value-must-not-print")
+    results = sc.run_checks(_fake_ctx([]), checks=(check_broken, sc.check_version))
+    assert [(r.id, r.status) for r in results][:2] == [("X1", sc.UNKNOWN), ("X2", sc.UNKNOWN)]
+    assert results[0].note == "check failed: KeyError" and results[2].id == "T12"
+
+
 # ---------- live ----------
 
 DATABASE_URL = os.getenv("SECURITY_CHECK_TEST_DATABASE_URL", "")
@@ -224,6 +260,51 @@ def test_t11a_fails_when_readable_preload_lacks_pgaudit(conn, monkeypatch):
     real = sc._col
     monkeypatch.setattr(sc, "_col", lambda ctx, sql: ["pg_stat_statements"] if "pg_settings" in sql else real(ctx, sql))
     assert results_after(conn)["T11a"].objects == ["pgaudit not in shared_preload_libraries"]
+
+
+@live
+def test_a_refused_query_leaves_the_transaction_usable(conn):
+    """The exact query that crashed the esim-zong run: refused for a role without pg_read_all_settings."""
+    conn.execute(AS_PLAIN_ROLE)
+    query = sc.make_query(conn)
+    with pytest.raises(sc.NotReadable, match='permission denied to examine "shared_preload_libraries"'):
+        query("SELECT 1 WHERE current_setting('shared_preload_libraries', true) ~ 'pgaudit'")
+    assert query("SELECT current_user") == [("sc_probe",)]
+
+
+@pytest.fixture
+def plain_login():
+    """A committed login like the checklist's security_check role (no pg_read_all_settings); dropped afterwards."""
+    import psycopg
+    from psycopg.conninfo import conninfo_to_dict, make_conninfo
+    with psycopg.connect(DATABASE_URL, autocommit=True) as admin:
+        admin.execute("DROP ROLE IF EXISTS sc_login")
+        admin.execute("""CREATE ROLE sc_login LOGIN BYPASSRLS NOINHERIT PASSWORD 'sc-login-test';
+                         ALTER ROLE sc_login SET default_transaction_read_only = on;
+                         GRANT USAGE ON SCHEMA storage TO sc_login; GRANT SELECT ON storage.buckets TO sc_login""")
+        try:
+            yield make_conninfo(**{**conninfo_to_dict(DATABASE_URL), "user": "sc_login", "password": "sc-login-test"})
+        finally:
+            admin.execute("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = 'sc_login'")
+            admin.execute("REVOKE ALL ON storage.buckets FROM sc_login; REVOKE USAGE ON SCHEMA storage FROM sc_login; "
+                          "DROP ROLE sc_login")
+
+
+@live
+def test_full_run_as_a_role_without_pg_read_all_settings_does_not_crash(plain_login, monkeypatch):
+    @sc.reports("X1")
+    def check_old_preload_query(ctx):   # the query of the first version, which crashed the run
+        sc._col(ctx, "SELECT 1 WHERE current_setting('shared_preload_libraries', true) ~ 'pgaudit'")
+        return []
+    monkeypatch.setattr(sc, "CHECKS", sc.CHECKS + (check_old_preload_query,))
+    out = io.StringIO()
+    code = sc.run(["--log-drain", "ci-drain"], environ={"SECURITY_CHECK_DATABASE_URL": plain_login,
+                                                        "SUPABASE_URL": "https://ref.supabase.co",
+                                                        "SUPABASE_ANON_KEY": "k"}, get=fake_get(), out=out)
+    text = out.getvalue()
+    assert code == sc.EXIT_UNKNOWN, text
+    assert "X1    UNKNOWN" in text and 'permission denied to examine "shared_preload_libraries"' in text
+    assert "T11a  UNKNOWN" in text and "T12   PASS" in text and "total=0" in text and "sc-login-test" not in text
 
 
 class RecordingConnection:

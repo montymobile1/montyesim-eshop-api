@@ -81,6 +81,18 @@ class Context:
     schemas: tuple
 
 
+class NotReadable(Exception):
+    """A query the connected role may not run (or that failed): the check reports UNKNOWN with this reason."""
+
+
+def reports(*ids):
+    """The check IDs a check function returns, so that a check that cannot run still reports each one as UNKNOWN."""
+    def mark(check):
+        check.ids = ids
+        return check
+    return mark
+
+
 # ---------------------------------------------------------------------------------------------------------------
 # catalogue helpers
 # ---------------------------------------------------------------------------------------------------------------
@@ -100,6 +112,7 @@ def _fail_if(objects: Iterable, id_: str, title: str, status_if_any: str = FAIL,
 # B: baseline of supabase_ddl.sql
 # ---------------------------------------------------------------------------------------------------------------
 
+@reports("B1")
 def check_rls(ctx):
     return [_fail_if(_col(ctx, """
         SELECT format('%s.%s (%s)', n.nspname, c.relname,
@@ -110,6 +123,7 @@ def check_rls(ctx):
         "B1", "RLS enabled and forced on every table")]
 
 
+@reports("B2")
 def check_open_policies(ctx):
     return [_fail_if(_col(ctx, """
         SELECT format('%s.%s.%s (%s, to %s)', schemaname, tablename, policyname, cmd, array_to_string(roles, ','))
@@ -122,6 +136,7 @@ def check_open_policies(ctx):
         "B2", "no policy for anon/PUBLIC, no USING(true)/WITH CHECK(true) for authenticated")]
 
 
+@reports("B3")
 def check_anon_grants(ctx):
     return [_fail_if(_col(ctx, """
         SELECT format('%s.%s (%s)', n.nspname, c.relname, string_agg(p.priv, ',' ORDER BY p.priv))
@@ -136,6 +151,7 @@ def check_anon_grants(ctx):
         "B3", "anon has no privilege on tables, views or sequences")]
 
 
+@reports("B4")
 def check_authenticated_writes(ctx):
     return [_fail_if(_col(ctx, """
         SELECT format('%s.%s (%s)', n.nspname, c.relname, string_agg(p.priv, ',' ORDER BY p.priv))
@@ -147,6 +163,7 @@ def check_authenticated_writes(ctx):
         "B4", "authenticated cannot write or TRUNCATE tables (TRUNCATE ignores RLS)")]
 
 
+@reports("B5")
 def check_anon_execute(ctx):
     return [_fail_if(_col(ctx, """
         SELECT p.oid::regprocedure::text
@@ -158,6 +175,7 @@ def check_anon_execute(ctx):
         "B5", "anon cannot execute functions (SECURITY INVOKER; DEFINER is T4)")]
 
 
+@reports("B6", "B6s")
 def check_default_privileges(ctx):
     postgres = _col(ctx, """
         SELECT DISTINCT format('postgres %s %s -> %s',
@@ -193,6 +211,7 @@ def check_default_privileges(ctx):
 # SOC tests
 # ---------------------------------------------------------------------------------------------------------------
 
+@reports("T4")
 def check_definer_execute(ctx):
     return [_fail_if(_col(ctx, """
         SELECT format('%s (%s)', p.oid::regprocedure,
@@ -205,6 +224,7 @@ def check_definer_execute(ctx):
         "T4", "SECURITY DEFINER functions not executable by anon/authenticated")]
 
 
+@reports("T5a", "T5b")
 def check_search_path(ctx):
     definer = _col(ctx, """
         SELECT p.oid::regprocedure::text
@@ -223,6 +243,7 @@ def check_search_path(ctx):
                      "run with the caller's rights, so not an escalation; pin them when they are next changed")]
 
 
+@reports("T6")
 def check_extensions(ctx):
     return [_fail_if(_col(ctx, """
         SELECT format('%s (in %s)', e.extname, n.nspname)
@@ -231,6 +252,7 @@ def check_extensions(ctx):
         "T6", "no extension in public or another API schema")]
 
 
+@reports("T8a", "T8b", "T8c")
 def check_auth(ctx):
     titles = {"T8a": "anonymous sign-ins disabled", "T8b": "self sign-up disabled",
               "T8c": "email auto-confirm disabled"}
@@ -256,6 +278,7 @@ def check_auth(ctx):
     return out
 
 
+@reports("T10a", "T10b")
 def check_storage(ctx):
     titles = ("T10a", "no public storage bucket"), ("T10b", "no storage policy for anon/PUBLIC, no authenticated write policy")
     if not _col(ctx, "SELECT 1 WHERE to_regclass('storage.buckets') IS NOT NULL"):
@@ -284,14 +307,24 @@ LOG_PARAMETER_ON = "'^pgaudit\\.log_parameter=(on|true|yes|1)$'"
 AUDIT_TITLE = "pgaudit installed, preloaded and configured"
 
 
+@reports("T11a", "T11b")
 def check_audit(ctx):
     installed = bool(_col(ctx, "SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'pgaudit'"))
     # pg_settings leaves out shared_preload_libraries for a role without pg_read_all_settings (current_setting would
     # raise and abort the transaction). On Supabase postgres cannot grant that role, so a dedicated login cannot read it.
-    preload = _col(ctx, "SELECT setting FROM pg_catalog.pg_settings WHERE name = 'shared_preload_libraries'")
-    settings = sorted(set(_col(ctx, AUDIT_SETTINGS_SQL.replace("{pattern}", AUDIT_ON))
-                          + _col(ctx, "SELECT 'server: pgaudit.log' WHERE lower(coalesce(current_setting('pgaudit.log', "
-                                      "true), 'none')) NOT IN ('', 'none')")))
+    # Any refusal here only makes the preload part UNKNOWN: the rest of T11a still comes from pg_extension and
+    # pg_db_role_setting, which every role can read.
+    try:
+        preload, preload_error = _col(ctx, "SELECT setting FROM pg_catalog.pg_settings "
+                                           "WHERE name = 'shared_preload_libraries'"), ""
+    except NotReadable as exc:
+        preload, preload_error = [], str(exc)
+    try:
+        server = _col(ctx, "SELECT 'server: pgaudit.log' WHERE lower(coalesce(current_setting('pgaudit.log', true), "
+                           "'none')) NOT IN ('', 'none')")
+    except NotReadable:
+        server = []
+    settings = sorted(set(_col(ctx, AUDIT_SETTINGS_SQL.replace("{pattern}", AUDIT_ON)) + server))
     parameters = _col(ctx, AUDIT_SETTINGS_SQL.replace("{pattern}", LOG_PARAMETER_ON))
     missing = [m for m, ok in (("pgaudit extension not installed", installed),
                                ("no pgaudit.log / pgaudit.role setting", bool(settings))) if not ok]
@@ -302,9 +335,10 @@ def check_audit(ctx):
                        "pgaudit.log_parameter on writes OTP codes and tokens to the logs" if parameters else "")
     elif not preload:
         audit = Result("T11a", AUDIT_TITLE, UNKNOWN, settings,
-                       f"shared_preload_libraries is not readable by {_col(ctx, 'SELECT current_user')[0]} (needs "
-                       "pg_read_all_settings, which postgres cannot grant on Supabase): pgaudit is installed and "
-                       "configured, but whether it is preloaded is not verified. Run as postgres to settle it")
+                       f"shared_preload_libraries is not readable by {_col(ctx, 'SELECT current_user')[0]} "
+                       f"({preload_error or 'needs pg_read_all_settings'}; postgres cannot grant that role on "
+                       "Supabase): pgaudit is installed and configured, but whether it is preloaded is not verified. "
+                       "Run as postgres to settle it")
     else:
         audit = Result("T11a", AUDIT_TITLE, PASS, settings)
     if ctx.log_drain:
@@ -315,6 +349,7 @@ def check_audit(ctx):
     return [audit, drain]
 
 
+@reports("T12")
 def check_version(ctx):
     num = int(_col(ctx, "SELECT current_setting('server_version_num')")[0])
     major = num // 10000
@@ -327,6 +362,38 @@ def check_version(ctx):
 CHECKS = (check_rls, check_open_policies, check_anon_grants, check_authenticated_writes, check_anon_execute,
           check_default_privileges, check_definer_execute, check_search_path, check_extensions, check_auth,
           check_storage, check_audit, check_version)
+
+
+def run_checks(ctx, checks=None) -> list:
+    """Every check; one that cannot run reports each of its IDs as UNKNOWN with the reason, and the run goes on."""
+    results = []
+    for check in CHECKS if checks is None else checks:
+        try:
+            results.extend(check(ctx))
+        except NotReadable as exc:
+            results.extend(Result(i, check.__name__.removeprefix("check_").replace("_", " "), UNKNOWN,
+                                  note=f"not readable: {exc}") for i in check.ids)
+        except Exception as exc:  # a bug in a check must not hide the others; type only, no values
+            results.extend(Result(i, check.__name__.removeprefix("check_").replace("_", " "), UNKNOWN,
+                                  note=f"check failed: {type(exc).__name__}") for i in check.ids)
+    return results
+
+
+def make_query(conn):
+    """(sql[, params]) -> rows. Each query runs in its own savepoint of the one READ ONLY transaction, so a refused
+    query leaves the transaction usable. A database error becomes NotReadable: a permission error with PostgreSQL's
+    message (it names the object, never a value), any other error with its class name only."""
+    import psycopg
+
+    def query(sql, params=()):
+        try:
+            with conn.transaction():
+                return conn.execute(sql, params or None).fetchall()
+        except psycopg.errors.InsufficientPrivilege as exc:
+            raise NotReadable(f"permission denied: {exc.diag.message_primary}") from None
+        except psycopg.Error as exc:
+            raise NotReadable(f"query failed: {type(exc).__name__}") from None
+    return query
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -485,21 +552,29 @@ def run(argv=None, environ=None, connect_fn=connect, get=None, out=sys.stdout) -
 
     anon_key_name = "SUPABASE_ANON_KEY" if environ.get("SUPABASE_ANON_KEY") else "SUPABASE_KEY"
     settings, auth_error = read_auth_settings(environ.get("SUPABASE_URL", ""), environ.get(anon_key_name, ""), get)
-    with conn:
-        def query(sql, params=()):
-            return conn.execute(sql, params or None).fetchall()
-
-        missing = [r for r in ("anon", "authenticated", "service_role")
-                   if not query("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = %s", (r,))]
+    with conn, conn.transaction(force_rollback=True):   # one READ ONLY transaction, rolled back at the end
+        query = make_query(conn)
+        try:
+            missing = [r for r in ("anon", "authenticated", "service_role")
+                       if not query("SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = %s", (r,))]
+            query("SELECT set_config('teos329.api_schemas', %s, true)", (",".join(args.schemas or ["public"]),))
+        except NotReadable as exc:
+            print(f"error: cannot read the catalogue ({exc})", file=sys.stderr)
+            return EXIT_ERROR
         if missing:
             print(f"error: not a Supabase database (role {', '.join(missing)} missing)", file=sys.stderr)
             return EXIT_ERROR
-        query("SELECT set_config('teos329.api_schemas', %s, true)", (",".join(args.schemas or ["public"]),))
         ctx = Context(query, settings, auth_error, args.log_drain, args.min_pg_major, tuple(args.schemas or ["public"]))
-        results = [r for check in CHECKS for r in check(ctx)]
-        a1 = a1_line(query)
-        database, version = query("SELECT current_database(), current_setting('server_version')")[0]
-        conn.rollback()
+        results = run_checks(ctx)
+        try:
+            a1 = a1_line(query)
+        except NotReadable as exc:
+            a1 = f"A.1 exposure: not readable ({exc})"
+            results.append(Result("A.1", "A.1 exposure line", UNKNOWN, note=f"not readable: {exc}"))
+        try:
+            database, version = query("SELECT current_database(), current_setting('server_version')")[0]
+        except NotReadable:
+            database, version = "?", "?"
 
     results = apply_accepted(results, accepted)
     code = exit_code(results)
