@@ -148,8 +148,10 @@ can find the Data Definition Language (DDL) file that contains all required tabl
 To set up the database, run the following command:
 
 ```sh
-  psql -h <supabase-host> -U <username> -d <database-name> -f supabase_ddl.sql
+  psql -h <supabase-host> -U <username> -d <database-name> -X -v ON_ERROR_STOP=1 -f supabase_ddl.sql
 ```
+
+The last section of the file (TEOS-329) applies the SOC hardening baseline to everything above it: RLS enabled and forced on every table, nothing for anon or PUBLIC, SECURITY DEFINER functions pinned and closed, no extension in `public`, pgAudit. Keep it last. Before a new client goes live, follow [docs/pre-go-live-checklist.md](docs/pre-go-live-checklist.md); it runs the read-only `scripts/security_check.py`, which CI also runs on every PR that touches the DDL (`.github/workflows/security-check.yml`).
 
 `supabase_ddl.sql` is the only schema file: there is no migrations folder. A change for existing databases is written as an idempotent section of that file (IF NOT EXISTS, CREATE OR REPLACE, guarded DO blocks); to apply it, run that section in one transaction, then `NOTIFY pgrst, 'reload schema';`.
 
@@ -238,6 +240,8 @@ The application implements comprehensive error handling for:
 All errors are logged using the configured logger and return standardized error responses.
 
 ## Deployment
+
+A new client instance goes live only after the [pre-go-live security checklist](docs/pre-go-live-checklist.md) (security check passing, SOC sign-off, named operator accounts with MFA).
 
 For production deployment, use:
 

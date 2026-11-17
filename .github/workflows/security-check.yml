@@ -1,0 +1,73 @@
+# TEOS-329: scripts/security_check.py against a fresh database loaded from supabase_ddl.sql.
+# A DDL change that reopens an exposure (anon policy or grant, anon-executable or unpinned SECURITY DEFINER function,
+# extension in public, RLS off, no pgAudit, ...) fails the build.
+# PostgreSQL 17 with pgaudit preloaded, as on Supabase; tests/rls/supabase_stub.py adds the Supabase roles and schemas.
+# There is no GoTrue and no log drain here, so T8 and T11b are UNKNOWN and the script exits 3: accepted in CI only.
+name: security-check
+
+on:
+  pull_request:
+    paths:
+      - supabase_ddl.sql
+      - db/**
+      - scripts/security_check.py
+      - tests/rls/supabase_stub.py
+      - tests/rls/test_security_check.py
+      - .github/workflows/security-check.yml
+  push:
+    branches: [qa, production]
+    paths:
+      - supabase_ddl.sql
+      - db/**
+      - scripts/security_check.py
+
+permissions:
+  contents: read
+
+jobs:
+  security-check:
+    runs-on: ubuntu-latest
+    env:
+      SECURITY_CHECK_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+      SECURITY_CHECK_TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -r requirements.txt
+      # tests/conftest.py imports the FCM service, which loads a Firebase service account at import time
+      # (esim-app.json is git-ignored). A throwaway one, with a key generated here, is enough: nothing is sent.
+      - name: Throwaway Firebase credentials
+        run: |
+          openssl genrsa -out "$RUNNER_TEMP/fcm-ci.pem" 2048 2>/dev/null
+          python - <<'EOF'
+          import json, os
+          tmp = os.environ["RUNNER_TEMP"]
+          json.dump({"type": "service_account", "project_id": "ci-dummy", "private_key_id": "ci",
+                     "private_key": open(f"{tmp}/fcm-ci.pem").read(),
+                     "client_email": "ci@ci-dummy.iam.gserviceaccount.com", "client_id": "0",
+                     "token_uri": "https://oauth2.googleapis.com/token"}, open(f"{tmp}/fcm-ci.json", "w"))
+          EOF
+          echo "FCM_CONFIG_FILE=$RUNNER_TEMP/fcm-ci.json" >> "$GITHUB_ENV"
+      - name: PostgreSQL 17 with pgaudit preloaded
+        run: |
+          docker run -d --name pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:17
+          for i in $(seq 1 30); do docker exec pg pg_isready -U postgres && break; sleep 2; done
+          docker exec pg bash -c "apt-get update -qq && apt-get install -y -qq --only-upgrade postgresql-17 \
+                                  && apt-get install -y -qq postgresql-17-pgaudit"
+          docker exec pg psql -U postgres -c "ALTER SYSTEM SET shared_preload_libraries = 'pgaudit'"
+          docker restart pg
+          for i in $(seq 1 30); do docker exec pg pg_isready -U postgres && break; sleep 2; done
+      - name: Load supabase_ddl.sql
+        run: python tests/rls/supabase_stub.py "$SECURITY_CHECK_DATABASE_URL"
+      - name: Security check (0 = pass, 3 = only the Auth / log-drain inputs missing; anything else fails)
+        run: |
+          set +e
+          python scripts/security_check.py
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ] && [ "$code" -ne 3 ]; then echo "security_check.py exited $code"; exit 1; fi
+      - name: Each exposure fails the check (AC2), the script reads only (AC3)
+        run: python -m pytest -q -p no:cacheprovider -rs tests/rls/test_security_check.py
