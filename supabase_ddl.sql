@@ -7648,3 +7648,171 @@ COMMENT ON FUNCTION public.validate_bundle_codes() IS
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM anon, authenticated;
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role;
+
+
+-- ============================================================================
+-- TEOS-329: hardening baseline sweep. KEEP THIS THE LAST SECTION OF THE FILE.
+-- ============================================================================
+-- The SOC hardening baseline (Supabase Estate Security Assessment, 20 Oct 2026, section 7),
+-- applied to everything the file created above, whatever the per-table sections granted:
+--   1. no policy in public for anon or PUBLIC, and no USING (true) / WITH CHECK (true) policy for
+--      authenticated (fails and lists them: permissive policies are OR-ed);
+--   2. every SECURITY DEFINER function in public pinned to search_path = '' (fails and lists them);
+--   3. no extension in schema public (fails and lists the ALTER EXTENSION statements);
+--   4. ROW LEVEL SECURITY enabled and forced on every table in public (fails first when an owner
+--      does not bypass RLS: FORCE would hide every row from it);
+--   5. anon and PUBLIC: nothing on tables, views, sequences or functions in public. authenticated:
+--      SELECT on the per-user tables only (row-filtered by the TEOS-268 policies); TRUNCATE is not
+--      covered by RLS, so it must not keep the per-table grants above. service_role (the API) keeps
+--      everything, granted first;
+--   6. default privileges: objects postgres creates later in public are not granted to anon,
+--      authenticated or PUBLIC (supabase_admin's are tried; Supabase may refuse: NOTICE);
+--   7. pgAudit in schema extensions, object audit on the sensitive tables through role
+--      teos_auditor, parameters never logged (same settings as teos323_harden.sql). A server
+--      without pgaudit gets a WARNING, and scripts/security_check.py fails T11 there.
+-- A fresh database loaded from this file passes scripts/security_check.py with no manual step.
+-- The sweep runs on the state the file left, so a grant added above this section is undone here:
+-- grant to service_role only, and to authenticated only with a policy and a reason (and add the
+-- table to v_per_user below). Idempotent; an existing database can run this section on its own.
+-- ----------------------------------------------------------------------------
+
+DO $teos329$
+DECLARE
+    v_per_user CONSTANT text[] := ARRAY['user_profile', 'user_profile_bundle', 'user_order', 'user_wallet',
+                                        'user_wallet_transaction', 'promotion_usage', 'device', 'notification',
+                                        'user_otp', 'users_copy', 'contact_us'];
+    v_list text;
+    r      record;
+BEGIN
+    -- 1. policies that open a table to everyone
+    SELECT string_agg(format('%I on %I (%s, to %s)', policyname, tablename, cmd, array_to_string(roles, ',')),
+                      ', ' ORDER BY tablename, policyname)
+      INTO v_list
+      FROM pg_catalog.pg_policies
+     WHERE schemaname = 'public'
+       AND (roles && ARRAY['anon', 'public']::name[]
+            OR (roles && ARRAY['authenticated']::name[]
+                AND (lower(btrim(coalesce(qual, ''), '() ')) = 'true'
+                     OR lower(btrim(coalesce(with_check, ''), '() ')) = 'true')));
+    IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'TEOS-329: policies open to anon/PUBLIC, or USING (true) / WITH CHECK (true) for authenticated: %. Drop them first.', v_list;
+    END IF;
+
+    -- 2. SECURITY DEFINER functions without an empty search_path
+    SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY 1)
+      INTO v_list
+      FROM pg_catalog.pg_proc p
+     WHERE p.pronamespace = 'public'::regnamespace AND p.prosecdef
+       AND NOT coalesce('search_path=""' = ANY (p.proconfig), false);
+    IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'TEOS-329: SECURITY DEFINER functions without SET search_path = '''': %', v_list;
+    END IF;
+
+    -- 3. extensions in public (their functions would be executable by anon through the API)
+    SELECT string_agg(format('ALTER EXTENSION %I SET SCHEMA extensions', e.extname), '; ' ORDER BY e.extname)
+      INTO v_list
+      FROM pg_catalog.pg_extension e
+     WHERE e.extnamespace = 'public'::regnamespace;
+    IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'TEOS-329: extensions in schema public; move them (check the functions that use them first): %', v_list;
+    END IF;
+
+    -- 4. RLS enabled and forced on every table
+    SELECT string_agg(DISTINCT pg_catalog.pg_get_userbyid(c.relowner), ', ')
+      INTO v_list
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_roles o ON o.oid = c.relowner
+     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+       AND NOT (o.rolsuper OR o.rolbypassrls);
+    IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'TEOS-329: % owns tables in public but does not bypass row level security; FORCE ROW LEVEL SECURITY would hide every row from it', v_list;
+    END IF;
+    FOR r IN SELECT c.relname FROM pg_catalog.pg_class c
+              WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+                AND NOT (c.relrowsecurity AND c.relforcerowsecurity)
+              ORDER BY c.relname
+    LOOP
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', r.relname);
+        EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', r.relname);
+    END LOOP;
+
+    -- 5. grants: service_role first, then anon / PUBLIC / authenticated
+    GRANT ALL ON ALL TABLES    IN SCHEMA public TO service_role;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+    GRANT EXECUTE ON ALL ROUTINES IN SCHEMA public TO service_role;
+    REVOKE ALL ON ALL TABLES    IN SCHEMA public FROM anon, authenticated, PUBLIC;
+    REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated, PUBLIC;
+    REVOKE ALL ON ALL ROUTINES  IN SCHEMA public FROM anon, authenticated, PUBLIC;
+    FOR r IN SELECT c.relname FROM pg_catalog.pg_class c
+              WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+                AND c.relname = ANY (v_per_user)
+    LOOP
+        EXECUTE format('GRANT SELECT ON public.%I TO authenticated', r.relname);
+    END LOOP;
+
+    -- 6. default privileges for objects created later
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES    FROM anon, authenticated, PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated, PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON ROUTINES  FROM anon, authenticated, PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE ALL ON TABLES    FROM anon;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE ALL ON SEQUENCES FROM anon;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE ALL ON ROUTINES  FROM anon, PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES    TO service_role;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON ROUTINES TO service_role;
+    IF to_regrole('supabase_admin') IS NOT NULL THEN
+        BEGIN
+            ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON TABLES    FROM anon, authenticated, PUBLIC;
+            ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated, PUBLIC;
+            ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON ROUTINES  FROM anon, authenticated, PUBLIC;
+        EXCEPTION WHEN insufficient_privilege THEN
+            RAISE NOTICE 'TEOS-329: supabase_admin default privileges left as they are (Supabase refuses postgres). Do not install extensions into public; security_check.py reports them (B6).';
+        END;
+    END IF;
+
+    -- 7. pgAudit
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'pgaudit') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_available_extensions WHERE name = 'pgaudit') THEN
+            RAISE WARNING 'TEOS-329: pgaudit is not available on this server: not audited (security_check.py T11 fails)';
+        ELSE
+            BEGIN
+                CREATE SCHEMA IF NOT EXISTS extensions;
+                CREATE EXTENSION pgaudit WITH SCHEMA extensions;
+            EXCEPTION WHEN OTHERS THEN
+                RAISE WARNING 'TEOS-329: pgaudit not created (%): not audited (security_check.py T11 fails)', SQLERRM;
+            END;
+        END IF;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'pgaudit') THEN
+        IF to_regrole('teos_auditor') IS NULL THEN
+            CREATE ROLE teos_auditor NOLOGIN NOINHERIT;
+        END IF;
+        -- reads and writes of the most sensitive tables, writes only of the busy ones
+        FOR r IN SELECT t, p FROM (
+                    SELECT unnest(ARRAY['app_config', 'user_otp', 'users_copy', 'audit_log', 'admin_login_attempt',
+                                        'voucher', 'user_wallet']) AS t, 'SELECT, INSERT, UPDATE, DELETE' AS p
+                    UNION ALL
+                    SELECT unnest(ARRAY['user_order', 'user_order_refund', 'user_wallet_transaction', 'user_profile',
+                                        'user_profile_bundle', 'promotion', 'promotion_rule', 'promotion_usage',
+                                        'device', 'contact_us', 'notification']), 'INSERT, UPDATE, DELETE') x
+                  WHERE to_regclass(format('public.%I', t)) IS NOT NULL
+        LOOP
+            EXECUTE format('GRANT %s ON public.%I TO teos_auditor', r.p, r.t);
+        END LOOP;
+        FOR r IN SELECT rol, k, v
+                   FROM (VALUES ('postgres'), ('authenticator')) a(rol),
+                        (VALUES ('pgaudit.log', 'ddl, role'), ('pgaudit.role', 'teos_auditor'),
+                                ('pgaudit.log_relation', 'on'), ('pgaudit.log_parameter', 'off')) s(k, v)
+                  WHERE to_regrole(rol) IS NOT NULL
+        LOOP
+            BEGIN
+                EXECUTE format('ALTER ROLE %I SET %s = %L', r.rol, r.k, r.v);
+            EXCEPTION WHEN OTHERS THEN
+                RAISE WARNING 'TEOS-329: ALTER ROLE % SET % refused (%): ask Supabase support to set it', r.rol, r.k, SQLERRM;
+            END;
+        END LOOP;
+    END IF;
+
+    PERFORM pg_notify('pgrst', 'reload schema');
+END
+$teos329$;

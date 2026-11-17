@@ -81,7 +81,7 @@ def statements(sql: str):
                 break
             out.append(sql[i:end + 1].replace(";", "\0"))  # kept: policies compare their literals
             i = end + 1
-        elif sql[i] == "$" and (tag := re.match(r"\$[A-Za-z_]*\$", sql[i:])):
+        elif sql[i] == "$" and (tag := re.match(r"\$(?:[A-Za-z_][A-Za-z_0-9]*)?\$", sql[i:])):
             end = sql.find(tag.group(0), i + len(tag.group(0)))
             assert end >= 0, f"unterminated dollar quote {tag.group(0)}"
             out.append("$$")
@@ -157,6 +157,7 @@ def test_scanner_sees_a_nested_comment_like_postgres():
     with pytest.raises(AssertionError, match="unterminated"):
         statements("/* see procedures/*.sql */ alter table user_order enable row level security;")
     assert statements("/* a /* b */ c */ select 1; -- x\nselect $f$ ; $f$;") == ["select 1", "select $$"]
+    assert statements("do $tag29$ begin grant all on t to anon; end $tag29$;") == ["do $$"]  # digits in a tag
 
 
 def test_a_later_disable_or_drop_is_caught():
