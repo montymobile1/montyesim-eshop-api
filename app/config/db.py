@@ -122,3 +122,4 @@ class DatabaseTables(StrEnum):
     TABLE_ADMIN_DEVICES = "admin_devices"
     TABLE_ADMIN_DEVICE_VERIFICATION = "admin_device_verification"
     TABLE_ADMIN_OTP = "admin_otp"
+    TABLE_ADMIN_PASSWORD_RESET = "admin_password_reset"  # TEOS-337/339

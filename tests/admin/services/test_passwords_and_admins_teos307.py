@@ -18,7 +18,9 @@ from app.schemas.admin.auth import check_password_rules
 from app.schemas.admin.common import PageParams
 from app.services.admin.admin_account_service import AdminAccountService
 from app.services.admin.auth_service import AdminAuthService, LoginRateLimiter
-from tests.admin.conftest import FakeClock, FakeLoginAttemptStore, make_admin, make_auth_user, make_session
+from app.services.admin.password_reset_tokens import PasswordResetTokens
+from tests.admin.conftest import (FakeClock, FakeLoginAttemptStore, FakeResetRepo, make_admin, make_auth_user,
+                                  make_session)
 from tests.admin.services.test_trusted_devices_signin import DEVICE, FakeDevices
 
 ADMIN_ID = "11111111-1111-1111-1111-111111111111"
@@ -69,10 +71,17 @@ def devices():
 
 
 @pytest.fixture
-def auth(client, store, audit, revoked, devices):
+def links():
+    """TEOS-337/339: the reset links (in memory)."""
+    return PasswordResetTokens(repo_factory=lambda: FakeResetRepo(lambda: datetime.now(timezone.utc)))
+
+
+@pytest.fixture
+def auth(client, store, audit, revoked, devices, links):
     limiter = LoginRateLimiter(max_failures=5, window_seconds=300, store_factory=lambda: store)
     return AdminAuthService(client_factory=lambda: client, rate_limiter=limiter,
-                            audit_factory=lambda: audit, device_service_factory=lambda: devices)
+                            audit_factory=lambda: audit, device_service_factory=lambda: devices,
+                            reset_tokens=links)
 
 
 CTX = AuditContext(actor_id=ADMIN_ID, ip="1.2.3.4")
@@ -240,19 +249,26 @@ def test_email_link_tokens():
     assert not is_email_link_token("not-a-jwt")
 
 
-def _recovery(role=ROLE_ADMIN):
-    """Supabase's verify_otp answer for a valid recovery token: the link's session and the account."""
-    return SimpleNamespace(session=SimpleNamespace(access_token="recovery-access"), user=make_auth_user(role))
+def _link(links, admin_id=ADMIN_ID) -> str:
+    """TEOS-337/339: a reset link sent to the admin (the API's own token); returns the token of the email."""
+    token, _, _ = links.issue(admin_id, OTHER_ID)
+    return token
 
 
-def test_reset_password_verifies_the_token_sets_it_and_signs_out_the_admin_portal(auth, client, audit, devices):
-    client.auth.verify_otp.return_value = _recovery()
+def _admin_found(client, role=ROLE_ADMIN):
+    client.auth.admin.get_user_by_id.return_value = SimpleNamespace(user=make_auth_user(role))
 
-    result = auth.complete_password_reset("hashed-recovery-token", GOOD, "1.2.3.4")
 
-    client.auth.verify_otp.assert_called_once_with({"token_hash": "hashed-recovery-token", "type": "recovery"})
+def test_reset_password_checks_the_token_sets_it_and_signs_out_the_admin_portal(auth, client, audit, devices, links):
+    _admin_found(client)
+    token = _link(links)
+
+    result = auth.complete_password_reset(token, GOOD, "1.2.3.4")
+
+    client.auth.verify_otp.assert_not_called()  # TEOS-337/339: no Supabase recovery token any more
+    client.auth.admin.get_user_by_id.assert_called_once_with(ADMIN_ID)
     client.auth.admin.update_user_by_id.assert_called_once_with(ADMIN_ID, {"password": GOOD})
-    # TEOS-336: Supabase ended every session of the account (the link's included); every admin device revoked
+    # TEOS-336: Supabase ended every session of the account; every admin device revoked
     assert ("revoke_all", ADMIN_ID, "password_reset", None) in devices.calls
     client.auth.admin.sign_out.assert_not_called()
     assert result.sessions_signed_out is True
@@ -261,51 +277,53 @@ def test_reset_password_verifies_the_token_sets_it_and_signs_out_the_admin_porta
 
 
 @pytest.mark.parametrize("value", ["", None])
-def test_reset_password_without_a_token_is_400_before_supabase(auth, client, value):
+def test_reset_password_without_a_token_is_400_before_anything(auth, client, value):
     with pytest.raises(AdminError) as err:
         auth.complete_password_reset(value, GOOD, None)
 
     assert err.value.code == 400 and err.value.details == "reset_link_invalid"
-    client.auth.verify_otp.assert_not_called()
+    client.auth.admin.get_user_by_id.assert_not_called()
 
 
-def test_reset_password_with_an_expired_or_used_link_is_400(auth, client):
-    client.auth.verify_otp.side_effect = AuthApiError("Token has expired or is invalid", 403, "otp_expired")
+def test_reset_password_with_an_unknown_or_used_link_is_400(auth, client, links):
+    _admin_found(client)
+    token = _link(links)
+    auth.complete_password_reset(token, GOOD, None)
+    client.auth.admin.update_user_by_id.reset_mock()
 
-    with pytest.raises(AdminError) as err:
-        auth.complete_password_reset("used-token", GOOD, None)
-
-    assert err.value.details == "reset_link_invalid"
+    for value in ("never-sent", token):
+        with pytest.raises(AdminError) as err:
+            auth.complete_password_reset(value, GOOD, None)
+        assert err.value.details == "reset_link_invalid"
     client.auth.admin.update_user_by_id.assert_not_called()
 
 
-def test_reset_password_when_supabase_is_down_is_502(auth, client):
-    client.auth.verify_otp.side_effect = AuthRetryableError("down", 0)
+def test_reset_password_when_supabase_is_down_is_502(auth, client, links):
+    client.auth.admin.get_user_by_id.side_effect = AuthRetryableError("down", 0)
 
     with pytest.raises(AdminUpstreamError) as err:
-        auth.complete_password_reset("t", GOOD, None)
+        auth.complete_password_reset(_link(links), GOOD, None)
 
     assert err.value.details == "AUTH_SERVICE_UNAVAILABLE"
 
 
-def test_reset_password_of_an_account_without_admin_role_is_403_and_signed_out(auth, client):
-    client.auth.verify_otp.return_value = _recovery(role=None)
+def test_reset_password_of_an_account_without_admin_role_is_403(auth, client, links):
+    _admin_found(client, role=None)
 
     with pytest.raises(AdminForbidden):
-        auth.complete_password_reset("t", GOOD, None)
+        auth.complete_password_reset(_link(links), GOOD, None)
 
     client.auth.admin.update_user_by_id.assert_not_called()
-    client.auth.admin.sign_out.assert_called_once_with("recovery-access", "local")
 
 
-def test_reset_password_refused_by_supabase_signs_the_link_session_out(auth, client):
-    client.auth.verify_otp.return_value = _recovery()
+def test_reset_password_refused_by_supabase_is_422(auth, client, links):
+    _admin_found(client)
     client.auth.admin.update_user_by_id.side_effect = AuthApiError("weak", 422, "weak_password")
 
     with pytest.raises(AdminValidationError):
-        auth.complete_password_reset("t", GOOD, None)
+        auth.complete_password_reset(_link(links), GOOD, None)
 
-    client.auth.admin.sign_out.assert_called_once_with("recovery-access", "local")
+    client.auth.admin.sign_out.assert_not_called()  # no link session exists any more
 
 
 def test_email_link_session_is_refused_on_admin_routes(supabase_auth, monkeypatch):
@@ -341,8 +359,7 @@ def _user(user_id, email, role, **extra):
                            created_at=datetime(2026, 1, 1, tzinfo=timezone.utc), last_sign_in_at=None, **extra)
 
 
-RESET_TOKEN = "pkce_0a1b2c3d4e5f"
-RESET_LINK = "https://admin.example.com/reset-password#token=pkce_0a1b2c3d4e5f"
+RESET_PAGE = "https://admin.example.com/reset-password"
 
 
 @pytest.fixture
@@ -358,11 +375,8 @@ def portal_sign_ins():
 
 
 @pytest.fixture
-def accounts(client, audit, revoked, mailed, portal_sign_ins):
-    client.auth.admin.generate_link.return_value = SimpleNamespace(
-        properties=SimpleNamespace(hashed_token=RESET_TOKEN, verification_type="recovery",
-                                   action_link="https://project.supabase.co/auth/v1/verify?token=x"))
-    return AdminAccountService(client_factory=lambda: client, audit_factory=lambda: audit,
+def accounts(client, audit, revoked, mailed, portal_sign_ins, links):
+    return AdminAccountService(client_factory=lambda: client, audit_factory=lambda: audit, reset_tokens=links,
                                device_revoker=lambda uid, ctx: revoked.append(uid) or 1,
                                reset_url=lambda: "https://admin.example.com/reset-password",
                                reset_sender=lambda email, link: mailed.append((email, link)),
@@ -446,16 +460,17 @@ def test_list_reads_every_page_of_accounts(accounts, client):
     assert client.auth.admin.list_users.call_count == 2
 
 
-def test_reset_link_is_generated_by_supabase_and_sent_by_our_smtp(accounts, client, audit, mailed):
+def test_reset_link_is_our_own_token_sent_by_our_smtp(accounts, client, audit, mailed):
     client.auth.admin.get_user_by_id.return_value = SimpleNamespace(user=_user(OTHER_ID, "amy@x.com", ROLE_ADMIN))
 
     result = accounts.send_password_reset(OTHER_ID, CTX)
 
-    client.auth.admin.generate_link.assert_called_once_with({"type": "recovery", "email": "amy@x.com"})
+    client.auth.admin.generate_link.assert_not_called()  # TEOS-337/339: not Supabase's recovery token
     client.auth.reset_password_for_email.assert_not_called()  # Supabase's sender is never used
     # straight to the portal page, the token in the fragment: no Supabase address in the email
-    assert mailed == [("amy@x.com", RESET_LINK)]
-    assert "supabase" not in mailed[0][1]
+    [(email, link)] = mailed
+    assert email == "amy@x.com" and link.startswith(RESET_PAGE + "#token=")
+    assert len(link.split("#token=", 1)[1]) >= 43 and "supabase" not in link
     assert result.email == "amy@x.com"
     assert audit.rows[0][3]["action"] == "password_reset_email_sent"
     client.auth.admin.update_user_by_id.assert_not_called()  # nothing changes until the admin uses the link
@@ -482,30 +497,30 @@ def test_reset_and_revoke_of_a_non_admin_are_404(accounts, client, found):
         accounts.revoke_access(OTHER_ID, CTX)
 
 
-def test_reset_without_the_portal_url_is_502_and_sends_nothing(client, audit):
+def test_reset_without_the_portal_url_is_502_and_sends_nothing(client, audit, links):
     client.auth.admin.get_user_by_id.return_value = SimpleNamespace(user=_user(OTHER_ID, "amy@x.com", ROLE_ADMIN))
     service = AdminAccountService(client_factory=lambda: client, device_revoker=lambda *a, **k: 0, audit_factory=lambda: audit, reset_url=lambda: None,
-                                  smtp_check=lambda: True)
+                                  smtp_check=lambda: True, reset_tokens=links)
 
     with pytest.raises(AdminUpstreamError) as err:
         service.send_password_reset(OTHER_ID, CTX)
 
     assert err.value.details == "PASSWORD_RESET_URL_NOT_SET"
-    client.auth.admin.generate_link.assert_not_called()
+    assert links.repo.rows == {}  # no link created
 
 
-def test_reset_without_smtp_is_503_unavailable_and_generates_nothing(client, audit, mailed):
+def test_reset_without_smtp_is_503_unavailable_and_generates_nothing(client, audit, mailed, links):
     client.auth.admin.get_user_by_id.return_value = SimpleNamespace(user=_user(OTHER_ID, "amy@x.com", ROLE_ADMIN))
     service = AdminAccountService(client_factory=lambda: client, device_revoker=lambda *a, **k: 0,
                                   audit_factory=lambda: audit, reset_url=lambda: "https://admin.example.com/reset-password",
                                   reset_sender=lambda email, link: mailed.append((email, link)),
-                                  smtp_check=lambda: False)
+                                  smtp_check=lambda: False, reset_tokens=links)
 
     with pytest.raises(AdminServiceUnavailable) as err:
         service.send_password_reset(OTHER_ID, CTX)
 
     assert err.value.code == 503 and json.loads(err.value.details)["code"] == "password_reset_unavailable"
-    client.auth.admin.generate_link.assert_not_called()
+    assert links.repo.rows == {}
     assert mailed == [] and audit.rows == []
 
 
@@ -523,7 +538,6 @@ def test_list_says_whether_the_reset_link_is_available(client, smtp, url, availa
 
 def test_reset_email_that_cannot_be_sent_is_502_and_not_audited(client, audit):
     client.auth.admin.get_user_by_id.return_value = SimpleNamespace(user=_user(OTHER_ID, "amy@x.com", ROLE_ADMIN))
-    client.auth.admin.generate_link.return_value = SimpleNamespace(properties=SimpleNamespace(hashed_token=RESET_TOKEN))
 
     def smtp_down(email, link):
         raise OSError("smtp down")
@@ -538,12 +552,15 @@ def test_reset_email_that_cannot_be_sent_is_502_and_not_audited(client, audit):
     assert err.value.details == "RESET_EMAIL_FAILED" and audit.rows == []
 
 
-@pytest.mark.parametrize("exc, expected", [
-    (AuthApiError("rate", 429, "over_email_send_rate_limit"), AdminRateLimited),
-    (AuthApiError("Error sending recovery email", 500, "unexpected_failure"), AdminUpstreamError)])
-def test_reset_email_errors(accounts, client, audit, exc, expected):
+@pytest.mark.parametrize("case, expected", [("sixth_link", AdminRateLimited), ("store_down", AdminUpstreamError)])
+def test_reset_email_errors(accounts, client, audit, links, case, expected):
+    """TEOS-337/339: our own limit (5 links per admin per hour) and our own store, no longer Supabase's."""
     client.auth.admin.get_user_by_id.return_value = SimpleNamespace(user=_user(OTHER_ID, "amy@x.com", ROLE_ADMIN))
-    client.auth.admin.generate_link.side_effect = exc
+    if case == "sixth_link":
+        for _ in range(5):
+            links.issue(OTHER_ID, ADMIN_ID)
+    else:
+        links.repo.fail = RuntimeError("db down")
 
     with pytest.raises(expected):
         accounts.send_password_reset(OTHER_ID, CTX)

@@ -1305,24 +1305,23 @@ def test_change_password_succeeds_when_the_device_update_fails(service, supabase
     assert result.access_token
 
 
-def _recovery_token(supabase):
-    """The reset link's token: Supabase's verify_otp(type recovery) opens a recovery session of the admin."""
-    supabase.auth.verify_otp = lambda payload: (
-        auth_response("link", methods=("recovery",)) if payload == {"token_hash": "reset-token", "type": "recovery"}
-        else (_ for _ in ()).throw(AuthApiError("Token has expired or is invalid", 403, "otp_expired")))
+def _reset_link(service) -> str:
+    """TEOS-337/339: a reset link sent to the admin; the token of its email (the API's own, not Supabase's)."""
+    token, _, _ = service._reset_tokens.issue(ADMIN_ID, None)
+    return token
 
 
 def test_password_reset_revokes_every_device(service, supabase, devices):
-    _recovery_token(supabase)
+    token = _reset_link(service)
 
-    service.complete_password_reset("reset-token", "N3w-Passw0rd!x", None)
+    service.complete_password_reset(token, "N3w-Passw0rd!x", None)
 
     assert ("revoke_all", ADMIN_ID, REASON_PASSWORD_RESET, None) in devices.calls
 
 
 def test_password_reset_with_a_portal_token_is_400(service, supabase, devices):
-    """Only the link's recovery token sets a password without the current one: a session token is refused."""
-    _recovery_token(supabase)
+    """Only the link's token sets a password without the current one: a session token is refused."""
+    _reset_link(service)
     updates = []
     supabase.auth.admin.update_user_by_id = lambda uid, attrs: updates.append(uid)
 
@@ -1335,10 +1334,10 @@ def test_password_reset_with_a_portal_token_is_400(service, supabase, devices):
 
 def test_password_reset_succeeds_when_the_device_update_fails(service, supabase, devices):
     """The password is set anyway; the admin portal sessions could not all be ended, so it says so."""
-    _recovery_token(supabase)
+    token = _reset_link(service)
     devices.fail, devices.fail_only = RuntimeError("db down"), {"revoke_all"}
 
-    assert service.complete_password_reset("reset-token", "N3w-Passw0rd!x", None).sessions_signed_out is False
+    assert service.complete_password_reset(token, "N3w-Passw0rd!x", None).sessions_signed_out is False
 
 
 # ---------- helpers ----------

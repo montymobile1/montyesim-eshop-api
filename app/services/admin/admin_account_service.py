@@ -4,17 +4,19 @@
   (``users_copy`` has no role and the API's database user cannot read ``auth.users``), so the accounts are
   read through the GoTrue admin API page by page and filtered here. Search, role tab and paging are done in
   memory over the admins found. No database change.
-- reset password: Supabase Auth generates a single-use recovery token (``generate_link`` type recovery: Supabase
-  sends nothing) and the API emails a link straight to the portal page set in ``ADMIN_PASSWORD_RESET_URL``,
-  ``<url>#token=<token>``, through its own SMTP (``admin_mailer``, template ``admin_password_reset.htm``). The
-  link has no Supabase address, and opening it (a mail scanner included) uses nothing up: the token is only
-  verified when the new password is submitted. Without SMTP the feature is
+- reset password: the API creates the link's token itself (TEOS-337/339, ``password_reset_tokens``: random, stored
+  hashed in ``admin_password_reset``, valid 1 hour, single use; Supabase's recovery token is no longer used) and
+  emails a link straight to the portal page set in ``ADMIN_PASSWORD_RESET_URL``, ``<url>#token=<token>``, through
+  its own SMTP (``admin_mailer``, template ``admin_password_reset.htm``). The link has no Supabase address, and
+  opening it (a mail scanner included) uses nothing up: the token is only checked when the new password is
+  submitted. A new link cancels the admin's earlier ones once it is sent; at most 5 links per admin per hour
+  (429 ``reset_email_rate_limited``). Without SMTP the feature is
   unavailable: the list says so (``password_reset_available``) and the action answers 503. Nothing changes on
   the account until the admin sets the new password there (``POST /auth/reset-password``), which then signs
   out every admin portal session of the account (the user portal stays signed in).
 - revoke access: the admin role is removed (the account is kept: it may also be an app customer) and every
   trusted device row is revoked (TEOS-255), which ends every admin portal session; the account's user portal
-  sessions stay signed in (the person stays a customer). The audit
+  sessions stay signed in (the person stays a customer). Any pending reset link stops working. The audit
   row is written after the change; when it cannot be written the role is put back and 502 is returned,
   like a ban.
 
@@ -40,6 +42,7 @@ from app.schemas.admin.common import PageParams
 from app.services.admin.auth_service import (AUTH_SERVICE_UNAVAILABLE, AUTH_USERS_TABLE, OPERATION_UPDATE,
                                              _default_audit, _is_upstream_failure)
 from app.services.admin import admin_mailer
+from app.services.admin.password_reset_tokens import MAX_LINKS_PER_HOUR, PasswordResetTokens
 
 #: GoTrue admin list page size, and a safety cap on pages read per request (100k accounts)
 LIST_PAGE_SIZE = 1000
@@ -91,11 +94,6 @@ def _default_reset_sender(email: str, link: str) -> None:
     admin_mailer.send_now(TEMPLATE_PASSWORD_RESET, SUBJECT_PASSWORD_RESET, email, {"link": link})
 
 
-def _is_rate_limited(exc: AuthError) -> bool:
-    return (getattr(exc, "status", None) == 429
-            or getattr(exc, "code", None) in ("over_email_send_rate_limit", "over_request_rate_limit"))
-
-
 class AdminAccountService:
     def __init__(self, client_factory: Callable = supabase_client,
                  audit_factory: Callable = _default_audit,
@@ -103,8 +101,10 @@ class AdminAccountService:
                  device_revoker: Callable[[str, AuditContext], int] = _default_device_revoker,
                  reset_sender: Callable[[str, str], None] = _default_reset_sender,
                  smtp_check: Callable[[], bool] = admin_mailer.smtp_configured,
-                 portal_sign_ins: Callable[[List[str]], Dict[str, Any]] = _default_portal_sign_ins):
+                 portal_sign_ins: Callable[[List[str]], Dict[str, Any]] = _default_portal_sign_ins,
+                 reset_tokens: Optional[PasswordResetTokens] = None):
         self._client_factory = client_factory
+        self._reset_tokens = reset_tokens or PasswordResetTokens()
         self._portal_sign_ins = portal_sign_ins
         self._reset_sender = reset_sender
         self._smtp_check = smtp_check
@@ -179,8 +179,9 @@ class AdminAccountService:
     def send_password_reset(self, admin_id: str, ctx: AuditContext) -> AdminPasswordResetSent:
         """409 ``cannot_target_self``; 404 ``admin_not_found`` (unknown account or no admin role);
         503 ``password_reset_unavailable`` when SMTP is not configured (nothing generated or sent);
-        409 ``admin_has_no_email``; 502 ``PASSWORD_RESET_URL_NOT_SET``; 429 when Supabase refuses to
-        generate more links; 502 ``RESET_EMAIL_FAILED`` when the link cannot be generated or emailed."""
+        409 ``admin_has_no_email``; 502 ``PASSWORD_RESET_URL_NOT_SET``; 429 ``reset_email_rate_limited`` after
+        5 links to this admin in the last hour; 502 ``RESET_EMAIL_FAILED`` when the link cannot be stored or
+        emailed (the admin's earlier link then still works)."""
         user = self._target(admin_id, ctx)
         if not self._smtp_check():
             logger.error("admin password reset: SMTP is not configured, the reset link cannot be emailed")
@@ -192,28 +193,29 @@ class AdminAccountService:
         email = getattr(user, "email", None)
         if not email:
             raise AdminConflict(ADMIN_HAS_NO_EMAIL)
+        user_id = str(user.id)
         try:
-            # Supabase only generates the token (single use, its "Email OTP Expiration"); our SMTP sends the link
-            link = self._client_factory().auth.admin.generate_link({"type": "recovery", "email": email})
-            hashed_token = getattr(getattr(link, "properties", None), "hashed_token", None)
-        except AuthError as exc:
-            if _is_rate_limited(exc):
+            # TEOS-337/339: our own token (1 hour, single use), no longer Supabase's recovery token
+            if self._reset_tokens.sent_last_hour(user_id) >= MAX_LINKS_PER_HOUR:
                 raise AdminRateLimited(RESET_EMAIL_RATE_LIMITED, name=ErrorMessages.ADMIN_RESET_EMAIL_RATE_LIMITED)
-            logger.error(f"admin password reset: link not generated: {type(exc).__name__} "
-                         f"{getattr(exc, 'code', None)}")
-            raise AdminUpstreamError(RESET_EMAIL_FAILED, name=ErrorMessages.ADMIN_RESET_EMAIL_FAILED)
-        if not hashed_token:
-            logger.error("admin password reset: Supabase returned no token")
+            token, expires_at, link_id = self._reset_tokens.issue(user_id, ctx.actor_id)
+        except AdminRateLimited:
+            raise
+        except Exception as exc:
+            logger.error(f"admin password reset: link not stored: {type(exc).__name__}")
             raise AdminUpstreamError(RESET_EMAIL_FAILED, name=ErrorMessages.ADMIN_RESET_EMAIL_FAILED)
         try:
-            self._reset_sender(email, reset_link(redirect_to, hashed_token))
+            self._reset_sender(email, reset_link(redirect_to, token))
         except Exception as exc:  # the link is never logged
             logger.error(f"admin password reset: email not sent: {type(exc).__name__}")
+            self._reset_tokens.not_sent(link_id)
             raise AdminUpstreamError(RESET_EMAIL_FAILED, name=ErrorMessages.ADMIN_RESET_EMAIL_FAILED)
+        self._reset_tokens.sent(user_id, link_id)  # only the newest link works
         try:
             self._audit_factory().log(ctx, AUTH_USERS_TABLE, OPERATION_UPDATE, record_id=str(user.id),
                                       rows_affected=0, action=ACTION_RESET_EMAIL_SENT, user_id=str(user.id),
-                                      user_email=email, sent_at=datetime.now(timezone.utc).isoformat())
+                                      user_email=email, sent_at=datetime.now(timezone.utc).isoformat(),
+                                      expires_at=expires_at.isoformat())
         except Exception as exc:  # the email is already on its way
             logger.error(f"admin password reset: audit insert failed: {type(exc).__name__}: {exc}")
         return AdminPasswordResetSent(id=str(user.id), email=email)
@@ -232,6 +234,7 @@ class AdminAccountService:
         client = self._client_factory()
         self._set_role(client, user_id, None)
         signed_out = True
+        self._reset_tokens.cancel(user_id, "revoke access")  # TEOS-337/339: a pending reset link stops working
         try:
             self._device_revoker(user_id, ctx)  # ends every admin portal session; the user portal is untouched
         except Exception as exc:  # TEOS-255: the role is gone, the per-request check refuses the account anyway
