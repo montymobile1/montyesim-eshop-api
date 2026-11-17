@@ -123,6 +123,7 @@
   "ADMIN_EMAIL_NOT_CONFIGURED": "لم يتم إعداد البريد الإلكتروني لبوابة الإدارة. تواصل مع المسؤول.",
   "ADMIN_DEVICE_MISMATCH": "تم طلب هذا الرمز من متصفح آخر. سجّل الدخول مرة أخرى.",
   "ADMIN_DEVICE_REVOKED": "تم تسجيل خروج هذا الجهاز.",
+  "ADMIN_ACCESS_REMOVED": "تمت إزالة صلاحية الإدارة من هذا الحساب.",
   "ADMIN_DEVICE_SESSION_REQUIRED": "انتهت جلستك. سجّل الدخول مرة أخرى.",
   "ADMIN_DEVICE_NOT_FOUND": "لم يتم العثور على الجهاز."
 }

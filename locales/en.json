@@ -123,6 +123,7 @@
   "ADMIN_EMAIL_NOT_CONFIGURED": "Emails are not set up for the admin portal. Contact your administrator.",
   "ADMIN_DEVICE_MISMATCH": "This code was requested from another browser. Sign in again.",
   "ADMIN_DEVICE_REVOKED": "This device was signed out.",
+  "ADMIN_ACCESS_REMOVED": "Admin access was removed from this account.",
   "ADMIN_DEVICE_SESSION_REQUIRED": "Your session has ended. Sign in again.",
   "ADMIN_DEVICE_NOT_FOUND": "Device not found."
 }
