@@ -29,7 +29,7 @@ import re
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from gotrue.errors import AuthApiError, AuthError, AuthRetryableError, AuthUnknownError
 from loguru import logger
@@ -116,6 +116,23 @@ def _as_datetime(value: Any) -> Optional[datetime]:
     else:
         parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def code_limit_retry_after(send_times: List[Any], now: datetime) -> int:
+    """TEOS-322: seconds until the hourly limit lets a new code through. ``send_times``: one time per code counted
+    in the last hour, oldest first. A code is allowed once fewer than MAX_CODES_PER_HOUR remain in the window, i.e.
+    when the code at position ``len - MAX_CODES_PER_HOUR`` turns 1 hour old (the oldest one when exactly at the
+    limit). At least 1; HOUR_SECONDS when a time cannot be read (the old, safe upper bound)."""
+    if len(send_times) < MAX_CODES_PER_HOUR:
+        return 1
+    try:
+        frees_at = _as_datetime(send_times[len(send_times) - MAX_CODES_PER_HOUR])
+    except (TypeError, ValueError):
+        frees_at = None
+    if frees_at is None:
+        return HOUR_SECONDS
+    remaining = (frees_at + timedelta(seconds=HOUR_SECONDS) - now).total_seconds()
+    return min(HOUR_SECONDS, max(1, math.ceil(remaining)))
 
 
 def _closed() -> AdminError:
@@ -365,12 +382,13 @@ class DeviceVerificationService:
             logger.info(f"admin device code: {killed} older open verification(s) of {admin_id} closed")
 
     def _check_hourly_limit(self, admin_id: str, now: datetime) -> None:
-        sent = self.repo.sends_since(admin_id, now - timedelta(seconds=HOUR_SECONDS))
-        if sent >= MAX_CODES_PER_HOUR:
+        """429 ``code_limit {retry_after}`` when the admin already had MAX_CODES_PER_HOUR codes in the last hour.
+        TEOS-322: ``retry_after`` is the seconds until a code is allowed again (it was always 3600)."""
+        times = self.repo.send_times_since(admin_id, now - timedelta(seconds=HOUR_SECONDS))
+        if len(times) >= MAX_CODES_PER_HOUR:
             logger.info(f"admin device code refused by the hourly limit: admin={admin_id}")
-            # the store gives a count, not the send times: the whole window is the safe upper bound
             raise coded(AdminRateLimited, "code_limit", ErrorMessages.ADMIN_DEVICE_CODE_LIMIT,
-                        retry_after=HOUR_SECONDS)
+                        retry_after=code_limit_retry_after(times, now))
 
     def _admin_email(self, admin_id: str) -> str:
         client = self._client_factory()
