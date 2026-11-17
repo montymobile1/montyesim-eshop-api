@@ -7451,6 +7451,40 @@ REVOKE ALL ON SEQUENCE public.admin_otp_id_seq FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.admin_otp TO service_role;
 GRANT USAGE, SELECT ON SEQUENCE public.admin_otp_id_seq TO service_role;
 
+-- ----------------------------------------------------------------------------
+-- admin_password_reset (TEOS-337/339, 2026-11-17): the reset links a super admin sends from the
+-- Admins page. The token was Supabase's recovery token: Supabase keeps one per user and the admin
+-- sign-in replaced it (TEOS-337: a pending link died when the admin signed in), and its lifetime
+-- was the project's "Email OTP Expiration" (TEOS-339: 24 h, not the story's 1 hour). The API now
+-- creates its own token and keeps only its SHA-256 here.
+--   token_hash    SHA-256 (64 hex) of the link's token, never the token
+--   created_by    the super admin who sent the link
+--   expires_at    1 hour after it was sent
+--   used_at       set when the new password is set with it (single use)
+--   cancelled_at  set when a newer link is sent, the password is changed or access is revoked
+-- Only the API (service_role) reads or writes it: RLS on, no policy, no grant to anon/authenticated.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.admin_password_reset
+(
+    id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_id     uuid        NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
+    token_hash   varchar(64) NOT NULL,
+    created_by   uuid,
+    expires_at   timestamptz NOT NULL,
+    used_at      timestamptz,
+    cancelled_at timestamptz,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT admin_password_reset_token_hash_key UNIQUE (token_hash)
+);
+
+-- the sending limit (links per admin per hour) and cancelling an admin's pending links
+CREATE INDEX IF NOT EXISTS admin_password_reset_admin_idx
+    ON public.admin_password_reset (admin_id, created_at DESC);
+
+ALTER TABLE public.admin_password_reset ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.admin_password_reset FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.admin_password_reset TO service_role;
+
 
 -- ----------------------------------------------------------------------------
 -- TEOS-326: SECURITY DEFINER functions in public

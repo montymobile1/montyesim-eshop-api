@@ -36,6 +36,7 @@ from app.schemas.admin.trusted_devices import AdminCodeResent, AdminDeviceInfo, 
 from app.services.admin.device_verification_service import DeviceVerificationService
 from app.services.admin import leaked_password
 from app.services.admin.device_hash import device_hash
+from app.services.admin.password_reset_tokens import PasswordResetTokens
 from app.services.admin.trusted_device_service import REASON_PASSWORD_CHANGE, REASON_PASSWORD_RESET
 
 DEFAULT_LOGIN_RATE_LIMIT = "5/300"  # failed attempts / seconds, per IP and per email
@@ -58,6 +59,7 @@ ACTION_PASSWORD_RESET = "password_reset"
 SESSION_ID_MISSING = "SESSION_ID_MISSING"
 DEVICE_LOOKUP_FAILED = "DEVICE_LOOKUP_FAILED"
 PASSWORD_CHANGED_SIGN_IN_FAILED = "PASSWORD_CHANGED_SIGN_IN_FAILED"  # TEOS-336
+RESET_LINK_LOOKUP_FAILED = "RESET_LINK_LOOKUP_FAILED"  # TEOS-337/339: the reset links store failed
 REFRESH_PATH = "/api/v1/admin/auth/refresh"  # TEOS-321: the route in session_refused audit rows
 
 
@@ -190,8 +192,10 @@ class AdminAuthService:
     def __init__(self, client_factory: Callable = supabase_client, rate_limiter: Optional[LoginRateLimiter] = None,
                  audit_factory: Callable = _default_audit,
                  device_service_factory: Callable = _default_device_service,
-                 verification_service: Optional[DeviceVerificationService] = None):
+                 verification_service: Optional[DeviceVerificationService] = None,
+                 reset_tokens: Optional[PasswordResetTokens] = None):
         self._client_factory = client_factory
+        self._reset_tokens = reset_tokens or PasswordResetTokens()
         self._rate_limiter = rate_limiter or LoginRateLimiter.from_env()
         self._audit_factory = audit_factory
         self._device_service_factory = device_service_factory
@@ -399,6 +403,7 @@ class AdminAuthService:
             self._revoke(client, check_session.access_token)  # the check session is never handed out
             raise password_update_error(exc)
         # Supabase has now ended every session of the account, the check's included (TEOS-336)
+        self._reset_tokens.cancel(str(user.id), "password change")  # TEOS-337/339: a pending reset link stops working
         others_signed_out = self._revoke_other_admin_devices(user, ctx)
         self._audit_password(ctx, user.id, user.email, ACTION_PASSWORD_CHANGE,
                              other_sessions_signed_out=others_signed_out)
@@ -424,39 +429,48 @@ class AdminAuthService:
         return response.session, response.user
 
     def complete_password_reset(self, token: str, new_password: str, ip: Optional[str]) -> AdminPasswordReset:
-        """Last step of a reset sent from the Admins page: ``token`` is the recovery token of the email link
-        (``#token=`` of the portal page, Supabase's ``hashed_token``). It is verified here, once: 400
-        ``reset_link_invalid`` when it is invalid, expired or already used; 403 when the account is no longer an
-        admin; 422 ``same_password`` / ``weak_password`` (the new password breaking our rules is refused by the
-        request schema before the token is used). Then every session of the account is signed out (TEOS-336:
-        Supabase Auth ends them all on the password update, user portal included; every admin device row is
-        revoked), so the admin signs in again with the new password. A Supabase refusal after the token was verified (422 / 502) used
-        the link up: the super admin sends a new one."""
+        """Last step of a reset sent from the Admins page: ``token`` is the token of the email link (``#token=`` of
+        the portal page). TEOS-337/339: it is the API's own token (``admin_password_reset``, 1 hour, single use),
+        no longer Supabase's recovery token, so signing in meanwhile does not kill it and the hour is ours.
+        400 ``reset_link_invalid`` when it is unknown, expired, cancelled (a newer link, a new password, access
+        revoked) or already used, or the account no longer exists; 403 when the account is no longer an admin (the
+        link is used up); 422 ``same_password`` / ``weak_password`` when Supabase refuses the password (the new
+        password breaking our rules is refused by the request schema before the token is checked): the link then
+        still works with another password, as it does when Supabase Auth is unavailable (502). Then every session
+        of the account is signed out (TEOS-336: Supabase Auth ends them all on the password update, user portal
+        included; every admin device row is revoked), so the admin signs in again with the new password."""
         if not token:
             raise self._reset_link_invalid()
         _refuse_leaked(new_password)  # TEOS-334: before the link's token is used, so the link still works
-        link_client = self._client_factory()  # the recovery session lands on this client only
         try:
-            response = link_client.auth.verify_otp({"token_hash": token, "type": "recovery"})
+            link = self._reset_tokens.claim(token)
+        except Exception as exc:
+            logger.error(f"admin password reset: link lookup failed: {type(exc).__name__}")
+            raise AdminUpstreamError(RESET_LINK_LOOKUP_FAILED)
+        if not link:
+            raise self._reset_link_invalid()
+        user_id = str(link["admin_id"])
+        client = self._client_factory()
+        try:
+            user = getattr(client.auth.admin.get_user_by_id(user_id), "user", None)
         except AuthError as exc:
             if _is_upstream_failure(exc):
                 logger.error(f"admin password reset: Supabase Auth failed: {type(exc).__name__}")
+                self._reset_tokens.release(link["id"])
                 raise AdminUpstreamError(AUTH_SERVICE_UNAVAILABLE)
+            user = None  # the account was deleted since the link was sent
+        if user is None:
             raise self._reset_link_invalid()
-        session = getattr(response, "session", None)
-        user = getattr(response, "user", None)
-        if session is None or user is None:
-            raise self._reset_link_invalid()
-        client = self._client_factory()
         if not permissions_for((user.app_metadata or {}).get("role")):
-            self._revoke(client, session.access_token)
             raise AdminForbidden(ErrorMessages.ADMIN_ROLE_REQUIRED.value, name=ErrorMessages.ADMIN_ROLE_REQUIRED)
-        user_id = str(user.id)
         try:
             client.auth.admin.update_user_by_id(user_id, {"password": new_password})
         except AuthError as exc:
-            self._revoke(client, session.access_token)  # the link's session is never handed out
-            raise password_update_error(exc)
+            error = password_update_error(exc)
+            if error.code in (422, 502):  # the admin can try again with the same link
+                self._reset_tokens.release(link["id"])
+            raise error
+        self._reset_tokens.cancel(user_id, "password reset")  # any other pending link stops working
         ctx = AuditContext(actor_id=user_id, ip=ip)
         signed_out = self._revoke_admin_devices(user_id, REASON_PASSWORD_RESET, ctx)
         self._audit_password(ctx, user_id, user.email, ACTION_PASSWORD_RESET, sessions_signed_out=signed_out)

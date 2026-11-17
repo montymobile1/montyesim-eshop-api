@@ -5,6 +5,8 @@ app.main also imports the push-notification module, which initialises Firebase a
 needs a service-account file; the admin tests never send notifications, so when no Firebase app is
 initialised yet a placeholder is registered and that initialisation is skipped.
 """
+import uuid
+from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -136,3 +138,71 @@ def _no_refused_session_audit(monkeypatch):
     import app.dependencies.admin_security as admin_security
     monkeypatch.setattr(admin_security, "refusal_audit", lambda *args, **kwargs: None)
     admin_security.refusal_dedupe.clear()
+
+
+def _reset_moment(value):
+    if value is None or isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+
+
+class FakeResetRepo:
+    """In-memory ``admin_password_reset`` with the repo's conditions."""
+
+    def __init__(self, clock):
+        self.clock = clock
+        self.rows = {}
+        self.fail = None
+
+    def _check(self):
+        if self.fail:
+            raise self.fail
+
+    def _live(self, row, now):
+        return row["used_at"] is None and row["cancelled_at"] is None and _reset_moment(row["expires_at"]) > now
+
+    def create(self, row):
+        self._check()
+        link_id = str(uuid.uuid4())
+        self.rows[link_id] = {"id": link_id, "used_at": None, "cancelled_at": None, "created_at": self.clock(), **row}
+        return dict(self.rows[link_id])
+
+    def sent_since(self, admin_id, since):
+        self._check()
+        return sum(1 for r in self.rows.values() if r["admin_id"] == admin_id and r["created_at"] >= since)
+
+    def cancel_pending(self, admin_id, now, except_id=None):
+        self._check()
+        hit = [r for r in self.rows.values()
+               if r["admin_id"] == admin_id and self._live(r, now) and r["id"] != except_id]
+        for r in hit:
+            r["cancelled_at"] = now
+        return len(hit)
+
+    def cancel(self, link_id, now):
+        self._check()
+        self.rows[link_id]["cancelled_at"] = now
+
+    def claim(self, token_hash, now):
+        self._check()
+        for r in self.rows.values():
+            if r["token_hash"] == token_hash and self._live(r, now):
+                r["used_at"] = now
+                return dict(r)
+        return None
+
+    def release(self, link_id):
+        self._check()
+        row = self.rows[link_id]
+        if row["cancelled_at"] is None:
+            row["used_at"] = None
+
+
+@pytest.fixture(autouse=True)
+def _no_reset_links_store(monkeypatch):
+    """TEOS-337/339: the password reset links never reach the real ``admin_password_reset`` table; each test gets
+    an empty in-memory one (tests of the links pass their own)."""
+    from datetime import datetime, timezone
+    from app.services.admin import password_reset_tokens
+    monkeypatch.setattr(password_reset_tokens, "_default_repo",
+                        lambda: FakeResetRepo(lambda: datetime.now(timezone.utc)))

@@ -125,8 +125,8 @@ def test_change_password_to_a_clean_one_goes_on(auth, client, hibp):
 
 def test_reset_to_a_leaked_password_is_422_and_the_link_is_not_used(auth, client, hibp):
     with pytest.raises(AdminValidationError) as err:
-        auth.complete_password_reset("hashed-recovery-token", LEAKED, "1.2.3.4")
+        auth.complete_password_reset("reset-link-token", LEAKED, "1.2.3.4")
 
     assert err.value.details == "weak_password"
-    client.auth.verify_otp.assert_not_called()  # the link still works for a better password
+    client.auth.admin.get_user_by_id.assert_not_called()  # the link is not used: it still works for a better password
     client.auth.admin.update_user_by_id.assert_not_called()
