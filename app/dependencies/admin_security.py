@@ -207,8 +207,10 @@ def _default_refusal_audit(row: Optional[Dict[str, Any]], admin_id: str, ip: Opt
     from app.repo.admin.base import AuditContext
     from app.services.admin.audit_service import AuditService
     device_id = str(row["id"]) if row and row.get("id") else None
-    AuditService().log(AuditContext(actor_id=str(admin_id), ip=ip), "admin_devices", "UPDATE",
-                       record_id=device_id or details.get("session_id"), action="session_refused", reason=reason,
+    # TEOS-321 reopen: the reason goes in the context. admin_write_audit writes operation_details.reason from it,
+    # last, over any "reason" detail (a detail named reason was always stored as null).
+    AuditService().log(AuditContext(actor_id=str(admin_id), ip=ip, reason=reason), "admin_devices", "UPDATE",
+                       record_id=device_id or details.get("session_id"), action="session_refused",
                        admin_id=str(admin_id), device_id=device_id,
                        revoke_reason=row.get("revoke_reason") if row else None, **details)
 
@@ -228,8 +230,10 @@ def _refusal_window_seconds() -> float:
 
 
 class RefusalDedupe:
-    """TEOS-321 rate cap: at most one ``session_refused`` row per (session, reason) per window (default 5 min),
-    so a page that keeps polling with a refused session does not flood the audit log. Per API process."""
+    """TEOS-321 rate cap: at most one ``session_refused`` row per (session, reason, route) per window (default
+    5 min), so a page that keeps polling with a refused session does not flood the audit log, while every route
+    the session tried still shows up (TEOS-321 reopen: with the route left out, a refusal on /users was hidden by
+    one on /auth/me). Per API process: with several processes, a few more rows, never fewer."""
 
     MAX_KEYS = 5000
 
@@ -269,13 +273,13 @@ def audit_refused_session(row: Optional[Dict[str, Any]], admin_id: str, ip: Opti
                           session_id: Optional[str] = None) -> None:
     """TEOS-321: one ``session_refused`` audit row for a refused session (per request or on refresh), with the
     reason, the 401 code, the admin, the device, the session, the IP and the route. Without ``reason`` it is
-    worked out from the row (nothing is written for an active row). Rate capped by ``refusal_dedupe``. Best
-    effort: the 401 is returned anyway."""
+    worked out from the row (nothing is written for an active row). Rate capped by ``refusal_dedupe`` per
+    session, reason and route. Best effort: the 401 is returned anyway."""
     reason = reason or device_session_refusal(row, admin_id)
     if not reason:
         return
     session_id = session_id or (row or {}).get("session_id")
-    if not refusal_dedupe.first((str(session_id or admin_id), reason)):
+    if not refusal_dedupe.first((str(session_id or admin_id), reason, path)):
         return
     try:
         refusal_audit(row, str(admin_id), ip, reason, code=REFUSAL_CODES.get(reason), path=path,
