@@ -270,29 +270,43 @@ def check_storage(ctx):
     return [_fail_if(buckets, *titles[0]), _fail_if(policies, *titles[1])]
 
 
+#: pgaudit.* settings of postgres / authenticator, or of the whole database, from pg_db_role_setting (readable by
+#: every role, unlike shared_preload_libraries)
+AUDIT_SETTINGS_SQL = """
+    SELECT format('%s: %s', CASE WHEN s.setrole = 0 THEN 'database' ELSE pg_catalog.pg_get_userbyid(s.setrole)::text END,
+                  split_part(c, '=', 1))
+      FROM pg_catalog.pg_db_role_setting s, unnest(s.setconfig) c
+     WHERE (s.setrole = 0 OR pg_catalog.pg_get_userbyid(s.setrole) IN ('postgres', 'authenticator'))
+       AND s.setdatabase IN (0, (SELECT oid FROM pg_catalog.pg_database WHERE datname = current_database()))
+       AND c ~* {pattern}"""
+AUDIT_ON = "'^pgaudit\\.(role=.|log=(?!none$).)'"
+LOG_PARAMETER_ON = "'^pgaudit\\.log_parameter=(on|true|yes|1)$'"
+AUDIT_TITLE = "pgaudit installed, preloaded and configured"
+
+
 def check_audit(ctx):
     installed = bool(_col(ctx, "SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'pgaudit'"))
-    preloaded = bool(_col(ctx, "SELECT 1 WHERE current_setting('shared_preload_libraries', true) ~ 'pgaudit'"))
-    settings = _col(ctx, """
-        SELECT format('%s: %s', r.rolname, split_part(c, '=', 1))
-          FROM pg_catalog.pg_roles r, unnest(r.rolconfig) c
-         WHERE r.rolname IN ('postgres', 'authenticator')
-           AND (c ~ '^pgaudit\\.role=.' OR (c ~ '^pgaudit\\.log=.' AND c !~* '^pgaudit\\.log=none$'))
-        UNION ALL
-        SELECT 'server: pgaudit.log'
-         WHERE lower(coalesce(current_setting('pgaudit.log', true), 'none')) NOT IN ('', 'none')""")
-    parameters = _col(ctx, """
-        SELECT format('%s: pgaudit.log_parameter', r.rolname)
-          FROM pg_catalog.pg_roles r, unnest(r.rolconfig) c
-         WHERE r.rolname IN ('postgres', 'authenticator') AND c ~* '^pgaudit\\.log_parameter=(on|true|1)$'""")
+    # pg_settings leaves out shared_preload_libraries for a role without pg_read_all_settings (current_setting would
+    # raise and abort the transaction). On Supabase postgres cannot grant that role, so a dedicated login cannot read it.
+    preload = _col(ctx, "SELECT setting FROM pg_catalog.pg_settings WHERE name = 'shared_preload_libraries'")
+    settings = sorted(set(_col(ctx, AUDIT_SETTINGS_SQL.replace("{pattern}", AUDIT_ON))
+                          + _col(ctx, "SELECT 'server: pgaudit.log' WHERE lower(coalesce(current_setting('pgaudit.log', "
+                                      "true), 'none')) NOT IN ('', 'none')")))
+    parameters = _col(ctx, AUDIT_SETTINGS_SQL.replace("{pattern}", LOG_PARAMETER_ON))
     missing = [m for m, ok in (("pgaudit extension not installed", installed),
-                               ("pgaudit not in shared_preload_libraries", preloaded),
                                ("no pgaudit.log / pgaudit.role setting", bool(settings))) if not ok]
+    if preload and "pgaudit" not in preload[0]:
+        missing.insert(1, "pgaudit not in shared_preload_libraries")
     if missing or parameters:
-        audit = Result("T11a", "pgaudit installed, preloaded and configured", FAIL, missing + parameters,
+        audit = Result("T11a", AUDIT_TITLE, FAIL, missing + parameters,
                        "pgaudit.log_parameter on writes OTP codes and tokens to the logs" if parameters else "")
+    elif not preload:
+        audit = Result("T11a", AUDIT_TITLE, UNKNOWN, settings,
+                       f"shared_preload_libraries is not readable by {_col(ctx, 'SELECT current_user')[0]} (needs "
+                       "pg_read_all_settings, which postgres cannot grant on Supabase): pgaudit is installed and "
+                       "configured, but whether it is preloaded is not verified. Run as postgres to settle it")
     else:
-        audit = Result("T11a", "pgaudit installed, preloaded and configured", PASS, settings)
+        audit = Result("T11a", AUDIT_TITLE, PASS, settings)
     if ctx.log_drain:
         drain = Result("T11b", "log drain configured", PASS, [f"log drain: {ctx.log_drain}"], "attested by the operator")
     else:

@@ -193,6 +193,39 @@ def test_ac2_the_a1_line_counts_the_exposure(conn):
     assert "anon_read=1 " in line and "anon_write=1 " in line and line.endswith("total=2")
 
 
+#: a login like the checklist's security_check role: no pg_read_all_settings (postgres cannot grant it on Supabase)
+AS_PLAIN_ROLE = """
+    CREATE ROLE sc_probe NOLOGIN BYPASSRLS;
+    GRANT USAGE ON SCHEMA storage TO sc_probe;
+    GRANT SELECT ON storage.buckets TO sc_probe;
+    SET LOCAL ROLE sc_probe"""
+
+
+@live
+def test_t11a_without_pg_read_all_settings_is_unknown_with_the_reason(conn):
+    results = results_after(conn, AS_PLAIN_ROLE)
+    assert results["T11a"].status == sc.UNKNOWN
+    assert "pg_read_all_settings" in results["T11a"].note and "sc_probe" in results["T11a"].note
+    assert "authenticator: pgaudit.role" in results["T11a"].objects   # read from pg_db_role_setting
+    assert {i for i, r in results.items() if r.status not in (sc.PASS, sc.WARN)} == {"T11a"}
+    assert sc.exit_code(list(results.values())) == sc.EXIT_UNKNOWN
+
+
+@live
+@pytest.mark.parametrize("seed", ["DROP EXTENSION pgaudit", "ALTER ROLE authenticator SET pgaudit.log_parameter = 'on'",
+                                  "ALTER ROLE postgres RESET ALL; ALTER ROLE authenticator RESET ALL; SET LOCAL pgaudit.log = 'none'"])
+def test_t11a_still_fails_without_pg_read_all_settings_when_the_rest_is_wrong(conn, seed):
+    results = results_after(conn, seed + ";" + AS_PLAIN_ROLE)
+    assert results["T11a"].status == sc.FAIL
+
+
+@live
+def test_t11a_fails_when_readable_preload_lacks_pgaudit(conn, monkeypatch):
+    real = sc._col
+    monkeypatch.setattr(sc, "_col", lambda ctx, sql: ["pg_stat_statements"] if "pg_settings" in sql else real(ctx, sql))
+    assert results_after(conn)["T11a"].objects == ["pgaudit not in shared_preload_libraries"]
+
+
 class RecordingConnection:
     """psycopg connection that records every statement the script sends."""
 

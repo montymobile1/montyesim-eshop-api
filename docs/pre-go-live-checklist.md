@@ -43,7 +43,35 @@ existing one. A client does not go live until every box is ticked and the record
 
 ## 3. Run the security check
 
-From a checkout of this repository (it only reads; it prints key and object names, never values):
+From a checkout of this repository (it only reads; it prints key and object names, never values).
+
+It can connect as `postgres` (user `postgres.<ref>` through the pooler) or as a dedicated login that is dropped
+afterwards. Create that login in the SQL editor, as `postgres`:
+
+```sql
+CREATE ROLE security_check LOGIN BYPASSRLS NOINHERIT CONNECTION LIMIT 2
+    VALID UNTIL 'tomorrow' PASSWORD '<generated password>';
+ALTER ROLE security_check SET default_transaction_read_only = on;
+GRANT USAGE ON SCHEMA storage TO security_check;
+GRANT SELECT ON storage.buckets TO security_check;   -- BYPASSRLS: buckets are behind RLS, else T10a sees none
+```
+
+Generate the password locally (`openssl rand -base64 24 | tr -d '/+='`), or create the role without `PASSWORD`
+and set it from psql with `\password security_check`. The SQL editor keeps its history, so delete the query
+afterwards. On Supabase, `postgres` cannot grant `pg_read_all_settings`, so this login cannot read
+`shared_preload_libraries`. T11a then reports **UNKNOWN**: pgaudit installed and configured, preload not
+verified. To settle T11a, run once as `postgres`. Through the pooler the user is `security_check.<ref>`.
+
+Drop it afterwards:
+
+```sql
+SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename = 'security_check';
+REVOKE SELECT ON storage.buckets FROM security_check;
+REVOKE USAGE ON SCHEMA storage FROM security_check;
+DROP ROLE security_check;
+```
+
+Run:
 
 ```sh
 SECURITY_CHECK_DATABASE_URL='postgresql://postgres.<ref>:<password>@<pooler-host>:5432/postgres' \
@@ -55,7 +83,8 @@ venv/bin/python scripts/security_check.py --log-drain '<drain name>' \
 Set the variables in the shell (or from the secret store), not in a file that is committed.
 
 - [ ] Exit code **0**. `1` means at least one FAIL. `3` means a check could not run: the Auth settings or the log
-  drain were not given. `2` means the script could not run at all.
+  drain were not given, or (as `security_check`) the pgaudit preload could not be read. `2` means the script could
+  not run at all.
 - [ ] Every `ACCEPTED` row has a SOC reference in its reason.
 - [ ] The `A.1 exposure:` line shows `total=0`. This line is **our approximation of the SOC's Appendix A.1 query**,
   not the SOC's query itself (that query is not in this repository). It has the same eight counts as the A.1
@@ -76,7 +105,7 @@ Set the variables in the shell (or from the secret store), not in a file that is
 | T6 | no extension in `public` (or another API schema) | FAIL |
 | T8a / T8b / T8c | anonymous sign-ins / self sign-up / email auto-confirm | FAIL / WARN / WARN |
 | T10a / T10b | public storage buckets / storage policies for anon or authenticated writes | FAIL |
-| T11a / T11b | pgAudit installed, preloaded, configured, parameters not logged / log drain | FAIL / UNKNOWN until given |
+| T11a / T11b | pgAudit installed, preloaded, configured, parameters not logged / log drain | FAIL (UNKNOWN when the preload is not readable) / UNKNOWN until given |
 | T12 | PostgreSQL major ≥ 17 (`--min-pg-major`) | FAIL |
 
 ## 4. People and accounts (baseline control 10)
