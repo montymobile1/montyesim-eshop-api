@@ -99,9 +99,11 @@ class FakeVerificationRepo:
         row = self.rows.get(verification_id)
         return copy.deepcopy(row) if row else None
 
-    def sends_since(self, admin_id, since):
-        return sum(1 + row["resend_count"] for row in self.rows.values()
-                   if row["admin_id"] == admin_id and _as_datetime(row["created_at"]) >= since)
+    def send_times_since(self, admin_id, since):
+        rows = sorted((row for row in self.rows.values()
+                       if row["admin_id"] == admin_id and _as_datetime(row["created_at"]) >= since),
+                      key=lambda row: _as_datetime(row["created_at"]))
+        return [row["created_at"] for row in rows for _ in range(1 + row["resend_count"])]
 
     def claim(self, verification_id):
         row = self.rows.get(verification_id)
@@ -569,7 +571,8 @@ def test_case_26_sixth_code_in_an_hour_is_429_without_email(service, supabase, v
         clock.advance(60)
     sent = len(supabase.sent)
 
-    _raises(lambda: service.login(EMAIL, "secret", None, DEVICE), 429, "code_limit", retry_after=3600)
+    # TEOS-322: the oldest code (sent 5 minutes ago) leaves the hour in 55 minutes
+    _raises(lambda: service.login(EMAIL, "secret", None, DEVICE), 429, "code_limit", retry_after=3600 - 300)
 
     assert len(supabase.sent) == sent == 5
     assert len(verification_repo.rows) == 5

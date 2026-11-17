@@ -133,11 +133,14 @@ class AdminDeviceVerificationRepo(AdminBaseRepository):
         response = self._run(lambda: self.table.select("*").eq("id", verification_id).limit(1).execute())
         return response.data[0] if response.data else None
 
-    def sends_since(self, admin_id: str, since: datetime) -> int:
-        """Codes emailed to the admin since ``since``: one per verification plus its resends."""
-        response = self._run(lambda: self.table.select("resend_count").eq("admin_id", admin_id)
-                             .gte("created_at", iso(since)).execute())
-        return sum(1 + int(row.get("resend_count") or 0) for row in (response.data or []))
+    def send_times_since(self, admin_id: str, since: datetime) -> List[Any]:
+        """Codes emailed to the admin since ``since``, as one ``created_at`` per code, oldest first: each
+        verification counts once plus once per resend, all at the verification's ``created_at`` (the hourly
+        limit's rule). TEOS-322: the times, not only the count, give ``code_limit``'s ``retry_after``."""
+        response = self._run(lambda: self.table.select("created_at,resend_count").eq("admin_id", admin_id)
+                             .gte("created_at", iso(since)).order("created_at").execute())
+        return [row.get("created_at") for row in (response.data or [])
+                for _ in range(1 + int(row.get("resend_count") or 0))]
 
     def claim(self, verification_id: str) -> Optional[Dict[str, Any]]:
         """Atomically takes the verification for one verify: only a live, unclaimed, unexpired row is returned.
