@@ -139,10 +139,36 @@ def client_reported(details: Dict[str, Any]) -> bool:
     return flag if isinstance(flag, bool) else True
 
 
-def actor(user_id: Any, users: Dict[str, Dict[str, Any]]) -> Optional[AdminActor]:
-    """``{id, email}`` of the admin, or None when the id is unknown (account deleted since)."""
-    found = users.get(str(user_id)) if user_id else None
-    return AdminActor(id=found["id"], email=found.get("email")) if found else None
+def _saved_actor(info: Any) -> Dict[str, Optional[str]]:
+    """TEOS-341: ``audit_log.changed_by_info`` ({email, phone, role} saved when the row was written), as a dict of
+    non-empty strings; {} for older rows or anything unreadable."""
+    if isinstance(info, str):
+        try:
+            info = json.loads(info)
+        except ValueError:
+            return {}
+    if not isinstance(info, dict):
+        return {}
+    return {key: str(info[key]).strip() for key in ("email", "phone", "role")
+            if isinstance(info.get(key), (str, int)) and not isinstance(info.get(key), bool) and str(info[key]).strip()}
+
+
+def actor(user_id: Any, users: Dict[str, Dict[str, Any]], info: Any = None) -> Optional[AdminActor]:
+    """Who made the change. The account found in ``users_copy``: its current email and phone (as before), plus the
+    role saved with the row. Not found: TEOS-341, the email, phone and role saved with the row. It is not called
+    deleted: a missing ``users_copy`` row does not prove the account is gone. Not found and nothing saved (rows
+    written before TEOS-341): None ("Deleted user")."""
+    if not user_id:
+        return None
+    saved = _saved_actor(info)
+    found = users.get(str(user_id))
+    if found:
+        return AdminActor(id=found["id"], email=found.get("email") or saved.get("email"),
+                          phone=found.get("msisdn") or saved.get("phone"), role=saved.get("role"))
+    if saved:
+        return AdminActor(id=str(user_id), email=saved.get("email"), phone=saved.get("phone"),
+                          role=saved.get("role"))
+    return None
 
 
 def day_range(date_from: Optional[date], date_to: Optional[date]) -> Tuple[Optional[datetime], Optional[datetime]]:
@@ -212,7 +238,7 @@ def project_row(row: Dict[str, Any], users: Dict[str, Dict[str, Any]]) -> Dict[s
         "operation": operation,
         "legacy_operation": legacy_operation,
         "record_id": None if record_id is None else str(record_id),
-        "changed_by": actor(row.get("changed_by"), users),
+        "changed_by": actor(row.get("changed_by"), users, row.get("changed_by_info")),
         "ip_address": _str_or_none(details.get("ip_address")),
         "reason": _str_or_none(details.get("reason")),
         "rows_affected": _int_or_none(details.get("rows_affected")),
