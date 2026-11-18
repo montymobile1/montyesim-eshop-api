@@ -220,8 +220,13 @@ class AdminSettingsUpdateResult(BaseModel):
 
 
 class AdminActor(BaseModel):
+    """Who made an audited change. ``email`` / ``phone``: the account's current ones, or (TEOS-341) the ones saved
+    with the row when the account is not found in ``users_copy``. ``role``: the role the actor had when the change
+    was made, saved with the row (null on rows written before TEOS-341)."""
     id: str
     email: Optional[str] = None
+    phone: Optional[str] = None
+    role: Optional[str] = None
 
 
 class AdminSettingChange(BaseModel):

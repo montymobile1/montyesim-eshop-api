@@ -3038,6 +3038,7 @@ ALTER TABLE public.tag_group       ADD COLUMN IF NOT EXISTS group_category varch
 
   - the audit_log table itself is in the table definitions at the top of this file
   - operation_details jsonb (was admin repo procedures/audit_log_operation_details.sql)
+  - changed_by_info jsonb (TEOS-341): the actor's email, phone and role when the row was written
   - indexes for the audit / settings-history listings
   - no direct access for anon / authenticated: rows are written by the
     SECURITY DEFINER helpers in 050 and read by the API with service_role.
@@ -3051,6 +3052,12 @@ ALTER TABLE public.tag_group       ADD COLUMN IF NOT EXISTS group_category varch
 
 ALTER TABLE public.audit_log
     ADD COLUMN IF NOT EXISTS operation_details jsonb;
+
+-- TEOS-341: who made the change, as they were at that moment ({"email", "phone", "role"}, read from
+-- auth.users by admin_write_audit). changed_by keeps the id; this copy keeps the actor readable when
+-- the account is deleted later (and records the role they had). Null on rows written before it.
+ALTER TABLE public.audit_log
+    ADD COLUMN IF NOT EXISTS changed_by_info jsonb;
 
 CREATE INDEX IF NOT EXISTS audit_log_table_name_changed_at_idx
     ON public.audit_log (table_name, changed_at DESC);
@@ -3725,6 +3732,9 @@ $$;
 -- admin_write_audit: one audit_log row (also used directly by AuditService
 -- for non-DB effects such as GoTrue ban/unban and exports; p_table is free
 -- text there, e.g. 'auth.users').
+-- TEOS-341: changed_by_info = the actor's email, phone (auth.users.phone, else the
+-- metadata msisdn of phone sign-in accounts) and role, read from auth.users now, so the
+-- row still says who made the change after the account is deleted. Never from the caller.
 ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.admin_write_audit(
     p_table     text,
@@ -3744,6 +3754,7 @@ SET search_path = ''
 AS $$
 DECLARE
     v_details jsonb;
+    v_actor   jsonb;
     v_row     public.audit_log;
 BEGIN
     IF p_actor IS NULL THEN
@@ -3786,8 +3797,18 @@ BEGIN
         v_details := v_details || jsonb_build_object('record_id', p_record_id);
     END IF;
 
+    -- TEOS-341: the actor as they are now (null when the id is not an account)
+    SELECT jsonb_build_object(
+               'email', nullif(btrim(u.email), ''),
+               'phone', coalesce(nullif(btrim(u.phone), ''),
+                                 nullif(btrim(u.raw_user_meta_data ->> 'msisdn'), '')),
+               'role',  nullif(btrim(u.raw_app_meta_data ->> 'role'), ''))
+      INTO v_actor
+      FROM auth.users u
+     WHERE u.id = p_actor;
+
     INSERT INTO public.audit_log
-        (table_name, record_id, operation, changed_by, old_data, new_data, operation_details)
+        (table_name, record_id, operation, changed_by, old_data, new_data, operation_details, changed_by_info)
     VALUES
         (p_table,
          CASE WHEN p_record_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -3796,7 +3817,8 @@ BEGIN
          p_actor,
          p_old_data,
          p_new_data,
-         v_details)
+         v_details,
+         v_actor)
     RETURNING * INTO v_row;
 
     RETURN to_jsonb(v_row);
