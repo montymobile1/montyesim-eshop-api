@@ -3454,3 +3454,54 @@ def test_reconciliation_job_starts_by_default_when_link_aja_is_enabled():
             patch("app.services.link_aja_reconciliation_service.BackgroundScheduler") as scheduler:
         assert start_link_aja_reconciliation() is scheduler.return_value
     scheduler.return_value.start.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation: one poller per host (flock leader)
+# ---------------------------------------------------------------------------
+
+from app.services.link_aja_reconciliation_service import HostLeaderLock
+
+
+def test_only_one_worker_holds_the_reconciliation_lock(tmp_path):
+    """Each lock opens its own descriptor, exactly like two uvicorn workers."""
+    path = str(tmp_path / "reconcile.lock")
+    first, second = HostLeaderLock(path), HostLeaderLock(path)
+    try:
+        assert first.acquire() is True
+        assert first.acquire() is True  # kept, not re-taken
+        assert second.acquire() is False
+        first.release()  # the leader exits
+        assert second.acquire() is True
+        assert first.acquire() is False
+    finally:
+        first.release()
+        second.release()
+
+
+def test_reconciliation_lock_path_comes_from_the_environment(tmp_path):
+    path = str(tmp_path / "custom.lock")
+    with patch.dict(os.environ, {"LINKAJA_RECONCILE_LOCK_FILE": path}):
+        lock = HostLeaderLock()
+    try:
+        assert lock.acquire() is True
+        assert os.path.exists(path)
+    finally:
+        lock.release()
+
+
+def test_an_unusable_reconciliation_lock_keeps_the_job_running(tmp_path):
+    """A job that never runs would leave paid orders unprovisioned; duplicates are safe."""
+    lock = HostLeaderLock(str(tmp_path / "missing-dir" / "reconcile.lock"))
+    assert lock.acquire() is True
+
+
+@pytest.mark.parametrize("leader", [True, False])
+def test_reconciliation_runs_only_in_the_leader_worker(leader):
+    lock = MagicMock()
+    lock.acquire.return_value = leader
+    reconciler = LinkAjaReconciliationService(link_aja_service=MagicMock(), callback_service=MagicMock(),
+                                              user_order_repo=MagicMock(), leader_lock=lock)
+    with patch.object(LinkAjaReconciliationService, "run_once", new=AsyncMock()) as run_once:
+        reconciler.run()
+    assert run_once.await_count == (1 if leader else 0)
