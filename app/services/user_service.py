@@ -33,6 +33,7 @@ from app.schemas.response import Response, ResponseHelper
 from app.services.bundle_service import BundleService
 from app.services.currency_service import CurrencyService
 from app.services.order_refund_service import OrderRefundService, RefundResult
+from app.services import link_aja_status_on_read
 from app.services.integration.link_aja import LinkAjaPaymentRequest, embed_order_data
 from app.services.promotion_service import PromotionService
 from app.services.task_executor import TaskExecutor
@@ -495,6 +496,11 @@ class UserBundleService:
         user_order = self.__user_order_repo.get_first_by({"user_id": user.id, "id": order_id})
         if not user_order:
             raise CustomException(code=404, name=ErrorMessages.ORDER_NOT_FOUND, details=ErrorMessages.ORDER_NOT_FOUND)
+        # LinkAja orders only, and only with LINKAJA_STATUS_ON_READ_ENABLED=true: see link_aja_status_on_read.
+        if link_aja_status_on_read.applies_to(user_order):
+            pending = await link_aja_status_on_read.checker().check(user_order)
+            if pending is not None:
+                return pending
         if user_order.payment_status != OrderStatusEnum.SUCCESS:
             raise CustomException(code=400, name=f"{ErrorMessages.PAYMENT_}{user_order.payment_status.upper()}",
                                   details=ErrorMessages.PAYMENT_FAILED)
