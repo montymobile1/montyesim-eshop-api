@@ -24,6 +24,10 @@ several app instances (several schedulers) is safe for the same reason.
   notify a chance first) and `LINKAJA_RECONCILE_MAX_AGE_SECONDS` are queried.
 * "Not found" means "not paid yet" (§5.4) and leaves the order pending; only an
   explicit failed / canceled / expired status records a failure.
+* Expiry: the payment URL lives 5 minutes. A pending order older than
+  `LINKAJA_RECONCILE_EXPIRE_AFTER_SECONDS` (default 30 min) that LinkAja still
+  reports as not found was never paid and is canceled, which also stops it
+  being polled. Any other answer keeps it pending until it leaves the window.
 * A failure for one order is logged and the run moves on to the next.
 
 ## One poller per host
@@ -73,6 +77,7 @@ DEFAULT_INTERVAL_SECONDS = 120
 DEFAULT_MIN_AGE_SECONDS = 60
 DEFAULT_MAX_AGE_SECONDS = 24 * 60 * 60
 DEFAULT_BATCH_SIZE = 100
+DEFAULT_EXPIRE_AFTER_SECONDS = 30 * 60
 
 JOB_ID = "linkaja_reconcile_pending"
 LOCK_FILE_NAME = "montyesim-linkaja-reconcile.lock"
@@ -198,12 +203,17 @@ class LinkAjaReconciliationService:
             return 0
         logger.info(f"[LinkAja] reconciliation: checking {len(orders)} pending order(s)")
 
+        expire_after = timedelta(seconds=_env_int("LINKAJA_RECONCILE_EXPIRE_AFTER_SECONDS",
+                                                  DEFAULT_EXPIRE_AFTER_SECONDS))
+        now = self.__clock()
         claimed = 0
         for order in orders:
             try:
                 status = await self.__link_aja_service.get_payment_status(order.id)
                 if await self.__callback_service.reconcile_from_status(order, status):
                     claimed += 1
+                elif now - _parse_created_at(order.created_at) >= expire_after:
+                    self.__callback_service.expire_unpaid_from_status(order, status)
             except Exception as exc:
                 logger.error(f"[LinkAja] reconciliation failed for order {order.id}: {exc}")
         return claimed

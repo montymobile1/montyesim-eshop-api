@@ -1743,7 +1743,7 @@ def test_get_return_without_a_configured_frontend_url_does_not_redirect():
     assert "location" not in response.headers
 
 
-def _status(status=LinkAjaPaymentStatus.SUCCESS, reference="LA-TXN-9", approval_code="D60232EF01"):
+def _return_status(status=LinkAjaPaymentStatus.SUCCESS, reference="LA-TXN-9", approval_code="D60232EF01"):
     from app.services.integration.link_aja import LinkAjaStatusResult
     return LinkAjaStatusResult(merchant_order_id="order-1", provider_reference=reference, status=status,
                                approval_code=approval_code)
@@ -1767,7 +1767,7 @@ def _assert_redirected(response):
 def test_get_return_settles_a_paid_pending_order_before_redirecting():
     """The customer is usually back before the reconciliation job runs: one inquiry
     answering 00 claims the order (same atomic claim as the job) and schedules provisioning."""
-    inquiry = AsyncMock(return_value=_status())
+    inquiry = AsyncMock(return_value=_return_status())
     response, m, _ = _return_with_inquiry(inquiry)
 
     _assert_redirected(response)
@@ -1784,7 +1784,7 @@ def test_get_return_settles_a_paid_pending_order_before_redirecting():
                                     LinkAjaPaymentStatus.EXPIRED, LinkAjaPaymentStatus.REFUNDED])
 def test_get_return_changes_nothing_unless_linkaja_says_success(status):
     """Not even a failed / expired answer is recorded here: only 00 changes state."""
-    response, m, _ = _return_with_inquiry(AsyncMock(return_value=_status(status=status)))
+    response, m, _ = _return_with_inquiry(AsyncMock(return_value=_return_status(status=status)))
     _assert_redirected(response)
     m["order_repo"].update_by.assert_not_called()
     assert m["executor"].tasks == []
@@ -1794,7 +1794,7 @@ def test_get_return_changes_nothing_unless_linkaja_says_success(status):
 def test_get_return_redirects_when_the_inquiry_times_out():
     async def slow(_order_id):
         await asyncio.sleep(5)
-        return _status()
+        return _return_status()
 
     response, m, _ = _return_with_inquiry(AsyncMock(side_effect=slow),
                                           config=_notify_config(return_inquiry_timeout=0.05))
@@ -1820,7 +1820,7 @@ def test_get_return_redirects_when_the_service_cannot_be_built():
 
 def test_get_return_does_not_provision_an_order_already_claimed():
     """The job or a notify claimed it first: the conditional UPDATE matches no row."""
-    inquiry = AsyncMock(return_value=_status())
+    inquiry = AsyncMock(return_value=_return_status())
     app, m, _ = _notify_app_with(_notify_config())
     m["order_repo"].update_by.return_value = []
     with patch.object(m["link_aja"], "get_payment_status", inquiry), \
@@ -1837,7 +1837,7 @@ def test_get_return_does_not_provision_an_order_already_claimed():
     {"bundle_data": get_bundle_mock().model_dump_json()},  # never sent to LinkAja: no stored quote
 ])
 def test_get_return_only_asks_about_pending_link_aja_orders(change):
-    inquiry = AsyncMock(return_value=_status())
+    inquiry = AsyncMock(return_value=_return_status())
     app, m, _ = _notify_app_with(_notify_config())
     for field, value in change.items():
         setattr(m["order"], field, value)
@@ -1850,7 +1850,7 @@ def test_get_return_only_asks_about_pending_link_aja_orders(change):
 
 
 def test_get_return_unknown_order_is_only_redirected():
-    inquiry = AsyncMock(return_value=_status())
+    inquiry = AsyncMock(return_value=_return_status())
     app, m, _ = _notify_app_with(_notify_config())
     m["order_repo"].get_by_id.return_value = None
     with patch.object(m["link_aja"], "get_payment_status", inquiry), \
@@ -1869,7 +1869,7 @@ def test_get_return_without_a_valid_order_id_never_builds_the_service(params):
 
 
 def test_get_return_inquiry_can_be_switched_off():
-    inquiry = AsyncMock(return_value=_status())
+    inquiry = AsyncMock(return_value=_return_status())
     response, m, _ = _return_with_inquiry(inquiry, config=_notify_config(return_inquiry_enabled=False))
     _assert_redirected(response)
     inquiry.assert_not_awaited()
@@ -3505,3 +3505,88 @@ def test_reconciliation_runs_only_in_the_leader_worker(leader):
     with patch.object(LinkAjaReconciliationService, "run_once", new=AsyncMock()) as run_once:
         reconciler.run()
     assert run_once.await_count == (1 if leader else 0)
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation: unpaid orders expire
+# ---------------------------------------------------------------------------
+
+_NOT_FOUND = LinkAjaStatusResult(merchant_order_id="order-1", status=LinkAjaPaymentStatus.NOT_FOUND,
+                                 provider_status="07")
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_cancels_an_unpaid_order_past_the_expiry(link_aja_enabled):
+    reconciler, m = _make_reconciler(status=_NOT_FOUND, age=_td(minutes=31))
+
+    assert await reconciler.reconcile_pending() == 0
+
+    m["order_repo"].update_by.assert_called_once()
+    update = m["order_repo"].update_by.call_args.kwargs
+    assert update["where"] == {"id": "order-1", "payment_status": OrderStatusEnum.PENDING}
+    assert update["data"]["payment_status"] == OrderStatusEnum.CANCELED
+    assert update["data"]["order_status"] == OrderStatusEnum.CANCELED
+    assert m["executor"].tasks == []
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_keeps_a_recent_unpaid_order_pending(link_aja_enabled):
+    reconciler, m = _make_reconciler(status=_NOT_FOUND, age=_td(minutes=29))
+    await reconciler.reconcile_pending()
+    m["order_repo"].update_by.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_expiry_is_configurable(link_aja_enabled):
+    reconciler, m = _make_reconciler(status=_NOT_FOUND, age=_td(minutes=11))
+    with patch.dict(os.environ, {"LINKAJA_RECONCILE_EXPIRE_AFTER_SECONDS": "600"}):
+        await reconciler.reconcile_pending()
+    assert m["order_repo"].update_by.call_args.kwargs["data"]["payment_status"] == OrderStatusEnum.CANCELED
+
+
+@pytest.mark.parametrize("status", [LinkAjaPaymentStatus.PENDING, LinkAjaPaymentStatus.UNKNOWN])
+@pytest.mark.asyncio
+async def test_reconciliation_only_expires_on_an_explicit_not_found(link_aja_enabled, status):
+    reconciler, m = _make_reconciler(status=LinkAjaStatusResult(merchant_order_id="order-1", status=status),
+                                     age=_td(hours=2))
+    await reconciler.reconcile_pending()
+    m["order_repo"].update_by.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_does_not_expire_when_the_inquiry_fails(link_aja_enabled):
+    reconciler, m = _make_reconciler(age=_td(hours=2))
+    m["link_aja_mock"].get_payment_status = AsyncMock(side_effect=LinkAjaProviderException(details="down"))
+    await reconciler.reconcile_pending()
+    m["order_repo"].update_by.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_still_provisions_an_old_order_that_was_paid(link_aja_enabled):
+    reconciler, m = _make_reconciler(age=_td(hours=2))
+    assert await reconciler.reconcile_pending() == 1
+    assert m["order_repo"].update_by.call_args.kwargs["data"]["payment_status"] == OrderStatusEnum.SUCCESS
+    assert len(m["executor"].tasks) == 1
+
+
+def test_expiry_never_overwrites_an_order_claimed_meanwhile():
+    callback, m = _make_callback_service()
+    m["order_repo"].update_by.return_value = []  # no longer pending when the UPDATE ran
+    assert callback.expire_unpaid_from_status(m["order"], _NOT_FOUND) is False
+    m["order"].payment_status = OrderStatusEnum.SUCCESS
+    m["order_repo"].update_by.reset_mock()
+    assert callback.expire_unpaid_from_status(m["order"], _NOT_FOUND) is False
+    m["order_repo"].update_by.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_success_notify_for_a_canceled_order_is_flagged_and_not_provisioned(callback_service):
+    service, m = callback_service
+    canceled = m["order"].model_copy(update={"payment_status": OrderStatusEnum.CANCELED})
+    m["order_repo"].update_by.return_value = []  # claim needs pending
+    m["order_repo"].get_by_id.side_effect = [m["order"], canceled]
+    with patch("app.services.link_aja_callback_service.logger") as log:
+        ack = await service.process_verified_callback(_verified())
+    assert ack.provisioning_scheduled is False
+    assert m["executor"].tasks == []
+    assert any("needs manual review" in str(c) for c in log.error.call_args_list)

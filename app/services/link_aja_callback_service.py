@@ -202,7 +202,12 @@ class LinkAjaCallbackService:
             # The winner may have been an inquiry without an approval code; re-read so a
             # code it did store is never overwritten.
             claimed_order = self.__user_order_repo.get_by_id(order.id)
-            if claimed_order:
+            if claimed_order and claimed_order.payment_status != OrderStatusEnum.SUCCESS:
+                # Not a duplicate: e.g. the order was canceled as expired and the
+                # customer paid anyway. Paid but not provisioned.
+                logger.error(f"[LinkAja] success notify for order {order.id} whose payment_status is "
+                             f"{claimed_order.payment_status}: paid but not provisioned, needs manual review")
+            elif claimed_order:
                 self.record_approval_code(claimed_order, approval_code)
             return LinkAjaNotifyAck(approval_code=approval_code)
 
@@ -258,6 +263,30 @@ class LinkAjaCallbackService:
         logger.info(f"[LinkAja] reconciliation: order {order.id} paid per status inquiry; provisioning")
         self.__schedule_provisioning(order=order)
         return True
+
+    def expire_unpaid_from_status(self, order: UserOrderModel, status: LinkAjaStatusResult) -> bool:
+        """Cancel a pending LinkAja order that LinkAja explicitly reports as not found (07).
+
+        For the reconciliation job, once the order is well past the payment URL's lifetime:
+        the customer never paid, and without this the order would be polled until it
+        leaves the job's age window and then stay pending forever. Only NOT_FOUND
+        qualifies; pending, unknown or a failed inquiry keep the order pending. Guarded on
+        `payment_status = pending`, so a success claimed in the meantime is never
+        overwritten. Returns True when the order was canceled.
+        """
+        if order.payment_type != PaymentTypeEnum.LINK_AJA or order.payment_status != OrderStatusEnum.PENDING:
+            return False
+        if status.status != LinkAjaPaymentStatus.NOT_FOUND:
+            return False
+        updated = self.__user_order_repo.update_by(
+            where={"id": order.id, "payment_status": OrderStatusEnum.PENDING},
+            data={"payment_status": OrderStatusEnum.CANCELED,
+                  "order_status": OrderStatusEnum.CANCELED,
+                  "callback_time": self.__now()})
+        if updated:
+            logger.info(f"[LinkAja] reconciliation: order {order.id} was never paid and its payment has "
+                        f"expired; canceled")
+        return bool(updated)
 
     async def settle_on_return(self, order_id: str) -> bool:
         """One bounded Inquiry Status for a pending LinkAja order whose customer just came back.
