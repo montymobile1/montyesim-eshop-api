@@ -308,31 +308,45 @@ class LinkAjaCallbackService:
             return False
         try:
             order = self.__user_order_repo.get_by_id(order_id)
-            if (not order or order.payment_type != PaymentTypeEnum.LINK_AJA
-                    or order.payment_status != OrderStatusEnum.PENDING
-                    or read_order_data(order.bundle_data) is None):
-                return False
-            status = await asyncio.wait_for(self.__link_aja_service.get_payment_status(order.id),
-                                            timeout=config.return_inquiry_timeout)
+        except Exception as exc:
+            logger.warning(f"[LinkAja] return inquiry: order {order_id} could not be read ({type(exc).__name__})")
+            return False
+        if not order:
+            return False
+        return await self.settle_by_inquiry(order, timeout=config.return_inquiry_timeout, source="return inquiry")
+
+    async def settle_by_inquiry(self, order: UserOrderModel, timeout: float, source: str) -> bool:
+        """One Inquiry Status, at most `timeout` seconds, for a pending LinkAja order.
+
+        Only an explicit success (00) changes anything, through `reconcile_from_status` (the
+        reconciliation job's atomic claim + async provisioning). Any other answer, a timeout or
+        an error leaves the order as it is. Never raises. True when this call claimed the order.
+        """
+        order_id = order.id
+        if (order.payment_type != PaymentTypeEnum.LINK_AJA or order.payment_status != OrderStatusEnum.PENDING
+                or read_order_data(order.bundle_data) is None):
+            return False
+        try:
+            status = await asyncio.wait_for(self.__link_aja_service.get_payment_status(order_id), timeout=timeout)
         except asyncio.TimeoutError:
-            logger.warning(f"[LinkAja] return inquiry for order {order_id} timed out after "
-                           f"{config.return_inquiry_timeout}s; redirecting, reconciliation will retry")
+            logger.warning(f"[LinkAja] {source} for order {order_id} timed out after {timeout}s; "
+                           f"reconciliation will retry")
             return False
         except Exception as exc:
-            logger.warning(f"[LinkAja] return inquiry for order {order_id} failed "
-                           f"({type(exc).__name__}); redirecting, reconciliation will retry")
+            logger.warning(f"[LinkAja] {source} for order {order_id} failed ({type(exc).__name__}); "
+                           f"reconciliation will retry")
             return False
 
         if not is_provisioning_status(status.status):
-            logger.info(f"[LinkAja] return inquiry: order {order_id} is {status.status}; leaving it pending")
+            logger.info(f"[LinkAja] {source}: order {order_id} is {status.status}; leaving it pending")
             return False
         try:
             claimed = await self.reconcile_from_status(order, status)
         except Exception as exc:
-            logger.error(f"[LinkAja] return inquiry: settling order {order_id} failed ({type(exc).__name__})")
+            logger.error(f"[LinkAja] {source}: settling order {order_id} failed ({type(exc).__name__})")
             return False
         if claimed:
-            logger.info(f"[LinkAja] return inquiry: order {order_id} paid; provisioning scheduled")
+            logger.info(f"[LinkAja] {source}: order {order_id} paid; provisioning scheduled")
         return claimed
 
     def record_approval_code(self, order: UserOrderModel, approval_code: Optional[str]) -> bool:
