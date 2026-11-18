@@ -259,6 +259,53 @@ class LinkAjaCallbackService:
         self.__schedule_provisioning(order=order)
         return True
 
+    async def settle_on_return(self, order_id: str) -> bool:
+        """One bounded Inquiry Status for a pending LinkAja order whose customer just came back.
+
+        The customer usually returns before the reconciliation job's next run, and the
+        frontend then sees the order unpaid. So the GET return asks LinkAja once, with
+        `LINKAJA_RETURN_INQUIRY_TIMEOUT_SECONDS` (default 5) as the limit, before redirecting.
+
+        Only an explicit success (00) does anything, and it goes through
+        `reconcile_from_status`: the same atomic pending -> success claim as the notify and
+        the job, so the three can never provision the same order twice. Any other answer,
+        a timeout or an error changes nothing; the job still covers the order later.
+        Never raises: the caller redirects whatever happens.
+
+        Returns True when this call claimed the order and scheduled provisioning.
+        """
+        config = self.__link_aja_service.config
+        if not config.enabled or not config.return_inquiry_enabled:
+            return False
+        try:
+            order = self.__user_order_repo.get_by_id(order_id)
+            if (not order or order.payment_type != PaymentTypeEnum.LINK_AJA
+                    or order.payment_status != OrderStatusEnum.PENDING
+                    or read_order_data(order.bundle_data) is None):
+                return False
+            status = await asyncio.wait_for(self.__link_aja_service.get_payment_status(order.id),
+                                            timeout=config.return_inquiry_timeout)
+        except asyncio.TimeoutError:
+            logger.warning(f"[LinkAja] return inquiry for order {order_id} timed out after "
+                           f"{config.return_inquiry_timeout}s; redirecting, reconciliation will retry")
+            return False
+        except Exception as exc:
+            logger.warning(f"[LinkAja] return inquiry for order {order_id} failed "
+                           f"({type(exc).__name__}); redirecting, reconciliation will retry")
+            return False
+
+        if not is_provisioning_status(status.status):
+            logger.info(f"[LinkAja] return inquiry: order {order_id} is {status.status}; leaving it pending")
+            return False
+        try:
+            claimed = await self.reconcile_from_status(order, status)
+        except Exception as exc:
+            logger.error(f"[LinkAja] return inquiry: settling order {order_id} failed ({type(exc).__name__})")
+            return False
+        if claimed:
+            logger.info(f"[LinkAja] return inquiry: order {order_id} paid; provisioning scheduled")
+        return claimed
+
     def record_approval_code(self, order: UserOrderModel, approval_code: Optional[str]) -> bool:
         """Store LinkAja's approvalCode on an already-successful order that has none yet.
 

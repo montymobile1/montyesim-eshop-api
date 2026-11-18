@@ -1743,20 +1743,150 @@ def test_get_return_without_a_configured_frontend_url_does_not_redirect():
     assert "location" not in response.headers
 
 
-def test_get_return_never_processes_or_provisions():
-    """The GET is not authenticated, so it must not touch orders at all: it
-    never builds the callback service, reads or updates an order, or schedules
-    provisioning - not even for a pending order with a valid id."""
+def _status(status=LinkAjaPaymentStatus.SUCCESS, reference="LA-TXN-9", approval_code="D60232EF01"):
+    from app.services.integration.link_aja import LinkAjaStatusResult
+    return LinkAjaStatusResult(merchant_order_id="order-1", provider_reference=reference, status=status,
+                               approval_code=approval_code)
+
+
+def _return_with_inquiry(inquiry, config=None, params=None):
+    """GET the return URL on an enabled deployment whose status inquiry is `inquiry`
+    (an AsyncMock). Returns (response, mocks, service getter)."""
+    app, m, get_service = _notify_app_with(config or _notify_config())
+    with patch.object(m["link_aja"], "get_payment_status", inquiry), \
+            patch.dict(os.environ, {"LINKAJA_ENABLED": "true"}):
+        response = _return_get(app, params={"order_id": _ORDER_UUID} if params is None else params)
+    return response, m, get_service
+
+
+def _assert_redirected(response):
+    assert response.status_code == 302
+    assert response.headers["location"] == f"https://esim-shop.invalid/plans?order_id={_ORDER_UUID}"
+
+
+def test_get_return_settles_a_paid_pending_order_before_redirecting():
+    """The customer is usually back before the reconciliation job runs: one inquiry
+    answering 00 claims the order (same atomic claim as the job) and schedules provisioning."""
+    inquiry = AsyncMock(return_value=_status())
+    response, m, _ = _return_with_inquiry(inquiry)
+
+    _assert_redirected(response)
+    inquiry.assert_awaited_once_with("order-1")
+    m["order_repo"].update_by.assert_called_once()
+    where = m["order_repo"].update_by.call_args.kwargs["where"]
+    assert where == {"id": "order-1", "payment_status": OrderStatusEnum.PENDING}
+    assert m["order"].payment_status == OrderStatusEnum.SUCCESS
+    assert len(m["executor"].tasks) == 1
+
+
+@pytest.mark.parametrize("status", [LinkAjaPaymentStatus.NOT_FOUND, LinkAjaPaymentStatus.PENDING,
+                                    LinkAjaPaymentStatus.UNKNOWN, LinkAjaPaymentStatus.FAILED,
+                                    LinkAjaPaymentStatus.EXPIRED, LinkAjaPaymentStatus.REFUNDED])
+def test_get_return_changes_nothing_unless_linkaja_says_success(status):
+    """Not even a failed / expired answer is recorded here: only 00 changes state."""
+    response, m, _ = _return_with_inquiry(AsyncMock(return_value=_status(status=status)))
+    _assert_redirected(response)
+    m["order_repo"].update_by.assert_not_called()
+    assert m["executor"].tasks == []
+    assert m["order"].payment_status == OrderStatusEnum.PENDING
+
+
+def test_get_return_redirects_when_the_inquiry_times_out():
+    async def slow(_order_id):
+        await asyncio.sleep(5)
+        return _status()
+
+    response, m, _ = _return_with_inquiry(AsyncMock(side_effect=slow),
+                                          config=_notify_config(return_inquiry_timeout=0.05))
+    _assert_redirected(response)
+    m["order_repo"].update_by.assert_not_called()
+    assert m["executor"].tasks == []
+
+
+@pytest.mark.parametrize("error", [LinkAjaProviderException(details="boom"), RuntimeError("boom")])
+def test_get_return_redirects_when_the_inquiry_fails(error):
+    response, m, _ = _return_with_inquiry(AsyncMock(side_effect=error))
+    _assert_redirected(response)
+    m["order_repo"].update_by.assert_not_called()
+    assert m["executor"].tasks == []
+
+
+def test_get_return_redirects_when_the_service_cannot_be_built():
     app, m, get_service = _notify_app_with(_notify_config())
-    for params in ({"order_id": "order-1"}, {"order_id": _ORDER_UUID}, None):
+    get_service.side_effect = RuntimeError("no db")
+    with patch.dict(os.environ, {"LINKAJA_ENABLED": "true"}):
+        _assert_redirected(_return_get(app, params={"order_id": _ORDER_UUID}))
+
+
+def test_get_return_does_not_provision_an_order_already_claimed():
+    """The job or a notify claimed it first: the conditional UPDATE matches no row."""
+    inquiry = AsyncMock(return_value=_status())
+    app, m, _ = _notify_app_with(_notify_config())
+    m["order_repo"].update_by.return_value = []
+    with patch.object(m["link_aja"], "get_payment_status", inquiry), \
+            patch.dict(os.environ, {"LINKAJA_ENABLED": "true"}):
+        _assert_redirected(_return_get(app, params={"order_id": _ORDER_UUID}))
+    inquiry.assert_awaited_once()
+    assert m["executor"].tasks == []
+
+
+@pytest.mark.parametrize("change", [
+    {"payment_status": OrderStatusEnum.SUCCESS},
+    {"payment_status": OrderStatusEnum.FAILURE},
+    {"payment_type": PaymentTypeEnum.CARD},
+    {"bundle_data": get_bundle_mock().model_dump_json()},  # never sent to LinkAja: no stored quote
+])
+def test_get_return_only_asks_about_pending_link_aja_orders(change):
+    inquiry = AsyncMock(return_value=_status())
+    app, m, _ = _notify_app_with(_notify_config())
+    for field, value in change.items():
+        setattr(m["order"], field, value)
+    with patch.object(m["link_aja"], "get_payment_status", inquiry), \
+            patch.dict(os.environ, {"LINKAJA_ENABLED": "true"}):
+        _assert_redirected(_return_get(app, params={"order_id": _ORDER_UUID}))
+    inquiry.assert_not_awaited()
+    m["order_repo"].update_by.assert_not_called()
+    assert m["executor"].tasks == []
+
+
+def test_get_return_unknown_order_is_only_redirected():
+    inquiry = AsyncMock(return_value=_status())
+    app, m, _ = _notify_app_with(_notify_config())
+    m["order_repo"].get_by_id.return_value = None
+    with patch.object(m["link_aja"], "get_payment_status", inquiry), \
+            patch.dict(os.environ, {"LINKAJA_ENABLED": "true"}):
+        _assert_redirected(_return_get(app, params={"order_id": _ORDER_UUID}))
+    inquiry.assert_not_awaited()
+
+
+@pytest.mark.parametrize("params", [None, {"order_id": "order-1"}, {"order_id": "1' OR '1'='1"}])
+def test_get_return_without_a_valid_order_id_never_builds_the_service(params):
+    app, m, get_service = _notify_app_with(_notify_config())
+    with patch.dict(os.environ, {"LINKAJA_ENABLED": "true"}):
         assert _return_get(app, params=params).status_code == 302
     get_service.assert_not_called()
     m["order_repo"].get_by_id.assert_not_called()
-    m["order_repo"].update_by.assert_not_called()
-    m["order_repo"].list.assert_not_called()
-    m["bundle_service"].buy_bundle.assert_not_called()
-    assert m["executor"].tasks == []
-    assert m["order"].payment_status == OrderStatusEnum.PENDING
+
+
+def test_get_return_inquiry_can_be_switched_off():
+    inquiry = AsyncMock(return_value=_status())
+    response, m, _ = _return_with_inquiry(inquiry, config=_notify_config(return_inquiry_enabled=False))
+    _assert_redirected(response)
+    inquiry.assert_not_awaited()
+    m["order_repo"].get_by_id.assert_not_called()
+
+
+@pytest.mark.parametrize("env, enabled, timeout", [
+    ({}, True, 5.0),
+    ({"LINKAJA_RETURN_INQUIRY_ENABLED": "false", "LINKAJA_RETURN_INQUIRY_TIMEOUT_SECONDS": "2.5"}, False, 2.5),
+    ({"LINKAJA_RETURN_INQUIRY_ENABLED": "yes", "LINKAJA_RETURN_INQUIRY_TIMEOUT_SECONDS": "abc"}, True, 5.0),
+    ({"LINKAJA_RETURN_INQUIRY_ENABLED": "0", "LINKAJA_RETURN_INQUIRY_TIMEOUT_SECONDS": "-1"}, False, 5.0),
+])
+def test_return_inquiry_settings_from_env(env, enabled, timeout):
+    with patch.dict(os.environ, env, clear=True):
+        config = LinkAjaConfig.from_env()
+    assert config.return_inquiry_enabled is enabled
+    assert config.return_inquiry_timeout == timeout
 
 
 def test_get_return_works_while_link_aja_is_disabled():
