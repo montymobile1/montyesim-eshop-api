@@ -7,7 +7,8 @@ from starlette.responses import JSONResponse, RedirectResponse
 
 from app.schemas.response import ResponseHelper
 from app.services.callback_service import CallbackService
-from app.services.integration.link_aja import LinkAjaConfig, frontend_return_url, valid_order_id
+from app.services.integration.link_aja import (LinkAjaConfig, frontend_return_url, is_link_aja_enabled,
+                                               valid_order_id)
 from app.services.link_aja_callback_service import LinkAjaCallbackService
 
 router = APIRouter()
@@ -46,14 +47,23 @@ async def link_aja_callback(request: Request):
 
 
 @router.get("/linkaja", include_in_schema=False)
-def link_aja_return(order_id: Optional[str] = Query(default=None)):
+async def link_aja_return(order_id: Optional[str] = Query(default=None)):
     """LinkAja sends the customer back to the urlParams URL (the same URL as
-    the notify, opened as a GET). No auth and no processing: this only
-    redirects to LINKAJA_FRONTEND_RETURN_URL and never reads or changes an
-    order. Payment state comes only from the signed notify (POST) or the
-    reconciliation job.
+    the notify, opened as a GET), then this redirects to
+    LINKAJA_FRONTEND_RETURN_URL.
+
+    The customer usually arrives before the reconciliation job has run, so for
+    a pending LinkAja order this first asks LinkAja for the status once (short
+    timeout). The query string is not trusted for state: only LinkAja's own
+    00 answer, via the same atomic claim as the job, marks the order paid.
+    Whatever happens, the customer is redirected.
     """
     order_id = valid_order_id(order_id)
+    if order_id and is_link_aja_enabled():
+        try:
+            await get_link_aja_callback_service().settle_on_return(order_id)
+        except Exception as exc:  # the redirect must never depend on the inquiry
+            logger.error(f"[LinkAja] return inquiry for order {order_id} could not run: {type(exc).__name__}")
     target = frontend_return_url(LinkAjaConfig.from_env().frontend_return_url, order_id)
     if not target:
         logger.warning("[LinkAja] return redirect not possible: LINKAJA_FRONTEND_RETURN_URL is not set "

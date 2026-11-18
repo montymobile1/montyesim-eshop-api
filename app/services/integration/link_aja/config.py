@@ -47,6 +47,12 @@ DEFAULT_IS_DEEPLINK = "Y"
 #   path_query  /api/v1/callback/linkaja?order_id=...
 #   full_url    https://<host>/api/v1/callback/linkaja?order_id=...
 NOTIFY_ENDPOINT_FORMS = ("path", "path_query", "full_url")
+
+# GET return (customer back from the LinkAja app): one Inquiry Status before
+# the redirect, bounded so the customer is never held long. See
+# LinkAjaCallbackService.settle_on_return.
+DEFAULT_RETURN_INQUIRY_TIMEOUT = 5.0
+FALSY = ("false", "0", "no", "off")
 DEFAULT_NOTIFY_SIGNATURE_FORMS = "path"
 
 
@@ -65,6 +71,10 @@ def _env_float(name: str, default: float) -> float:
         # An unparseable timeout must not take the deployment down; fall back to
         # the safe default. The value is non-secret, so it is safe to surface.
         return default
+
+
+def _positive(value: float, default: float) -> float:
+    return value if value > 0 else default
 
 
 def is_link_aja_enabled() -> bool:
@@ -146,6 +156,12 @@ class LinkAjaConfig:
     connect_timeout: float = DEFAULT_CONNECT_TIMEOUT
     read_timeout: float = DEFAULT_READ_TIMEOUT
 
+    # --- GET return -------------------------------------------------------
+    # LINKAJA_RETURN_INQUIRY_ENABLED: only an explicit false/0/no/off turns the
+    # inquiry off (the redirect itself is unaffected).
+    return_inquiry_enabled: bool = True
+    return_inquiry_timeout: float = DEFAULT_RETURN_INQUIRY_TIMEOUT
+
     @classmethod
     def from_env(cls) -> "LinkAjaConfig":
         """Build a config snapshot from the current environment.
@@ -185,6 +201,10 @@ class LinkAjaConfig:
                                     or DEFAULT_NOTIFY_SIGNATURE_FORMS),
             connect_timeout=_env_float("LINKAJA_CONNECT_TIMEOUT", DEFAULT_CONNECT_TIMEOUT),
             read_timeout=_env_float("LINKAJA_READ_TIMEOUT", DEFAULT_READ_TIMEOUT),
+            return_inquiry_enabled=_env("LINKAJA_RETURN_INQUIRY_ENABLED").lower() not in FALSY,
+            return_inquiry_timeout=_positive(_env_float("LINKAJA_RETURN_INQUIRY_TIMEOUT_SECONDS",
+                                                        DEFAULT_RETURN_INQUIRY_TIMEOUT),
+                                             DEFAULT_RETURN_INQUIRY_TIMEOUT),
         )
 
     # -- validation --------------------------------------------------------
