@@ -61,7 +61,7 @@ class UserWalletService:
         return wallet
 
     def add_wallet_transaction(self, amount: float, user_id: str, source: str = "TopUp", order_currency: str = None,
-                               payment_reference: str = None) -> \
+                               payment_reference: str = None, send_push: bool = True) -> \
             Response[
                 UserWalletResponse]:
         try:
@@ -95,7 +95,8 @@ class UserWalletService:
                 "source": source,
                 "status": "success"
             })
-            if amount > 0:
+            # send_push=False: a refund credit sends its own notification, not "top-up succeeded"
+            if amount > 0 and send_push:
                 thread = threading.Thread(target=self.__send_push,
                                           args=(notification_amount, transaction_currency, user_id))
                 thread.start()

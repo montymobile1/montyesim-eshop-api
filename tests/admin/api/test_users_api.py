@@ -91,10 +91,23 @@ def test_list_defaults(api_client, service, as_admin):
     assert api_client.get(BASE).status_code == 200
     search, status, page = service.list.call_args.args
     assert (search, status, page.page, page.page_size) == (None, "all", 1, 20)
+    assert service.list.call_args.kwargs["account_type"] == "all"
+
+
+@pytest.mark.parametrize("account_type", ["registered", "guest"])
+def test_list_filters_by_account_type_and_rows_carry_is_guest(api_client, service, as_admin, account_type):
+    guest = {**ROW, "email": None, "is_guest": True}
+    service.list.return_value = AdminPage(data=[guest], total_count=1, facets={"all": 1, "banned": 0, "active": 1})
+
+    response = api_client.get(BASE, params={"account_type": account_type})
+
+    assert response.status_code == 200
+    assert service.list.call_args.kwargs["account_type"] == account_type
+    assert response.json()["data"]["data"][0]["is_guest"] is True
 
 
 @pytest.mark.parametrize("params", [{"page_size": 101}, {"ban_status": "foo"}, {"foo": "bar"}, {"page": 0},
-                                    {"search": "x" * 101}])
+                                    {"search": "x" * 101}, {"account_type": "anonymous"}])
 def test_list_rejects_bad_query(api_client, service, as_admin, params):
     _failed(api_client.get(BASE, params=params), 422)
     service.list.assert_not_called()

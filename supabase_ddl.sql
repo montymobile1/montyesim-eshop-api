@@ -1020,6 +1020,7 @@ grant execute on function update_timestamp
 () to service_role;
 
 create function sync_users_copy() returns trigger security definer
+    set search_path = ''
     language plpgsql
 as
 $$
@@ -1052,16 +1053,6 @@ END;
 $$;
 
 alter function sync_users_copy() owner to postgres;
-
-grant
-execute
-on
-function
-sync_users_copy
-() to anon;
-
-grant execute on function sync_users_copy
-() to authenticated;
 
 grant execute on function sync_users_copy
 () to service_role;
@@ -1519,6 +1510,7 @@ grant execute on function search_bundles_with_pagination
 
 create function search_bundles(p_search_term text, p_page integer DEFAULT 0,
                                p_page_size integer DEFAULT 10) returns json security definer
+    set search_path = ''
     language plpgsql
 as
 $$
@@ -1534,7 +1526,7 @@ SELECT json_agg(t)
 INTO
     v_items
 FROM (SELECT *
-      FROM bundle
+      FROM public.bundle
       WHERE
           -- Search in id (converted to text)
           id::text ILIKE '%' || p_search_term || '%'
@@ -1552,7 +1544,7 @@ FROM (SELECT *
 SELECT COUNT(*)
 INTO
     v_total_count
-FROM bundle
+FROM public.bundle
 WHERE id::text ILIKE '%' || p_search_term || '%'
     OR bundle_name ILIKE '%' || p_search_term || '%'
     OR data->>'bundle_name' ILIKE '%' || p_search_term || '%'
@@ -1573,16 +1565,6 @@ END;
 $$;
 
 alter function search_bundles(text, integer, integer) owner to postgres;
-
-grant
-execute
-on
-function
-search_bundles
-(text, integer, integer) to anon;
-
-grant execute on function search_bundles
-(text, integer, integer) to authenticated;
 
 grant execute on function search_bundles
 (text, integer, integer) to service_role;
@@ -1713,8 +1695,8 @@ SELECT json_agg(t)
 INTO
     v_items
 FROM (SELECT DISTINCT b.*
-      FROM bundle b
-               LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+      FROM public.bundle b
+               LEFT JOIN public.bundle_tag bt ON b.id = bt.bundle_id
       WHERE (
           p_search_term IS NULL OR
           b.id::text ILIKE '%' || p_search_term || '%' OR
@@ -1732,8 +1714,8 @@ FROM (SELECT DISTINCT b.*
 SELECT COUNT(DISTINCT b.id)
 INTO
     v_total_count
-FROM bundle b
-         LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+FROM public.bundle b
+         LEFT JOIN public.bundle_tag bt ON b.id = bt.bundle_id
 WHERE (
     p_search_term IS NULL OR
     b.id::text ILIKE '%' || p_search_term || '%' OR
@@ -1758,24 +1740,15 @@ RETURN json_build_object(
        );
 END;
 $$
-LANGUAGE plpgsql SECURITY DEFINER;
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = '';
 
 alter function search_bundles(text, integer, integer, uuid[]) owner to postgres;
-
-grant
-execute
-on
-function
-search_bundles
-(text, integer, integer, uuid[]) to anon;
-
-grant execute on function search_bundles
-(text, integer, integer, uuid[]) to authenticated;
 
 grant execute on function search_bundles
 (text, integer, integer, uuid[]) to service_role;
 
 create function search_bundle(p_search_term text, p_page integer DEFAULT 0, p_page_size integer DEFAULT 10) returns json security definer
+    set search_path = ''
     language plpgsql
 as
 $$
@@ -1791,7 +1764,7 @@ SELECT json_agg(t)
 INTO
     v_items
 FROM (SELECT *
-      FROM bundle
+      FROM public.bundle
       WHERE
           -- Search in id (converted to text)
           id::text ILIKE '%' || p_search_term || '%'
@@ -1809,7 +1782,7 @@ FROM (SELECT *
 SELECT COUNT(*)
 INTO
     v_total_count
-FROM bundle
+FROM public.bundle
 WHERE id::text ILIKE '%' || p_search_term || '%'
     OR bundle_name ILIKE '%' || p_search_term || '%'
     OR data->>'bundle_name' ILIKE '%' || p_search_term || '%'
@@ -1831,21 +1804,12 @@ $$;
 
 alter function search_bundle(text, integer, integer) owner to postgres;
 
-grant
-execute
-on
-function
-search_bundle
-(text, integer, integer) to anon;
-
-grant execute on function search_bundle
-(text, integer, integer) to authenticated;
-
 grant execute on function search_bundle
 (text, integer, integer) to service_role;
 
 create function search_bundle(p_search_term text, p_page integer DEFAULT 0, p_page_size integer DEFAULT 10,
                               p_tag_ids uuid[] DEFAULT NULL ::uuid[]) returns json security definer
+    set search_path = ''
     language plpgsql
 as
 $$
@@ -1861,8 +1825,8 @@ SELECT json_agg(t)
 INTO
     v_items
 FROM (SELECT DISTINCT b.*
-      FROM bundle b
-               LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+      FROM public.bundle b
+               LEFT JOIN public.bundle_tag bt ON b.id = bt.bundle_id
       WHERE (
           p_search_term IS NULL OR
           b.id::text ILIKE '%' || p_search_term || '%' OR
@@ -1880,8 +1844,8 @@ FROM (SELECT DISTINCT b.*
 SELECT COUNT(DISTINCT b.id)
 INTO
     v_total_count
-FROM bundle b
-         LEFT JOIN bundle_tag bt ON b.id = bt.bundle_id
+FROM public.bundle b
+         LEFT JOIN public.bundle_tag bt ON b.id = bt.bundle_id
 WHERE (
     p_search_term IS NULL OR
     b.id::text ILIKE '%' || p_search_term || '%' OR
@@ -1908,16 +1872,6 @@ END;
 $$;
 
 alter function search_bundle(text, integer, integer, uuid[]) owner to postgres;
-
-grant
-execute
-on
-function
-search_bundle
-(text, integer, integer, uuid[]) to anon;
-
-grant execute on function search_bundle
-(text, integer, integer, uuid[]) to authenticated;
 
 grant execute on function search_bundle
 (text, integer, integer, uuid[]) to service_role;
@@ -2297,25 +2251,15 @@ DECLARE
   action_name TEXT;
   event_name TEXT;
 BEGIN
-  SELECT name INTO action_name FROM promotion_rule_action WHERE id = NEW.promotion_rule_action_id;
-  SELECT name INTO event_name FROM promotion_rule_event WHERE id = NEW.promotion_rule_event_id;
+  SELECT name INTO action_name FROM public.promotion_rule_action WHERE id = NEW.promotion_rule_action_id;
+  SELECT name INTO event_name FROM public.promotion_rule_event WHERE id = NEW.promotion_rule_event_id;
 
   NEW.name := action_name || '-' || event_name || '-' || NEW.max_usage::text;
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = '';
 
 alter function update_promotion_rule_name() owner to postgres;
-
-grant
-execute
-on
-function
-update_promotion_rule_name
-() to anon;
-
-grant execute on function update_promotion_rule_name
-() to authenticated;
 
 grant execute on function update_promotion_rule_name
 () to service_role;
@@ -2335,7 +2279,7 @@ BEGIN
     FOREACH code IN ARRAY string_to_array(NEW.bundle_code, ',')
     LOOP
         SELECT COUNT(*) INTO exists_count
-        FROM bundle
+        FROM public.bundle
         WHERE data->>'bundle_code' = trim(code);
 
         IF exists_count = 0 THEN
@@ -2345,19 +2289,9 @@ BEGIN
 
     RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SET search_path = '';
 
 alter function validate_bundle_codes() owner to postgres;
-
-grant
-execute
-on
-function
-validate_bundle_codes
-() to anon;
-
-grant execute on function validate_bundle_codes
-() to authenticated;
 
 grant execute on function validate_bundle_codes
 () to service_role;
@@ -3104,6 +3038,7 @@ ALTER TABLE public.tag_group       ADD COLUMN IF NOT EXISTS group_category varch
 
   - the audit_log table itself is in the table definitions at the top of this file
   - operation_details jsonb (was admin repo procedures/audit_log_operation_details.sql)
+  - changed_by_info jsonb (TEOS-341): the actor's email, phone and role when the row was written
   - indexes for the audit / settings-history listings
   - no direct access for anon / authenticated: rows are written by the
     SECURITY DEFINER helpers in 050 and read by the API with service_role.
@@ -3117,6 +3052,12 @@ ALTER TABLE public.tag_group       ADD COLUMN IF NOT EXISTS group_category varch
 
 ALTER TABLE public.audit_log
     ADD COLUMN IF NOT EXISTS operation_details jsonb;
+
+-- TEOS-341: who made the change, as they were at that moment ({"email", "phone", "role"}, read from
+-- auth.users by admin_write_audit). changed_by keeps the id; this copy keeps the actor readable when
+-- the account is deleted later (and records the role they had). Null on rows written before it.
+ALTER TABLE public.audit_log
+    ADD COLUMN IF NOT EXISTS changed_by_info jsonb;
 
 CREATE INDEX IF NOT EXISTS audit_log_table_name_changed_at_idx
     ON public.audit_log (table_name, changed_at DESC);
@@ -3791,6 +3732,9 @@ $$;
 -- admin_write_audit: one audit_log row (also used directly by AuditService
 -- for non-DB effects such as GoTrue ban/unban and exports; p_table is free
 -- text there, e.g. 'auth.users').
+-- TEOS-341: changed_by_info = the actor's email, phone (auth.users.phone, else the
+-- metadata msisdn of phone sign-in accounts) and role, read from auth.users now, so the
+-- row still says who made the change after the account is deleted. Never from the caller.
 ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.admin_write_audit(
     p_table     text,
@@ -3806,10 +3750,11 @@ CREATE OR REPLACE FUNCTION public.admin_write_audit(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_details jsonb;
+    v_actor   jsonb;
     v_row     public.audit_log;
 BEGIN
     IF p_actor IS NULL THEN
@@ -3852,8 +3797,18 @@ BEGIN
         v_details := v_details || jsonb_build_object('record_id', p_record_id);
     END IF;
 
+    -- TEOS-341: the actor as they are now (null when the id is not an account)
+    SELECT jsonb_build_object(
+               'email', nullif(btrim(u.email), ''),
+               'phone', coalesce(nullif(btrim(u.phone), ''),
+                                 nullif(btrim(u.raw_user_meta_data ->> 'msisdn'), '')),
+               'role',  nullif(btrim(u.raw_app_meta_data ->> 'role'), ''))
+      INTO v_actor
+      FROM auth.users u
+     WHERE u.id = p_actor;
+
     INSERT INTO public.audit_log
-        (table_name, record_id, operation, changed_by, old_data, new_data, operation_details)
+        (table_name, record_id, operation, changed_by, old_data, new_data, operation_details, changed_by_info)
     VALUES
         (p_table,
          CASE WHEN p_record_id ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
@@ -3862,7 +3817,8 @@ BEGIN
          p_actor,
          p_old_data,
          p_new_data,
-         v_details)
+         v_details,
+         v_actor)
     RETURNING * INTO v_row;
 
     RETURN to_jsonb(v_row);
@@ -3881,7 +3837,7 @@ CREATE OR REPLACE FUNCTION public.admin_rotate_cache_key()
 RETURNS text
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_value text;
@@ -3909,7 +3865,7 @@ CREATE OR REPLACE FUNCTION public.admin_insert_audited(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_rel      regclass;
@@ -3980,7 +3936,7 @@ CREATE OR REPLACE FUNCTION public.admin_update_audited(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_rel     regclass;
@@ -4093,7 +4049,7 @@ CREATE OR REPLACE FUNCTION public.admin_delete_audited(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_rel     regclass;
@@ -4238,7 +4194,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_search    text    := nullif(btrim(coalesce(p_search, '')), '');
@@ -4424,7 +4380,7 @@ CREATE OR REPLACE FUNCTION public.admin_set_bundle_status(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_current boolean;
@@ -4498,7 +4454,7 @@ CREATE OR REPLACE FUNCTION public.admin_set_all_bundles_status(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_ids     jsonb;
@@ -4560,7 +4516,7 @@ CREATE OR REPLACE FUNCTION public.admin_set_bundle_tags(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_tag_ids  uuid[];
@@ -4887,7 +4843,7 @@ CREATE OR REPLACE FUNCTION public.admin_insert_group_with_tags(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_group    public.tag_group;
@@ -4950,7 +4906,7 @@ CREATE OR REPLACE FUNCTION public.admin_edit_tag_group(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_group        public.tag_group;
@@ -5111,7 +5067,7 @@ CREATE OR REPLACE FUNCTION public.admin_delete_group(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_group        public.tag_group;
@@ -5177,7 +5133,7 @@ CREATE OR REPLACE FUNCTION public.admin_reorder_tags(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_group   public.tag_group;
@@ -5285,7 +5241,7 @@ RETURNS TABLE (group_id bigint, bundle_count integer)
 LANGUAGE sql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
     SELECT t.tag_group_id, count(DISTINCT bt.bundle_id)::integer
       FROM public.tag AS t
@@ -5337,7 +5293,7 @@ GRANT EXECUTE ON FUNCTION public.admin_group_bundle_counts(bigint[])
     admin_search_users(p_search text DEFAULT NULL, p_ban_status text DEFAULT 'all',
                        p_limit integer DEFAULT 20, p_offset integer DEFAULT 0,
                        p_id uuid DEFAULT NULL, p_sort text DEFAULT 'created_at',
-                       p_dir text DEFAULT 'desc')
+                       p_dir text DEFAULT 'desc', p_account_type text DEFAULT 'all')
       -> jsonb {"data": [user rows], "total": n, "facets": {"all": n, "banned": n, "active": n}}
 
     - Source: users_copy (email, metadata = auth.users.raw_user_meta_data) LEFT JOIN auth.users
@@ -5347,8 +5303,16 @@ GRANT EXECUTE ON FUNCTION public.admin_group_bundle_counts(bigint[])
     - Row: {id, email, first_name, last_name, msisdn, referral_code, email_verified,
             phone_verified, should_notify, role, banned_until, is_banned, created_at,
             last_sign_in_at}. is_banned = banned_until in the future; a lapsed ban is "active".
-    - p_search: literal match on email (ILIKE with %, _ and \ escaped).
+    - p_search: literal match on email (ILIKE with %, _ and \ escaped), or on the phone number
+      (users_copy.metadata msisdn, auth.users.phone). A search made only of digits, spaces and
+      + ( ) . - is also matched on the phone digits alone, so "+961 70 123 456" finds "96170123456".
     - p_ban_status: all | banned | active, else AD422.
+    - p_account_type (2026-11-06): all | registered | guest, else AD422. guest = anonymous accounts
+      (auth.users.is_anonymous, the user portal's guest checkout); registered = every other account.
+      Rows carry is_guest. The facets follow this filter (they count the listed kind only).
+    - guest_email (2026-11-06): for a guest, the email typed at guest checkout
+      (users_copy.metadata.email; the account itself has no email). Not verified. The search also
+      matches it for guests.
     - p_id: only that user (the detail route); the facets are over the searched set anyway.
     - facets: counts over the searched set (p_search and p_id) whatever p_ban_status says.
     - Order: p_sort (created_at | email) in p_dir (asc | desc), NULLs last, then id in the
@@ -5373,6 +5337,9 @@ GRANT EXECUTE ON FUNCTION public.admin_group_bundle_counts(bigint[])
 ------------------------------------------------------------------------------
 -- TEOS-111: p_sort / p_dir added; the first (5-argument) signature is replaced.
 DROP FUNCTION IF EXISTS public.admin_search_users(text, text, integer, integer, uuid);
+-- 2026-11-06: p_account_type added; the 7-argument signature is replaced (callers that do not pass
+-- p_account_type keep working through its default)
+DROP FUNCTION IF EXISTS public.admin_search_users(text, text, integer, integer, uuid, text, text);
 
 CREATE OR REPLACE FUNCTION public.admin_search_users(
     p_search     text    DEFAULT NULL,
@@ -5381,19 +5348,22 @@ CREATE OR REPLACE FUNCTION public.admin_search_users(
     p_offset     integer DEFAULT 0,
     p_id         uuid    DEFAULT NULL,
     p_sort       text    DEFAULT 'created_at',
-    p_dir        text    DEFAULT 'desc'
+    p_dir        text    DEFAULT 'desc',
+    p_account_type text  DEFAULT 'all'
 )
 RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_pattern text;
+    v_phone   text;
     v_status  text := coalesce(nullif(btrim(p_ban_status), ''), 'all');
     v_sort    text := coalesce(nullif(btrim(p_sort), ''), 'created_at');
     v_dir     text := lower(coalesce(nullif(btrim(p_dir), ''), 'desc'));
+    v_account text := lower(coalesce(nullif(btrim(p_account_type), ''), 'all'));
     v_result  jsonb;
 BEGIN
     IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_offset IS NULL OR p_offset < 0 THEN
@@ -5424,9 +5394,20 @@ BEGIN
             DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_dir')::text;
     END IF;
 
+    IF v_account NOT IN ('all', 'registered', 'guest') THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_account_type must be all, registered or guest',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_account_type')::text;
+    END IF;
+
     IF p_search IS NOT NULL AND btrim(p_search) <> '' THEN
         -- literal match: escape the LIKE wildcards (default escape character is the backslash)
         v_pattern := '%' || replace(replace(replace(btrim(p_search), '\', '\\'), '%', '\%'), '_', '\_') || '%';
+        -- a phone-looking search also matches the stored number by its digits only
+        IF btrim(p_search) ~ '^[0-9+() .-]+$' AND length(regexp_replace(p_search, '[^0-9]', '', 'g')) >= 3 THEN
+            v_phone := '%' || regexp_replace(p_search, '[^0-9]', '', 'g') || '%';
+        END IF;
     END IF;
 
     WITH base AS (
@@ -5443,11 +5424,22 @@ BEGIN
                au.banned_until,
                (au.banned_until IS NOT NULL AND au.banned_until > now()) AS is_banned,
                au.created_at,
-               au.last_sign_in_at
+               au.last_sign_in_at,
+               coalesce(au.is_anonymous, false)                  AS is_guest,
+               CASE WHEN coalesce(au.is_anonymous, false)
+                    THEN nullif(btrim(u.metadata ->> 'email'), '') END AS guest_email
           FROM public.users_copy u
           LEFT JOIN auth.users au ON au.id = u.id
          WHERE (p_id IS NULL OR u.id = p_id)
-           AND (v_pattern IS NULL OR u.email ILIKE v_pattern)
+           AND (v_account = 'all' OR (v_account = 'guest') = coalesce(au.is_anonymous, false))
+           AND (v_pattern IS NULL
+                OR u.email ILIKE v_pattern
+                OR (u.metadata ->> 'msisdn') ILIKE v_pattern
+                OR au.phone ILIKE v_pattern
+                OR (coalesce(au.is_anonymous, false) AND (u.metadata ->> 'email') ILIKE v_pattern)
+                OR (v_phone IS NOT NULL
+                    AND (regexp_replace(coalesce(u.metadata ->> 'msisdn', ''), '[^0-9]', '', 'g') LIKE v_phone
+                         OR regexp_replace(coalesce(au.phone, ''), '[^0-9]', '', 'g') LIKE v_phone)))
     ),
     filtered AS (
         SELECT *
@@ -5499,7 +5491,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_result jsonb;
@@ -5549,9 +5541,9 @@ $$;
 ------------------------------------------------------------------------------
 -- Privileges
 ------------------------------------------------------------------------------
-REVOKE ALL ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text)
+REVOKE ALL ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text, text)
     FROM PUBLIC, anon, authenticated;
-GRANT EXECUTE ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text)
+GRANT EXECUTE ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text, text)
     TO service_role;
 
 REVOKE ALL ON FUNCTION public.admin_wallet_transactions(uuid, integer, integer)
@@ -5645,7 +5637,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_search text;
@@ -5835,7 +5827,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_now     timestamp := timezone('utc', now());
@@ -5964,7 +5956,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_pattern text;
@@ -6242,7 +6234,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 STABLE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_result jsonb;
@@ -6398,7 +6390,7 @@ CREATE OR REPLACE FUNCTION public.admin_upsert_settings(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_items     jsonb  := coalesce(p_items, '[]'::jsonb);
@@ -6740,7 +6732,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_since    timestamptz;
@@ -6783,7 +6775,7 @@ RETURNS void
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
-SET search_path = public, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_row public.admin_login_attempt%ROWTYPE;
@@ -6850,7 +6842,7 @@ RETURNS jsonb
 LANGUAGE plpgsql
 VOLATILE
 SECURITY DEFINER
-SET search_path = pg_catalog, pg_temp
+SET search_path = ''
 AS $$
 DECLARE
     v_refresh_tokens integer;
@@ -6879,6 +6871,61 @@ $$;
 
 REVOKE ALL ON FUNCTION public.admin_revoke_user_sessions(uuid) FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION public.admin_revoke_user_sessions(uuid) TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- 150_user_order_refund.sql
+-- ----------------------------------------------------------------------------
+
+/*
+  150_user_order_refund.sql  (refund on eSIM Hub failure)
+
+  One row per paid order whose eSIM Hub order / top-up failed: the automatic refund (Card: Stripe
+  refund, Wallet: credit back) or the manual review it needs instead. A separate table, not columns
+  on user_order: UserOrderModel forbids unknown columns, so new user_order columns would break
+  every order read of the running code.
+
+  status
+    pending        claimed, the refund is being executed
+    refunded       the money went back to the customer
+    failed         the Stripe refund call failed; retryable by support
+    manual_review  no automatic refund (ambiguous Hub failure, DCB, LinkAja, wallet credit error)
+
+  The primary key on order_id is the double-refund guard: the claim is
+  INSERT ... ON CONFLICT (order_id) DO NOTHING, and every later change is
+  UPDATE ... WHERE order_id = ? AND status = <expected>. Service role only.
+
+  Idempotent.
+*/
+
+CREATE TABLE IF NOT EXISTS public.user_order_refund
+(
+    order_id           uuid        NOT NULL PRIMARY KEY
+        REFERENCES public.user_order (id) ON DELETE CASCADE,
+    user_id            uuid        NOT NULL,
+    payment_type       varchar(20) NOT NULL,
+    status             varchar(20) NOT NULL
+        CONSTRAINT user_order_refund_status_check
+            CHECK (status IN ('pending', 'refunded', 'failed', 'manual_review')),
+    reason             text,
+    amount             numeric,
+    currency           varchar(10),
+    reference          varchar,
+    payment_intent_id  varchar,
+    tax_transaction_id varchar,
+    tax_reversal_id    varchar,
+    created_at         timestamptz NOT NULL DEFAULT now(),
+    updated_at         timestamptz NOT NULL DEFAULT now(),
+    refunded_at        timestamptz
+);
+
+CREATE INDEX IF NOT EXISTS user_order_refund_status_idx
+    ON public.user_order_refund (status, created_at DESC);
+
+ALTER TABLE public.user_order_refund ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON TABLE public.user_order_refund FROM anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.user_order_refund TO service_role;
 
 
 -- ============================================================================
@@ -7053,3 +7100,775 @@ DROP POLICY IF EXISTS contact_us_select_admin ON public.contact_us;
 CREATE POLICY contact_us_select_admin ON public.contact_us
     FOR SELECT TO authenticated
     USING (((SELECT auth.jwt()) -> 'app_metadata' ->> 'role') IN ('admin', 'super_admin'));
+
+
+-- ----------------------------------------------------------------------------
+-- admin trusted devices (TEOS-255 / TEOS-256 / TEOS-310)
+-- ----------------------------------------------------------------------------
+-- Also in migrations/admin/256-ddl.sql (this phase only) and new_change_ddl.sql.
+
+-- ----------------------------------------------------------------------------
+-- admin_devices: one row per browser an admin signed in from (after the email code).
+--   device_hash   HMAC-SHA256 (server secret) of the browser values + the random device key the
+--                 portal keeps in the browser. Computed by the API, never by the browser.
+--   device_info   browser, version, OS, screen, time zone, language: display only
+--   trusted_until null = signed in with a code but not trusted (next sign-in asks again)
+--   session_id    Supabase session (auth.sessions.id, JWT claim session_id) of this browser;
+--                 every /admin request must come from a session that has an active row here
+--   revoked_*     a revoked row is history only: its session is ended, it is never matched again
+--   last_sign_in_at the last ADMIN PORTAL sign-in from this browser (password on a trusted device,
+--                 or the email code); the Admins page shows the latest per admin. Refreshes don't move it
+--   last_token_iat  iat (JWT issued-at, seconds) of the newest access token the API handed to this
+--                 device; a token of the session issued later (refreshed directly against
+--                 Supabase, not through the API) is refused
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.admin_devices
+(
+    id            uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_id      uuid        NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
+    device_hash   text        NOT NULL,
+    device_info   jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    name          text        NULL,
+    trusted_until timestamptz NULL,
+    session_id    uuid        NULL,
+    first_ip      text        NULL,
+    last_ip       text        NULL,
+    created_at    timestamptz NOT NULL DEFAULT now(),
+    last_used_at  timestamptz NOT NULL DEFAULT now(),
+    revoked_at    timestamptz NULL,
+    revoked_by    uuid        NULL,
+    revoke_reason text        NULL,
+    last_token_iat bigint     NULL,
+    last_sign_in_at timestamptz NULL,
+    CONSTRAINT admin_devices_name_len CHECK (name IS NULL OR char_length(name) BETWEEN 1 AND 60)
+);
+
+-- added after the first draft of this file: also on a table created by an earlier run
+ALTER TABLE public.admin_devices ADD COLUMN IF NOT EXISTS last_token_iat bigint NULL;
+ALTER TABLE public.admin_devices ADD COLUMN IF NOT EXISTS last_sign_in_at timestamptz NULL;
+-- the Admins page: each admin's latest portal sign-in
+CREATE INDEX IF NOT EXISTS admin_devices_admin_sign_in_idx
+    ON public.admin_devices (admin_id, last_sign_in_at DESC) WHERE last_sign_in_at IS NOT NULL;
+
+-- one active row per admin and browser; revoked rows are kept as history
+CREATE UNIQUE INDEX IF NOT EXISTS admin_devices_active_hash_uq
+    ON public.admin_devices (admin_id, device_hash) WHERE revoked_at IS NULL;
+-- the per-request check: session -> active device row
+CREATE INDEX IF NOT EXISTS admin_devices_session_idx
+    ON public.admin_devices (session_id) WHERE session_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS admin_devices_admin_idx
+    ON public.admin_devices (admin_id, last_used_at DESC);
+
+ALTER TABLE public.admin_devices ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.admin_devices FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.admin_devices TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- admin_device_verification: one row per "email code" sign-in step. The code itself is generated
+-- by the API, stored hashed in admin_otp (PART 3) and emailed through the API's SMTP: it is never
+-- stored here. This row carries the story's rules: 10 minutes, 5 wrong attempts, 3 resends,
+-- 60 s between sends, and which browser asked.
+--   consumed_at  set when a verify claims the row (two verifies at once: only one wins)
+--   failed_at    the verification is dead (5th wrong code, or the email could not be sent)
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.admin_device_verification
+(
+    id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_id     uuid        NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
+    device_hash  text        NOT NULL,
+    device_info  jsonb       NOT NULL DEFAULT '{}'::jsonb,
+    attempts     integer     NOT NULL DEFAULT 0,
+    resend_count integer     NOT NULL DEFAULT 0,
+    last_sent_at timestamptz NOT NULL DEFAULT now(),
+    expires_at   timestamptz NOT NULL,
+    consumed_at  timestamptz NULL,
+    failed_at    timestamptz NULL,
+    ip           text        NULL,
+    user_agent   text        NULL,
+    created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS admin_device_verification_admin_idx
+    ON public.admin_device_verification (admin_id, created_at DESC);
+
+ALTER TABLE public.admin_device_verification ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.admin_device_verification FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.admin_device_verification TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- admin_device_verification_failed_attempt: a verify that claimed the verification got a wrong code.
+-- Atomically releases the claim, counts the attempt and kills the verification at p_max attempts.
+-- Returns {"attempts": n, "attempts_left": m, "dead": bool}; {"found": false} when no such row.
+-- ----------------------------------------------------------------------------
+-- the argument was renamed (p_challenge_id -> p_verification_id): CREATE OR REPLACE cannot rename it
+DROP FUNCTION IF EXISTS public.admin_device_verification_failed_attempt(uuid, integer);
+CREATE OR REPLACE FUNCTION public.admin_device_verification_failed_attempt(
+    p_verification_id uuid,
+    p_max          integer
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_attempts integer;
+BEGIN
+    IF p_verification_id IS NULL OR p_max IS NULL OR p_max < 1 THEN
+        RAISE EXCEPTION USING ERRCODE = '22023',
+            MESSAGE = 'admin_device_verification_failed_attempt: invalid arguments';
+    END IF;
+
+    UPDATE public.admin_device_verification
+       SET attempts    = attempts + 1,
+           consumed_at = NULL,
+           failed_at   = CASE WHEN attempts + 1 >= p_max THEN clock_timestamp() ELSE failed_at END
+     WHERE id = p_verification_id
+    RETURNING attempts INTO v_attempts;
+
+    IF v_attempts IS NULL THEN
+        RETURN jsonb_build_object('found', false);
+    END IF;
+
+    RETURN jsonb_build_object(
+        'found', true,
+        'attempts', v_attempts,
+        'attempts_left', GREATEST(p_max - v_attempts, 0),
+        'dead', v_attempts >= p_max
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_device_verification_failed_attempt(uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_device_verification_failed_attempt(uuid, integer) TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- admin_end_session: ends ONE Supabase session (a revoked admin device), whatever the age of
+-- its access token: deletes the session and its refresh tokens. The device's next request
+-- and its next refresh fail. Same owner requirement as admin_revoke_user_sessions (TEOS-149).
+-- Returns {"sessions": n, "refresh_tokens": m}.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_end_session(p_session_id uuid)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_refresh_tokens integer;
+    v_sessions       integer;
+BEGIN
+    IF p_session_id IS NULL THEN
+        RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'admin_end_session: p_session_id is required';
+    END IF;
+    -- current_user is the owner here (SECURITY DEFINER): without RLS bypass the deletes see nothing
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles
+                    WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
+        RAISE EXCEPTION USING ERRCODE = '42501',
+            MESSAGE = 'admin_end_session: the function owner must bypass row level security';
+    END IF;
+
+    DELETE FROM auth.refresh_tokens WHERE session_id = p_session_id;
+    GET DIAGNOSTICS v_refresh_tokens = ROW_COUNT;
+
+    DELETE FROM auth.sessions WHERE id = p_session_id;
+    GET DIAGNOSTICS v_sessions = ROW_COUNT;
+
+    RETURN jsonb_build_object('sessions', v_sessions, 'refresh_tokens', v_refresh_tokens);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_end_session(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_end_session(uuid) TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- admin_refresh_token_session (TEOS-320): the Supabase session a refresh token belongs to, read
+-- BEFORE the API refreshes it. POST /admin/auth/refresh checks that session's device row (revoked,
+-- trust expired, another browser) first and refuses without using the token: Supabase rotates a
+-- refresh token on use, so a refusal after the refresh signed the real browser out.
+-- Returns {"session_id": uuid, "user_id": text} for a known token (revoked or not: Supabase still
+-- accepts a just-rotated token for a few seconds and decides that itself), else NULL.
+-- Only reads auth.refresh_tokens; same owner requirement as admin_end_session.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_refresh_token_session(p_token text)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_session_id uuid;
+    v_user_id    text;
+BEGIN
+    IF p_token IS NULL OR length(p_token) = 0 THEN
+        RETURN NULL;
+    END IF;
+    -- current_user is the owner here (SECURITY DEFINER): without RLS bypass the select sees nothing
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles
+                    WHERE rolname = current_user AND (rolsuper OR rolbypassrls)) THEN
+        RAISE EXCEPTION USING ERRCODE = '42501',
+            MESSAGE = 'admin_refresh_token_session: the function owner must bypass row level security';
+    END IF;
+
+    SELECT rt.session_id, rt.user_id::text
+      INTO v_session_id, v_user_id
+      FROM auth.refresh_tokens rt
+     WHERE rt.token = p_token
+     LIMIT 1;
+
+    IF v_session_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+    RETURN jsonb_build_object('session_id', v_session_id, 'user_id', v_user_id);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_refresh_token_session(text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_refresh_token_session(text) TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- admin_devices_on_password_change (TEOS-255 "trust ends on a password change"): whenever an account's
+-- password changes, wherever it is changed (admin portal, Supabase dashboard, a reset link), its trusted
+-- admin devices stop being trusted: the next sign-in on each of them asks for the email code. Sessions are
+-- not ended here (the admin API does that for its own password change and reset).
+-- Fires only when encrypted_password really changes; touches only admin_devices rows of that account
+-- (customers have none). Never blocks the password change: any error is only a warning.
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_devices_on_password_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+BEGIN
+    UPDATE public.admin_devices
+       SET trusted_until = NULL
+     WHERE admin_id = NEW.id
+       AND revoked_at IS NULL
+       AND trusted_until IS NOT NULL;
+    RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+    RAISE WARNING 'admin_devices_on_password_change: %', SQLERRM;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_devices_on_password_change() FROM PUBLIC, anon, authenticated;
+
+DROP TRIGGER IF EXISTS admin_devices_on_password_change ON auth.users;
+CREATE TRIGGER admin_devices_on_password_change
+    AFTER UPDATE OF encrypted_password ON auth.users
+    FOR EACH ROW
+    WHEN (OLD.encrypted_password IS DISTINCT FROM NEW.encrypted_password)
+    EXECUTE FUNCTION public.admin_devices_on_password_change();
+
+
+-- ----------------------------------------------------------------------------
+-- admin_lookup_admins (2026-11-06): the Audit log page's "Admin" dropdown. Admin and super_admin accounts
+-- only (auth.users.raw_app_meta_data.role), with an email, searched on the email (literal, case-insensitive),
+-- ordered by email then id. p_id: that one account whatever its role (the portal shows the label of an id
+-- kept in the URL, e.g. a former admin). Read only. Service role only.
+--   -> jsonb {"data": [{id, email, role}], "total": n}
+-- ----------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.admin_lookup_admins(
+    p_search text    DEFAULT NULL,
+    p_limit  integer DEFAULT 20,
+    p_offset integer DEFAULT 0,
+    p_id     uuid    DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $$
+DECLARE
+    v_pattern text;
+    v_result  jsonb;
+BEGIN
+    IF p_limit IS NULL OR p_limit < 1 OR p_limit > 100 OR p_offset IS NULL OR p_offset < 0 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = 'AD422',
+            MESSAGE = 'p_limit must be 1..100 and p_offset >= 0',
+            DETAIL  = jsonb_build_object('code', 'invalid_input', 'param', 'p_limit')::text;
+    END IF;
+
+    IF p_search IS NOT NULL AND btrim(p_search) <> '' THEN
+        v_pattern := '%' || replace(replace(replace(btrim(p_search), '\', '\\'), '%', '\%'), '_', '\_') || '%';
+    END IF;
+
+    WITH matched AS (
+        SELECT au.id, au.email, au.raw_app_meta_data ->> 'role' AS role
+          FROM auth.users au
+         WHERE au.email IS NOT NULL
+           AND (CASE WHEN p_id IS NOT NULL THEN au.id = p_id
+                     ELSE (au.raw_app_meta_data ->> 'role') IN ('admin', 'super_admin') END)
+           AND (v_pattern IS NULL OR au.email ILIKE v_pattern)
+    ),
+    page AS (
+        SELECT * FROM matched ORDER BY lower(email), id LIMIT p_limit OFFSET p_offset
+    )
+    SELECT jsonb_build_object(
+               'data', coalesce((SELECT jsonb_agg(jsonb_build_object('id', p.id, 'email', p.email, 'role', p.role)
+                                                  ORDER BY lower(p.email), p.id)
+                                   FROM page p), '[]'::jsonb),
+               'total', (SELECT count(*) FROM matched))
+      INTO v_result;
+
+    RETURN v_result;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) TO service_role;
+
+-- ----------------------------------------------------------------------------
+-- admin_otp (2026-11-09): the admin sign-in codes, like user_otp for the customers. The code is
+-- generated by the API and emailed through the API's own SMTP (no longer by Supabase). Only
+-- HMAC-SHA256(OTP_HMAC_SECRET, code) is stored, as 64 hex chars, never the code.
+--   verification_id  the admin_device_verification row (sign-in step) the code belongs to
+--   expire_at     10 minutes after it was sent; a resend sets the previous code's expire_at to now
+--   is_used       true once the code opened the session
+-- The verification row keeps the rules (5 wrong attempts, 3 resends, 60 s, 5 codes per hour).
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.admin_otp
+(
+    id           bigserial   PRIMARY KEY,
+    admin_id     uuid        NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
+    verification_id uuid     NOT NULL REFERENCES public.admin_device_verification (id) ON DELETE CASCADE,
+    otp          varchar(64) NOT NULL,
+    expire_at    timestamptz NOT NULL,
+    is_used      boolean     NOT NULL DEFAULT false,
+    created_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- a table created by an earlier draft of this part had the column named challenge_id
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = 'admin_otp' AND column_name = 'challenge_id') THEN
+        ALTER TABLE public.admin_otp RENAME COLUMN challenge_id TO verification_id;
+    END IF;
+END
+$$;
+DROP INDEX IF EXISTS public.admin_otp_challenge_idx;
+
+-- the verify: the verification's newest live code
+CREATE INDEX IF NOT EXISTS admin_otp_verification_idx
+    ON public.admin_otp (verification_id, id DESC);
+CREATE INDEX IF NOT EXISTS admin_otp_admin_idx
+    ON public.admin_otp (admin_id, created_at DESC);
+
+ALTER TABLE public.admin_otp ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.admin_otp FROM PUBLIC, anon, authenticated;
+REVOKE ALL ON SEQUENCE public.admin_otp_id_seq FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.admin_otp TO service_role;
+GRANT USAGE, SELECT ON SEQUENCE public.admin_otp_id_seq TO service_role;
+
+-- ----------------------------------------------------------------------------
+-- admin_password_reset (TEOS-337/339, 2026-11-17): the reset links a super admin sends from the
+-- Admins page. The token was Supabase's recovery token: Supabase keeps one per user and the admin
+-- sign-in replaced it (TEOS-337: a pending link died when the admin signed in), and its lifetime
+-- was the project's "Email OTP Expiration" (TEOS-339: 24 h, not the story's 1 hour). The API now
+-- creates its own token and keeps only its SHA-256 here.
+--   token_hash    SHA-256 (64 hex) of the link's token, never the token
+--   created_by    the super admin who sent the link
+--   expires_at    1 hour after it was sent
+--   used_at       set when the new password is set with it (single use)
+--   cancelled_at  set when a newer link is sent, the password is changed or access is revoked
+-- Only the API (service_role) reads or writes it: RLS on, no policy, no grant to anon/authenticated.
+-- ----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.admin_password_reset
+(
+    id           uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
+    admin_id     uuid        NOT NULL REFERENCES auth.users (id) ON DELETE CASCADE,
+    token_hash   varchar(64) NOT NULL,
+    created_by   uuid,
+    expires_at   timestamptz NOT NULL,
+    used_at      timestamptz,
+    cancelled_at timestamptz,
+    created_at   timestamptz NOT NULL DEFAULT now(),
+    CONSTRAINT admin_password_reset_token_hash_key UNIQUE (token_hash)
+);
+
+-- the sending limit (links per admin per hour) and cancelling an admin's pending links
+CREATE INDEX IF NOT EXISTS admin_password_reset_admin_idx
+    ON public.admin_password_reset (admin_id, created_at DESC);
+
+ALTER TABLE public.admin_password_reset ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE public.admin_password_reset FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.admin_password_reset TO service_role;
+
+
+-- ----------------------------------------------------------------------------
+-- TEOS-326: SECURITY DEFINER functions in public
+-- Every SECURITY DEFINER function above runs with SET search_path = '' and schema-qualified
+-- names, so a caller cannot redirect it through its own search_path or pg_temp. Nobody but
+-- service_role (the API's key) may execute them; the reason for each grant is the function's
+-- COMMENT. tests/rls/test_rls_ddl_assertion.py keeps it that way (and its live variant checks
+-- the catalogue). Existing databases get the same change from the TEOS-326 per-database script.
+-- ----------------------------------------------------------------------------
+REVOKE ALL ON FUNCTION public.sync_users_copy() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.sync_users_copy() TO service_role;
+COMMENT ON FUNCTION public.sync_users_copy() IS
+    'SECURITY DEFINER, search_path ''''. trigger on auth.users (on_auth_users_changed): copies sign-ups/updates/deletes to public.users_copy. Firing a trigger does not check EXECUTE; service_role is granted only so that the API role can execute every function in public. Nobody calls it directly.';
+
+REVOKE ALL ON FUNCTION public.search_bundles(text, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.search_bundles(text, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.search_bundles(text, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. legacy, not called by the API or any current client (the old supabase-js portal called it with the admin''s JWT). EXECUTE for service_role only; anon/authenticated removed (TEOS-326).';
+
+REVOKE ALL ON FUNCTION public.search_bundles(text, integer, integer, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.search_bundles(text, integer, integer, uuid[]) TO service_role;
+COMMENT ON FUNCTION public.search_bundles(text, integer, integer, uuid[]) IS
+    'SECURITY DEFINER, search_path ''''. legacy, not called by the API or any current client (the old supabase-js portal called it with the admin''s JWT). EXECUTE for service_role only; anon/authenticated removed (TEOS-326).';
+
+REVOKE ALL ON FUNCTION public.search_bundle(text, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.search_bundle(text, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.search_bundle(text, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. legacy, not called by the API or any client. EXECUTE for service_role only; anon/authenticated removed (TEOS-326).';
+
+REVOKE ALL ON FUNCTION public.search_bundle(text, integer, integer, uuid[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.search_bundle(text, integer, integer, uuid[]) TO service_role;
+COMMENT ON FUNCTION public.search_bundle(text, integer, integer, uuid[]) IS
+    'SECURITY DEFINER, search_path ''''. legacy, not called by the API or any client. EXECUTE for service_role only; anon/authenticated removed (TEOS-326).';
+
+REVOKE ALL ON FUNCTION public.admin_write_audit(text, text, text, jsonb, jsonb, uuid, text, text, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_write_audit(text, text, text, jsonb, jsonb, uuid, text, text, jsonb) TO service_role;
+COMMENT ON FUNCTION public.admin_write_audit(text, text, text, jsonb, jsonb, uuid, text, text, jsonb) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/audit_log_repo.py, and by the other admin_* functions';
+
+REVOKE ALL ON FUNCTION public.admin_rotate_cache_key() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_rotate_cache_key() TO service_role;
+COMMENT ON FUNCTION public.admin_rotate_cache_key() IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the other admin_* functions (APP_CACHE_KEY rotation); the API never calls it directly';
+
+REVOKE ALL ON FUNCTION public.admin_insert_audited(text, jsonb, uuid, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_insert_audited(text, jsonb, uuid, text, text, boolean) TO service_role;
+COMMENT ON FUNCTION public.admin_insert_audited(text, jsonb, uuid, text, text, boolean) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/base.py (generic audited insert)';
+
+REVOKE ALL ON FUNCTION public.admin_update_audited(text, text, jsonb, uuid, text, text, text, boolean, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_update_audited(text, text, jsonb, uuid, text, text, text, boolean, jsonb) TO service_role;
+COMMENT ON FUNCTION public.admin_update_audited(text, text, jsonb, uuid, text, text, text, boolean, jsonb) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/base.py (generic audited update)';
+
+REVOKE ALL ON FUNCTION public.admin_delete_audited(text, text, uuid, text, text, boolean, jsonb) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_delete_audited(text, text, uuid, text, text, boolean, jsonb) TO service_role;
+COMMENT ON FUNCTION public.admin_delete_audited(text, text, uuid, text, text, boolean, jsonb) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/base.py (generic audited delete)';
+
+REVOKE ALL ON FUNCTION public.admin_search_bundles(text, uuid[], boolean, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_search_bundles(text, uuid[], boolean, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_search_bundles(text, uuid[], boolean, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/bundle_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_set_bundle_status(uuid, boolean, uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_bundle_status(uuid, boolean, uuid, text, text) TO service_role;
+COMMENT ON FUNCTION public.admin_set_bundle_status(uuid, boolean, uuid, text, text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/bundle_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_set_all_bundles_status(boolean, uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_all_bundles_status(boolean, uuid, text, text) TO service_role;
+COMMENT ON FUNCTION public.admin_set_all_bundles_status(boolean, uuid, text, text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/bundle_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_set_bundle_tags(uuid, uuid[], uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_set_bundle_tags(uuid, uuid[], uuid, text, text) TO service_role;
+COMMENT ON FUNCTION public.admin_set_bundle_tags(uuid, uuid[], uuid, text, text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/bundle_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_insert_group_with_tags(text, integer, text, jsonb, uuid, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_insert_group_with_tags(text, integer, text, jsonb, uuid, text, text, boolean) TO service_role;
+COMMENT ON FUNCTION public.admin_insert_group_with_tags(text, integer, text, jsonb, uuid, text, text, boolean) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/tag_group_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_edit_tag_group(bigint, text, integer, text, jsonb, jsonb, uuid[], uuid, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_edit_tag_group(bigint, text, integer, text, jsonb, jsonb, uuid[], uuid, text, text, boolean) TO service_role;
+COMMENT ON FUNCTION public.admin_edit_tag_group(bigint, text, integer, text, jsonb, jsonb, uuid[], uuid, text, text, boolean) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/tag_group_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_delete_group(bigint, uuid, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_delete_group(bigint, uuid, text, text, boolean) TO service_role;
+COMMENT ON FUNCTION public.admin_delete_group(bigint, uuid, text, text, boolean) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/tag_group_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_reorder_tags(bigint, uuid[], uuid, text, text, boolean) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_reorder_tags(bigint, uuid[], uuid, text, text, boolean) TO service_role;
+COMMENT ON FUNCTION public.admin_reorder_tags(bigint, uuid[], uuid, text, text, boolean) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/tag_group_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_group_bundle_counts(bigint[]) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_group_bundle_counts(bigint[]) TO service_role;
+COMMENT ON FUNCTION public.admin_group_bundle_counts(bigint[]) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/tag_group_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text, text) TO service_role;
+COMMENT ON FUNCTION public.admin_search_users(text, text, integer, integer, uuid, text, text, text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/user_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_wallet_transactions(uuid, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_wallet_transactions(uuid, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_wallet_transactions(uuid, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/user_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_referral_transactions(uuid, text, text, date, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_referral_transactions(uuid, text, text, date, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_referral_transactions(uuid, text, text, date, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/user_repo.py and referral_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_search_promotions(text, text, uuid[], text[], boolean, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_search_promotions(text, text, uuid[], text[], boolean, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_search_promotions(text, text, uuid[], text[], boolean, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/promotion_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_promotion_usage(text, uuid, uuid[], timestamp, timestamp, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_promotion_usage(text, uuid, uuid[], timestamp, timestamp, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_promotion_usage(text, uuid, uuid[], timestamp, timestamp, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/promotion_usage_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_audit_log_search(text, text, uuid, timestamp, timestamp, text, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_audit_log_search(text, text, uuid, timestamp, timestamp, text, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_audit_log_search(text, text, uuid, timestamp, timestamp, text, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/audit_log_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_upsert_settings(jsonb, text[], uuid, text, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_upsert_settings(jsonb, text[], uuid, text, text) TO service_role;
+COMMENT ON FUNCTION public.admin_upsert_settings(jsonb, text[], uuid, text, text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/app_config_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_login_attempt_begin(text, text, integer, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_login_attempt_begin(text, text, integer, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_login_attempt_begin(text, text, integer, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/login_attempt_repo.py (admin login rate limit)';
+
+REVOKE ALL ON FUNCTION public.admin_login_attempt_finish(bigint, text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_login_attempt_finish(bigint, text) TO service_role;
+COMMENT ON FUNCTION public.admin_login_attempt_finish(bigint, text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/login_attempt_repo.py (admin login rate limit)';
+
+REVOKE ALL ON FUNCTION public.admin_revoke_user_sessions(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_revoke_user_sessions(uuid) TO service_role;
+COMMENT ON FUNCTION public.admin_revoke_user_sessions(uuid) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/user_repo.py (ban: ends the user''s sessions)';
+
+REVOKE ALL ON FUNCTION public.admin_device_verification_failed_attempt(uuid, integer) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_device_verification_failed_attempt(uuid, integer) TO service_role;
+COMMENT ON FUNCTION public.admin_device_verification_failed_attempt(uuid, integer) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/trusted_device_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_end_session(uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_end_session(uuid) TO service_role;
+COMMENT ON FUNCTION public.admin_end_session(uuid) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/trusted_device_repo.py';
+
+REVOKE ALL ON FUNCTION public.admin_refresh_token_session(text) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_refresh_token_session(text) TO service_role;
+COMMENT ON FUNCTION public.admin_refresh_token_session(text) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/trusted_device_repo.py (TEOS-320: the session of a refresh token, read before the refresh)';
+
+REVOKE ALL ON FUNCTION public.admin_devices_on_password_change() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_devices_on_password_change() TO service_role;
+COMMENT ON FUNCTION public.admin_devices_on_password_change() IS
+    'SECURITY DEFINER, search_path ''''. trigger on auth.users (password change ends the admin''s device trust). Firing a trigger does not check EXECUTE; service_role is granted only so that the API role can execute every function in public. Nobody calls it directly.';
+
+REVOKE ALL ON FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) TO service_role;
+COMMENT ON FUNCTION public.admin_lookup_admins(text, integer, integer, uuid) IS
+    'SECURITY DEFINER, search_path ''''. service_role only: called by the admin API (backend, service key) via app/repo/admin/users_copy_repo.py';
+
+REVOKE ALL ON FUNCTION public.update_promotion_rule_name() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.update_promotion_rule_name() TO service_role;
+COMMENT ON FUNCTION public.update_promotion_rule_name() IS
+    'trigger on promotion_rule (SECURITY INVOKER). Pinned to search_path '''' with qualified names because it fires inside admin_insert_audited / admin_update_audited, whose empty search_path it would otherwise inherit. Firing does not check EXECUTE; granted to service_role only.';
+
+REVOKE ALL ON FUNCTION public.validate_bundle_codes() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION public.validate_bundle_codes() TO service_role;
+COMMENT ON FUNCTION public.validate_bundle_codes() IS
+    'trigger on promotion (SECURITY INVOKER). Pinned to search_path '''' with qualified names because it fires inside admin_insert_audited / admin_update_audited, whose empty search_path it would otherwise inherit. Firing does not check EXECUTE; granted to service_role only.';
+
+-- Functions created later by postgres: not executable by PUBLIC (PostgreSQL's built-in default,
+-- which only a global rule can remove: a per-schema REVOKE does not override it) nor by
+-- anon/authenticated (Supabase's per-schema default); service_role keeps EXECUTE. Placed at the
+-- end so that it does not change the grants of the functions this file creates. supabase_admin's
+-- default privileges cannot be changed by postgres on Supabase: Supabase support ticket (TEOS-326).
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM anon, authenticated;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON FUNCTIONS TO service_role;
+
+
+-- ============================================================================
+-- TEOS-329: hardening baseline sweep. KEEP THIS THE LAST SECTION OF THE FILE.
+-- ============================================================================
+-- The SOC hardening baseline (Supabase Estate Security Assessment, 20 Oct 2026, section 7),
+-- applied to everything the file created above, whatever the per-table sections granted:
+--   1. no policy in public for anon or PUBLIC, and no USING (true) / WITH CHECK (true) policy for
+--      authenticated (fails and lists them: permissive policies are OR-ed);
+--   2. every SECURITY DEFINER function in public pinned to search_path = '' (fails and lists them);
+--   3. no extension in schema public (fails and lists the ALTER EXTENSION statements);
+--   4. ROW LEVEL SECURITY enabled and forced on every table in public (fails first when an owner
+--      does not bypass RLS: FORCE would hide every row from it);
+--   5. anon and PUBLIC: nothing on tables, views, sequences or functions in public. authenticated:
+--      SELECT on the per-user tables only (row-filtered by the TEOS-268 policies); TRUNCATE is not
+--      covered by RLS, so it must not keep the per-table grants above. service_role (the API) keeps
+--      everything, granted first;
+--   6. default privileges: objects postgres creates later in public are not granted to anon,
+--      authenticated or PUBLIC (supabase_admin's are tried; Supabase may refuse: NOTICE);
+--   7. pgAudit in schema extensions, object audit on the sensitive tables through role
+--      teos_auditor, parameters never logged (same settings as teos323_harden.sql). A server
+--      without pgaudit gets a WARNING, and scripts/security_check.py fails T11 there.
+-- A fresh database loaded from this file passes scripts/security_check.py with no manual step.
+-- The sweep runs on the state the file left, so a grant added above this section is undone here:
+-- grant to service_role only, and to authenticated only with a policy and a reason (and add the
+-- table to v_per_user below). Idempotent; an existing database can run this section on its own.
+-- ----------------------------------------------------------------------------
+
+DO $teos329$
+DECLARE
+    v_per_user CONSTANT text[] := ARRAY['user_profile', 'user_profile_bundle', 'user_order', 'user_wallet',
+                                        'user_wallet_transaction', 'promotion_usage', 'device', 'notification',
+                                        'user_otp', 'users_copy', 'contact_us'];
+    v_list text;
+    r      record;
+BEGIN
+    -- 1. policies that open a table to everyone
+    SELECT string_agg(format('%I on %I (%s, to %s)', policyname, tablename, cmd, array_to_string(roles, ',')),
+                      ', ' ORDER BY tablename, policyname)
+      INTO v_list
+      FROM pg_catalog.pg_policies
+     WHERE schemaname = 'public'
+       AND (roles && ARRAY['anon', 'public']::name[]
+            OR (roles && ARRAY['authenticated']::name[]
+                AND (lower(btrim(coalesce(qual, ''), '() ')) = 'true'
+                     OR lower(btrim(coalesce(with_check, ''), '() ')) = 'true')));
+    IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'TEOS-329: policies open to anon/PUBLIC, or USING (true) / WITH CHECK (true) for authenticated: %. Drop them first.', v_list;
+    END IF;
+
+    -- 2. SECURITY DEFINER functions without an empty search_path
+    SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY 1)
+      INTO v_list
+      FROM pg_catalog.pg_proc p
+     WHERE p.pronamespace = 'public'::regnamespace AND p.prosecdef
+       AND NOT coalesce('search_path=""' = ANY (p.proconfig), false);
+    IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'TEOS-329: SECURITY DEFINER functions without SET search_path = '''': %', v_list;
+    END IF;
+
+    -- 3. extensions in public (their functions would be executable by anon through the API)
+    SELECT string_agg(format('ALTER EXTENSION %I SET SCHEMA extensions', e.extname), '; ' ORDER BY e.extname)
+      INTO v_list
+      FROM pg_catalog.pg_extension e
+     WHERE e.extnamespace = 'public'::regnamespace;
+    IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'TEOS-329: extensions in schema public; move them (check the functions that use them first): %', v_list;
+    END IF;
+
+    -- 4. RLS enabled and forced on every table
+    SELECT string_agg(DISTINCT pg_catalog.pg_get_userbyid(c.relowner), ', ')
+      INTO v_list
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_roles o ON o.oid = c.relowner
+     WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+       AND NOT (o.rolsuper OR o.rolbypassrls);
+    IF v_list IS NOT NULL THEN
+        RAISE EXCEPTION 'TEOS-329: % owns tables in public but does not bypass row level security; FORCE ROW LEVEL SECURITY would hide every row from it', v_list;
+    END IF;
+    FOR r IN SELECT c.relname FROM pg_catalog.pg_class c
+              WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+                AND NOT (c.relrowsecurity AND c.relforcerowsecurity)
+              ORDER BY c.relname
+    LOOP
+        EXECUTE format('ALTER TABLE public.%I ENABLE ROW LEVEL SECURITY', r.relname);
+        EXECUTE format('ALTER TABLE public.%I FORCE ROW LEVEL SECURITY', r.relname);
+    END LOOP;
+
+    -- 5. grants: service_role first, then anon / PUBLIC / authenticated
+    GRANT ALL ON ALL TABLES    IN SCHEMA public TO service_role;
+    GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+    GRANT EXECUTE ON ALL ROUTINES IN SCHEMA public TO service_role;
+    REVOKE ALL ON ALL TABLES    IN SCHEMA public FROM anon, authenticated, PUBLIC;
+    REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated, PUBLIC;
+    REVOKE ALL ON ALL ROUTINES  IN SCHEMA public FROM anon, authenticated, PUBLIC;
+    FOR r IN SELECT c.relname FROM pg_catalog.pg_class c
+              WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+                AND c.relname = ANY (v_per_user)
+    LOOP
+        EXECUTE format('GRANT SELECT ON public.%I TO authenticated', r.relname);
+    END LOOP;
+
+    -- 6. default privileges for objects created later
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES    FROM anon, authenticated, PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated, PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON ROUTINES  FROM anon, authenticated, PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE ALL ON TABLES    FROM anon;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE ALL ON SEQUENCES FROM anon;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres REVOKE ALL ON ROUTINES  FROM anon, PUBLIC;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES    TO service_role;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENCES TO service_role;
+    ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT EXECUTE ON ROUTINES TO service_role;
+    IF to_regrole('supabase_admin') IS NOT NULL THEN
+        BEGIN
+            ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON TABLES    FROM anon, authenticated, PUBLIC;
+            ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON SEQUENCES FROM anon, authenticated, PUBLIC;
+            ALTER DEFAULT PRIVILEGES FOR ROLE supabase_admin IN SCHEMA public REVOKE ALL ON ROUTINES  FROM anon, authenticated, PUBLIC;
+        EXCEPTION WHEN insufficient_privilege THEN
+            RAISE NOTICE 'TEOS-329: supabase_admin default privileges left as they are (Supabase refuses postgres). Do not install extensions into public; security_check.py reports them (B6).';
+        END;
+    END IF;
+
+    -- 7. pgAudit
+    IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'pgaudit') THEN
+        IF NOT EXISTS (SELECT 1 FROM pg_catalog.pg_available_extensions WHERE name = 'pgaudit') THEN
+            RAISE WARNING 'TEOS-329: pgaudit is not available on this server: not audited (security_check.py T11 fails)';
+        ELSE
+            BEGIN
+                CREATE SCHEMA IF NOT EXISTS extensions;
+                CREATE EXTENSION pgaudit WITH SCHEMA extensions;
+            EXCEPTION WHEN OTHERS THEN
+                RAISE WARNING 'TEOS-329: pgaudit not created (%): not audited (security_check.py T11 fails)', SQLERRM;
+            END;
+        END IF;
+    END IF;
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_extension WHERE extname = 'pgaudit') THEN
+        IF to_regrole('teos_auditor') IS NULL THEN
+            CREATE ROLE teos_auditor NOLOGIN NOINHERIT;
+        END IF;
+        -- reads and writes of the most sensitive tables, writes only of the busy ones
+        FOR r IN SELECT t, p FROM (
+                    SELECT unnest(ARRAY['app_config', 'user_otp', 'users_copy', 'audit_log', 'admin_login_attempt',
+                                        'voucher', 'user_wallet']) AS t, 'SELECT, INSERT, UPDATE, DELETE' AS p
+                    UNION ALL
+                    SELECT unnest(ARRAY['user_order', 'user_order_refund', 'user_wallet_transaction', 'user_profile',
+                                        'user_profile_bundle', 'promotion', 'promotion_rule', 'promotion_usage',
+                                        'device', 'contact_us', 'notification']), 'INSERT, UPDATE, DELETE') x
+                  WHERE to_regclass(format('public.%I', t)) IS NOT NULL
+        LOOP
+            EXECUTE format('GRANT %s ON public.%I TO teos_auditor', r.p, r.t);
+        END LOOP;
+        FOR r IN SELECT rol, k, v
+                   FROM (VALUES ('postgres'), ('authenticator')) a(rol),
+                        (VALUES ('pgaudit.log', 'ddl, role'), ('pgaudit.role', 'teos_auditor'),
+                                ('pgaudit.log_relation', 'on'), ('pgaudit.log_parameter', 'off')) s(k, v)
+                  WHERE to_regrole(rol) IS NOT NULL
+        LOOP
+            BEGIN
+                EXECUTE format('ALTER ROLE %I SET %s = %L', r.rol, r.k, r.v);
+            EXCEPTION WHEN OTHERS THEN
+                RAISE WARNING 'TEOS-329: ALTER ROLE % SET % refused (%): ask Supabase support to set it', r.rol, r.k, SQLERRM;
+            END;
+        END LOOP;
+    END IF;
+
+    PERFORM pg_notify('pgrst', 'reload schema');
+END
+$teos329$;

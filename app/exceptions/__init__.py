@@ -28,6 +28,32 @@ class BadRequestException(CustomException):
         super().__init__(code=400, name=ErrorMessages.REQUEST_FAILED, details=details)
 
 
+class OrderFulfilmentFailedException(BadRequestException):
+    """A paid order could not be fulfilled. Returned (not raised) by `BundleService.buy_bundle` /
+    `top_up_bundle`, and built by the payment flows for failures they detect themselves.
+
+    Same code, name and details as the `BadRequestException("Payment failed")` it replaces, so any
+    caller that only looked at that keeps working. `definite` is True only when nothing was or can
+    still be delivered (the eSIM Hub refused, or was never called); `reason` is for logs and support.
+    """
+
+    def __init__(self, details: str, definite: bool, reason: str):
+        super().__init__(details)
+        self.definite = definite
+        self.reason = reason
+
+
+class HubOrderFailedException(OrderFulfilmentFailedException):
+    """The eSIM Hub order / top-up call failed (see app/services/integration/esim_hub_outcome.py)."""
+
+
+class OrderNotFulfilledException(CustomException):
+    """Raised to the client when a paid order could not be fulfilled (refunded or under review)."""
+
+    def __init__(self, name: ErrorMessages, details: str):
+        super().__init__(code=400, name=name, details=details)
+
+
 class DatabaseException(CustomException):
     def __init__(self, details: str):
         super().__init__(code=400, name=ErrorMessages.REQUEST_FAILED, details=details)

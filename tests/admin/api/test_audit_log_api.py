@@ -76,7 +76,7 @@ def test_list_projects_rows_and_facets(api_client, as_super, repos):
     data = body["data"]
     assert data["facets"] == {"by_table": {"bundle": 40, "auth.users": 17}}
     api_row, ban, bulk = data["data"]
-    assert api_row["changed_by"] == {"id": ACTOR, "email": "boss@example.com"}
+    assert api_row["changed_by"] == {"id": ACTOR, "email": "boss@example.com", "phone": None, "role": None}  # TEOS-341
     assert api_row["ip_address"] == "8.8.8.8" and api_row["reason"] == "supplier issue"
     assert api_row["rows_affected"] == 1 and api_row["record_id"] == "7"
     assert api_row["client_reported"] is False

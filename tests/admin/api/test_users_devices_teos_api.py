@@ -192,12 +192,12 @@ def users_service(monkeypatch):
 
 def test_users_sort_defaults_to_created_desc(api_client, as_admin, users_service):
     assert api_client.get(USERS).status_code == 200
-    assert users_service.list.call_args.kwargs == {"sort": "created_at", "direction": "desc"}
+    assert users_service.list.call_args.kwargs == {"sort": "created_at", "direction": "desc", "account_type": "all"}
 
 
 def test_users_sort_by_email_ascending(api_client, as_admin, users_service):
     assert api_client.get(USERS, params={"sort": "email", "dir": "asc"}).status_code == 200
-    assert users_service.list.call_args.kwargs == {"sort": "email", "direction": "asc"}
+    assert users_service.list.call_args.kwargs == {"sort": "email", "direction": "asc", "account_type": "all"}
 
 
 @pytest.mark.parametrize("params", [{"sort": "password"}, {"sort": "banned_until"}, {"dir": "sideways"},

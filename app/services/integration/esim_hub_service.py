@@ -13,6 +13,7 @@ from app.schemas.bundle import ConsumptionResponse
 from app.schemas.dto_mapper import DtoMapper
 from app.schemas.esim_hub import EsimHubOrderResponse, GlobalConfigurationResponse, ContentResponse
 from app.schemas.home import RegionDTO, CountryDTO, BundleDTO, AllBundleResponse
+from app.services.integration.esim_hub_outcome import HubCallOutcome, HubFailureKind
 
 
 # Request headers holding credentials, masked in logs.
@@ -178,7 +179,8 @@ class EsimHubService:
                                     payment_type: str = "", discount_amount: float = 0, discount_rate: float = 0,
                                     new_price: float = 0,
                                     bundle_type: Literal[
-                                        "COUNTRY", "CRUISE"] = "COUNTRY") -> EsimHubOrderResponse | None:
+                                        "COUNTRY", "CRUISE"] = "COUNTRY",
+                                    outcome: Optional[HubCallOutcome] = None) -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "Quantity": 1,
@@ -194,6 +196,7 @@ class EsimHubService:
             "BundleType": bundle_type
 
         }
+        hub_accepted = False
         try:
             response = await self.__do_request(method="POST", path=EsimHubEndpoint.API_CREATE_RESELLER_ORDER,
                                                body=request_body,
@@ -201,8 +204,10 @@ class EsimHubService:
             logger.debug(f"request body: {request_body}")
             logger.debug(f"response: {response}")
             if "success" not in response or response["success"] == False:
+                self.__classify_refused(response, outcome, "order")
                 logger.error("Failed to create reseller Hub: {}".format(response["message"]))
                 return None
+            hub_accepted = True
             response_data = response["data"]
             esim_order_id = response_data["orderId"]
             activation_code = await self.get_activation_code(esim_order_id)
@@ -210,13 +215,18 @@ class EsimHubService:
             return EsimHubOrderResponse.model_validate(response_data)
         except Exception as e:
             logger.error(f"Failed to create reseller order: {str(e)}")
+            if outcome is not None:
+                outcome.mark(HubFailureKind.AMBIGUOUS,
+                             f"the Hub accepted the order but the follow-up failed: {e}" if hub_accepted
+                             else f"Hub order request failed: {e}")
             return None
 
     async def create_reseller_topup(self, bundle_code: str, esim_hub_order_id,
                                     order_id: str, user: UsersCopyModel,
                                     payment_type: str = "",
                                     bundle_type: Literal[
-                                        "COUNTRY", "CRUISE"] = "COUNTRY") -> EsimHubOrderResponse | None:
+                                        "COUNTRY", "CRUISE"] = "COUNTRY",
+                                    outcome: Optional[HubCallOutcome] = None) -> EsimHubOrderResponse | None:
         request_body = {
             "BundleGuid": bundle_code,
             "OrderId": esim_hub_order_id,
@@ -238,10 +248,26 @@ class EsimHubService:
         logger.debug(f"request body: {request_body}")
         logger.debug(f"response: {response}")
         logger.info(response)
+        if isinstance(response, dict) and response.get("success") is False:
+            # The existing flow continues (the parse below fails and the caller sees an error);
+            # this only records that the Hub refused the top-up.
+            self.__classify_refused(response, outcome, "top-up")
         if "success" not in response:
             logger.error("Failed to create reseller Hub: {}".format(response))
+            self.__classify_refused(response, outcome, "top-up")
             return None
         return EsimHubOrderResponse.model_validate(response["data"])
+
+    @staticmethod
+    def __classify_refused(response, outcome: Optional[HubCallOutcome], what: str) -> None:
+        """A 200 response that is not a success. Only an explicit "success": false is a definite
+        refusal; a response without the flag is not understood and stays ambiguous."""
+        if outcome is None:
+            return
+        if isinstance(response, dict) and response.get("success") is False:
+            outcome.mark(HubFailureKind.DEFINITE, f"the Hub refused the {what}: {response.get('message')}")
+        else:
+            outcome.mark(HubFailureKind.AMBIGUOUS, f"the Hub {what} response has no success flag")
 
     async def get_bundles_by_country(self, country_codes: List[str],
                                      currency_code: str = os.getenv("DEFAULT_CURRENCY", "EUR")) -> \

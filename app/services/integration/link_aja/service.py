@@ -10,7 +10,8 @@ HTTP, what its endpoints are, or what its status strings look like.
 older LinkAja "Applink SNAP" Postman collection disagrees with it, the
 specification wins:
 
-    create payment  §4.2  urlParams[] / type PAY_RETURN   (collection: urlParam / partnerApplink)
+    create payment  §4.2  urlParams[] / type partnerApplink, isDeeplink Y (confirmed by LinkAja;
+                          the PDF's PAY_RETURN does not redirect the customer back)
     inform payment  §4.3  inbound notify, answered with 2005600 + approvalCode
     inquiry status  §4.4  serviceCode "55"                (collection: "54")
     statuses        §5.4  00 success, 04 refunded, 06 failed, 07 not found
@@ -73,7 +74,6 @@ STATUS_SUCCESS_CODE = "2005500"            # §4.4
 STATUS_NOT_FOUND_CODE = "4045501"          # §5.2 "Transaction Not Found" (HTTP 404)
 NOTIFY_SUCCESS_CODE = "2005600"            # §4.3
 NOTIFY_SUCCESS_MESSAGE = "Successful"
-URL_PARAM_TYPE = "PAY_RETURN"              # §4.2 p.11
 
 # The notify is a POST (§4.3); the method is part of the string-to-sign.
 NOTIFY_METHOD = "POST"
@@ -285,7 +285,8 @@ class LinkAjaService:
     def _build_create_payment_body(self, payment_request: LinkAjaPaymentRequest) -> dict:
         """Request body of §4.2 (p.11-12). `urlParams` is the v1.1 name (p.2
         revision history). LinkAja confirmed its `url` is our notify endpoint
-        (LINKAJA_NOTIFY_URL), with type PAY_RETURN and isDeeplink "N". The order
+        (LINKAJA_NOTIFY_URL), with type "partnerApplink" and isDeeplink "Y"
+        (LINKAJA_URL_PARAM_TYPE / LINKAJA_URL_PARAM_IS_DEEPLINK). The order
         id is appended (?order_id=...) because LinkAja also opens this URL to
         send the customer back; see return_url.py."""
         value = to_linkaja_amount(payment_request.amount_minor_units, payment_request.currency,
@@ -298,7 +299,7 @@ class LinkAjaService:
             "urlParams": [{
                 "url": notify_url_for_order(payment_request.notify_url or self.__config.notify_url,
                                             payment_request.merchant_order_id),
-                "type": URL_PARAM_TYPE,
+                "type": self.__config.url_param_type,
                 "isDeeplink": self.__config.url_param_is_deeplink,
             }],
             "additionalInfo": {

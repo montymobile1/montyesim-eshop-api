@@ -148,8 +148,10 @@ can find the Data Definition Language (DDL) file that contains all required tabl
 To set up the database, run the following command:
 
 ```sh
-  psql -h <supabase-host> -U <username> -d <database-name> -f supabase_ddl.sql
+  psql -h <supabase-host> -U <username> -d <database-name> -X -v ON_ERROR_STOP=1 -f supabase_ddl.sql
 ```
+
+The last section of the file (TEOS-329) applies the SOC hardening baseline to everything above it: RLS enabled and forced on every table, nothing for anon or PUBLIC, SECURITY DEFINER functions pinned and closed, no extension in `public`, pgAudit. Keep it last. Before a new client goes live, follow [docs/pre-go-live-checklist.md](docs/pre-go-live-checklist.md); it runs the read-only `scripts/security_check.py`, which CI also runs on every PR that touches the DDL (`.github/workflows/security-check.yml`).
 
 `supabase_ddl.sql` is the only schema file: there is no migrations folder. A change for existing databases is written as an idempotent section of that file (IF NOT EXISTS, CREATE OR REPLACE, guarded DO blocks); to apply it, run that section in one transaction, then `NOTIFY pgrst, 'reload schema';`.
 
@@ -239,6 +241,8 @@ All errors are logged using the configured logger and return standardized error 
 
 ## Deployment
 
+A new client instance goes live only after the [pre-go-live security checklist](docs/pre-go-live-checklist.md) (security check passing, SOC sign-off, named operator accounts with MFA).
+
 For production deployment, use:
 
 ```sh
@@ -275,7 +279,7 @@ After applying, if the API still answers 502 with "Could not find the function",
 
 ### Admin settings (.env)
 
-`ADMIN_MEDIA_BUCKET`, `ADMIN_MAX_UPLOAD_BYTES` (1 MB), `ADMIN_MAX_JSON_BYTES`, `ADMIN_EXPORT_ROW_CAP`, `ADMIN_LOGIN_RATE_LIMIT`, `ADMIN_TRUSTED_PROXY_HOPS`. Defaults and descriptions are in `.env.example`.
+`ADMIN_MEDIA_BUCKET`, `ADMIN_MAX_UPLOAD_BYTES` (1 MB), `ADMIN_MAX_JSON_BYTES`, `ADMIN_MAX_GROUP_FORM_BYTES` (50 MB), `ADMIN_EXPORT_ROW_CAP`, `ADMIN_LOGIN_RATE_LIMIT`, `ADMIN_TRUSTED_PROXY_HOPS`, `ADMIN_TRUST_CF_CONNECTING_IP`, `ADMIN_PASSWORD_RESET_URL`, `ADMIN_DEVICE_HASH_SECRET`, `ADMIN_DEVICE_CODE_LENGTH` (6). Defaults and descriptions are in `.env.example`. The admin portal emails (sign-in code, reset link, device notifications) are sent through the SMTP settings above, never through Supabase: without them the sign-in code and the reset link are unavailable.
 
 The login rate limit is counted in the database, shared by every worker: the `admin_login_attempt` table and functions (section "admin login rate limit" of `supabase_ddl.sql`, part of the ADMIN API section) must be applied before deploying (without it every admin login answers 502).
 

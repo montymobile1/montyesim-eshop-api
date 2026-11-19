@@ -73,7 +73,8 @@ def test_list_returns_rows_total_and_facets(svc, repo):
 
     page = svc.list("ja", "banned", PAGE)
 
-    repo.search.assert_called_once_with("ja", "banned", PAGE, sort="created_at", direction="desc")
+    repo.search.assert_called_once_with("ja", "banned", PAGE, sort="created_at", direction="desc",
+                                        account_type="all")
     assert page.data == [_row()] and page.total_count == 7
     assert page.facets == {"all": 7, "banned": 2, "active": 5}
 
@@ -83,7 +84,7 @@ def test_list_passes_sort_and_direction(svc, repo):
 
     svc.list(None, "all", PAGE, sort="email", direction="asc")
 
-    repo.search.assert_called_once_with(None, "all", PAGE, sort="email", direction="asc")
+    repo.search.assert_called_once_with(None, "all", PAGE, sort="email", direction="asc", account_type="all")
 
 
 def test_get_adds_wallet(svc, repo, wallets):
@@ -640,6 +641,28 @@ def test_repo_search_passes_sort_and_direction():
     repo.search(None, "all", PAGE, sort="email", direction="asc")
     params = repo.rpc.call_args.args[1]
     assert (params["p_sort"], params["p_dir"]) == ("email", "asc")
+
+
+@pytest.mark.parametrize("account_type", ["registered", "guest"])
+def test_repo_search_passes_the_account_type_filter(account_type):
+    repo = _repo_with_rpc(UserAdminRepo, {"data": [], "total": 0, "facets": {}})
+    repo.search(None, "all", PAGE, account_type=account_type)
+    assert repo.rpc.call_args.args[1]["p_account_type"] == account_type
+
+
+def test_repo_search_without_account_filter_does_not_send_it():
+    """'all' is the SQL default: not sending it keeps the API working before the 256-ddl PART 2 is run."""
+    repo = _repo_with_rpc(UserAdminRepo, {"data": [], "total": 0, "facets": {}})
+    repo.search(None, "all", PAGE, account_type="all")
+    assert "p_account_type" not in repo.rpc.call_args.args[1]
+
+
+def test_list_passes_the_account_type(svc, repo):
+    repo.search.return_value = UserSearch(rows=[], total=0, facets={})
+
+    svc.list(None, "all", PAGE, account_type="guest")
+
+    assert repo.search.call_args.kwargs["account_type"] == "guest"
 
 
 def test_repo_search_blank_search_is_null_and_tolerates_a_wrapped_result():

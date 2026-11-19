@@ -78,7 +78,26 @@ class AdminRateLimited(AdminError):
     default_name = ErrorMessages.ADMIN_TOO_MANY_ATTEMPTS
 
 
+class AdminGone(AdminError):
+    """410 (TEOS-255): the email-code step expired or was already used."""
+    status_code = 410
+    default_name = ErrorMessages.ADMIN_DEVICE_VERIFICATION_CLOSED
+
+
+class AdminServiceUnavailable(AdminError):
+    """503 (TEOS-255): the code email could not be sent."""
+    status_code = 503
+    default_name = ErrorMessages.ADMIN_DEVICE_EMAIL_FAILED
+
+
 class AdminUpstreamError(AdminError):
     """502: the database, storage or Supabase Auth failed. Details stay generic; the cause is logged."""
     status_code = 502
     default_name = ErrorMessages.ADMIN_UPSTREAM_ERROR
+
+
+def coded(error_class: type, code: str, name: ErrorMessages | str | None = None, **extra: Any) -> AdminError:
+    """TEOS-255: an admin error whose ``developerMessage`` is the JSON ``{"code": "<code>", ...extra}`` (what the
+    portal's ``getApiErrorCode`` / ``getApiErrorDetails`` read), e.g.
+    ``coded(AdminError, "code_invalid", ErrorMessages.ADMIN_DEVICE_CODE_INVALID, attempts_left=3)``."""
+    return error_class(json.dumps({"code": code, **extra}, default=str), name=name)

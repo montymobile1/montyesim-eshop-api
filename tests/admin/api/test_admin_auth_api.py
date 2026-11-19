@@ -13,9 +13,21 @@ from app.exceptions.admin import AdminForbidden, AdminUnauthorized
 from app.schemas.admin.auth import AdminProfile, AdminSession
 from app.services.admin.auth_service import AdminAuthService, LoginRateLimiter
 from tests.admin.conftest import FakeClock, FakeLoginAttemptStore, make_admin, make_auth_user, make_session
+from tests.admin.services.test_trusted_devices_signin import DEVICE_PAYLOAD, FakeDevices, session_token
 
 BASE = "/api/v1/admin/auth"
-BEARER = {"Authorization": "Bearer access-token"}
+#: TEOS-255: a token whose session has an active device row (see ``device_rows``)
+TOKEN = session_token("sess-1")
+BEARER = {"Authorization": f"Bearer {TOKEN}"}
+
+
+@pytest.fixture(autouse=True)
+def device_rows(monkeypatch):
+    """The per-request device check (TEOS-255): session ``sess-1`` has an active device row."""
+    devices = FakeDevices()
+    devices.add(session_id="sess-1")
+    monkeypatch.setattr("app.dependencies.admin_security.session_device_lookup", devices.session_device)
+    return devices
 
 
 def _session(role=ROLE_ADMIN) -> AdminSession:
@@ -45,9 +57,11 @@ def _assert_failed(response, status, developer_message=None):
 # ---------- login / refresh ----------
 
 def test_login_returns_the_session_in_the_standard_envelope(api_client, auth_service):
-    auth_service.login = lambda email, password, ip: auth_service.calls.append((email, password, ip)) or _session()
+    auth_service.login = lambda email, password, ip, device, user_agent: auth_service.calls.append(
+        (email, password, ip)) or _session()
 
-    response = api_client.post(f"{BASE}/login", json={"email": "admin@example.com", "password": "secret"},
+    response = api_client.post(f"{BASE}/login", json={"email": "admin@example.com", "password": "secret",
+                                                      "device": DEVICE_PAYLOAD},
                                headers={"X-Forwarded-For": "9.9.9.9, 10.0.0.1"})
 
     assert response.status_code == 200
@@ -65,7 +79,8 @@ def test_failed_login_is_401_with_machine_code(api_client, auth_service):
         raise AdminUnauthorized("ADMIN_LOGIN_FAILED", name="ADMIN_LOGIN_FAILED")
     auth_service.login = fail
 
-    response = api_client.post(f"{BASE}/login", json={"email": "admin@example.com", "password": "nope"})
+    response = api_client.post(f"{BASE}/login", json={"email": "admin@example.com", "password": "nope",
+                                                      "device": DEVICE_PAYLOAD})
 
     body = _assert_failed(response, 401, "ADMIN_LOGIN_FAILED")
     assert body["message"] == "Invalid email or password."
@@ -75,7 +90,10 @@ def test_failed_login_is_401_with_machine_code(api_client, auth_service):
     {"email": "admin@example.com"},
     {"email": "not-an-email", "password": "x"},
     {"email": "admin@example.com", "password": ""},
-    {"email": "admin@example.com", "password": "x", "role": "super_admin"},
+    {"email": "admin@example.com", "password": "x", "role": "super_admin", "device": DEVICE_PAYLOAD},
+    {"email": "admin@example.com", "password": "x"},  # TEOS-255: no device
+    {"email": "admin@example.com", "password": "x", "device": {**DEVICE_PAYLOAD, "device_key": "not-a-uuid"}},
+    {"email": "admin@example.com", "password": "x", "device": {**DEVICE_PAYLOAD, "hash": "abc"}},
 ])
 def test_invalid_login_body_is_422_with_http_422(api_client, auth_service, payload):
     response = api_client.post(f"{BASE}/login", json=payload)
@@ -101,9 +119,9 @@ def test_oversized_json_body_is_413(api_client, auth_service, monkeypatch):
 
 
 def test_refresh_returns_a_new_session(api_client, auth_service):
-    auth_service.refresh = lambda token: auth_service.calls.append(token) or _session(ROLE_SUPER_ADMIN)
+    auth_service.refresh = lambda token, device, ip: auth_service.calls.append(token) or _session(ROLE_SUPER_ADMIN)
 
-    response = api_client.post(f"{BASE}/refresh", json={"refresh_token": "refresh-token"})
+    response = api_client.post(f"{BASE}/refresh", json={"refresh_token": "refresh-token", "device": DEVICE_PAYLOAD})
 
     assert response.status_code == 200
     assert response.json()["data"]["user"]["role"] == ROLE_SUPER_ADMIN
@@ -137,7 +155,7 @@ def test_me_returns_current_role_and_permissions(api_client, supabase_auth):
     data = response.json()["data"]
     assert data["role"] == ROLE_SUPER_ADMIN
     assert data["permissions"] == sorted(permissions_for(ROLE_SUPER_ADMIN))
-    supabase_auth.get_user.assert_called_once_with(jwt="access-token")
+    supabase_auth.get_user.assert_called_once_with(jwt=TOKEN)
 
 
 def test_token_signed_with_another_secret_is_rejected_before_supabase(api_client, supabase_auth, monkeypatch):
@@ -160,7 +178,7 @@ def test_logout_is_204_with_empty_body(api_client, supabase_auth, monkeypatch):
 
     assert response.status_code == 204
     assert response.content == b""
-    assert calls == ["access-token"]
+    assert calls == [TOKEN]
 
 
 # ---------- require_permission / client_ip ----------
@@ -271,8 +289,11 @@ def limited_login(monkeypatch):
     from app.api.v1.admin import auth as auth_routes
     supabase = MagicMock(name="supabase-client")
     store = FakeLoginAttemptStore(FakeClock())
+    devices = FakeDevices()
+    devices.add(session_id="sess-1")  # TEOS-255: this browser is a trusted device
     real = AdminAuthService(client_factory=lambda: supabase,
-                            rate_limiter=LoginRateLimiter(5, 300, store_factory=lambda: store))
+                            rate_limiter=LoginRateLimiter(5, 300, store_factory=lambda: store),
+                            device_service_factory=lambda: devices)
     monkeypatch.setattr(auth_routes, "service", real)
     supabase.auth.sign_in_with_password.side_effect = AuthApiError("Invalid login credentials", 400,
                                                                    "invalid_credentials")
@@ -280,7 +301,7 @@ def limited_login(monkeypatch):
 
 
 def _login(api_client, email="admin@example.com", xff="203.0.113.7", password="wrong"):
-    return api_client.post(f"{BASE}/login", json={"email": email, "password": password},
+    return api_client.post(f"{BASE}/login", json={"email": email, "password": password, "device": DEVICE_PAYLOAD},
                            headers={"X-Forwarded-For": xff})
 
 
@@ -307,7 +328,7 @@ def test_valid_login_is_200_when_under_the_limit(api_client, limited_login):
         _assert_failed(_login(api_client), 401)
     limited_login.supabase.auth.sign_in_with_password.side_effect = None
     limited_login.supabase.auth.sign_in_with_password.return_value = SimpleNamespace(
-        session=make_session(), user=make_auth_user(ROLE_ADMIN))
+        session=make_session(access_token=TOKEN), user=make_auth_user(ROLE_ADMIN))
 
     response = _login(api_client, password="right")
 

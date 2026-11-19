@@ -101,7 +101,7 @@ def history_row(row: Dict[str, Any], users: Dict[str, Dict[str, Any]]) -> AdminS
     return AdminSettingsHistoryRow(
         id=row["id"],
         changed_at=row.get("changed_at"),
-        changed_by=actor(row.get("changed_by"), users),
+        changed_by=actor(row.get("changed_by"), users, row.get("changed_by_info")),
         ip_address=ip if isinstance(ip, str) and ip.strip() else None,
         client_reported=client_reported(details),
         reason=reason if isinstance(reason, str) and reason.strip() else None,

@@ -180,3 +180,41 @@ def test_promotion_rules_label_is_the_name(service, repos):
 
     assert [item.model_dump() for item in page.data] == [{"id": "r1", "label": "Cashback/Buy/1"}]
     assert page.total_count == 1
+
+
+# ---------- 2026-11-06: admins only (Audit log "Admin" filter) ----------
+
+def test_admins_lookup_calls_admin_lookup_admins(monkeypatch):
+    repo = UsersCopyAdminRepo()
+    calls = []
+    monkeypatch.setattr(repo, "rpc", lambda name, params: calls.append((name, params)) or
+                        {"data": [{"id": "a1", "email": "boss@x.com", "role": "super_admin"}], "total": 3})
+
+    result = repo.admins_lookup("  bo ", PAGE)
+
+    assert calls == [("admin_lookup_admins", {"p_search": "bo", "p_limit": 10, "p_offset": 10, "p_id": None})]
+    assert result.rows == [{"id": "a1", "email": "boss@x.com", "role": "super_admin"}] and result.total == 3
+
+
+def test_admins_lookup_by_id_and_a_non_uuid_id_matches_nothing(monkeypatch):
+    repo = UsersCopyAdminRepo()
+    calls = []
+    monkeypatch.setattr(repo, "rpc", lambda name, params: calls.append(params) or [{"data": [], "total": 0}])
+    uid = "11111111-1111-1111-1111-111111111111"
+
+    assert repo.admins_lookup(None, PAGE, uid).total == 0  # a wrapped result is unwrapped
+    assert calls[-1]["p_id"] == uid and calls[-1]["p_search"] is None
+
+    assert repo.admins_lookup(None, PAGE, "not-a-uuid") == Paged(rows=[], total=0)
+    assert len(calls) == 1  # never sent to the database
+
+
+def test_admins_label_is_the_email_and_items_carry_the_role(service, repos):
+    repos.users.admins_lookup.return_value = Paged(rows=[{"id": "a1", "email": "boss@x.com", "role": "super_admin"}],
+                                                   total=1)
+
+    page = service.admins("bo", PAGE)
+
+    repos.users.admins_lookup.assert_called_once_with("bo", PAGE, None)
+    assert [item.model_dump() for item in page.data] == [
+        {"id": "a1", "label": "boss@x.com", "email": "boss@x.com", "role": "super_admin"}]

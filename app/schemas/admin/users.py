@@ -6,6 +6,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.schemas.admin.common import AdminReason
 
 UserBanStatus = Literal["all", "banned", "active"]
+#: guest = anonymous accounts (the user portal's guest checkout); registered = every other account
+UserAccountType = Literal["all", "registered", "guest"]
 #: Sort columns of the users list (TEOS-111); anything else is a 422.
 UserSort = Literal["created_at", "email"]
 SortDirection = Literal["asc", "desc"]
@@ -47,6 +49,8 @@ class AdminUserRow(BaseModel):
     is_banned: bool = False
     created_at: Optional[str] = None
     last_sign_in_at: Optional[str] = None
+    is_guest: bool = False  # an anonymous (guest checkout) account
+    guest_email: Optional[str] = None  # a guest's email typed at checkout (not verified); the account has none
 
 
 class AdminUserWallet(BaseModel):
@@ -89,7 +93,7 @@ class AdminUserReferral(BaseModel):
 
 
 __all__: List[str] = [
-    "UserBanStatus", "UserSort", "SortDirection", "DEFAULT_BAN_HOURS", "MAX_BAN_HOURS", "AdminUserBan", "AdminUserUnban",
+    "UserBanStatus", "UserAccountType", "UserSort", "SortDirection", "DEFAULT_BAN_HOURS", "MAX_BAN_HOURS", "AdminUserBan", "AdminUserUnban",
     "AdminUserRow", "AdminUserWallet", "AdminUserDetail", "AdminUserBanResult", "AdminUserUnbanResult",
     "AdminWalletTransaction", "AdminUserReferral",
 ]

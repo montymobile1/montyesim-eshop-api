@@ -10,7 +10,9 @@ gating, provisioning after the acknowledgement) and the backward compatibility
 of the shared response contract.
 
 Where the Postman collection and the spec disagree, the spec wins, and these
-tests pin the spec's values (urlParams / PAY_RETURN, serviceCode 55).
+tests pin the spec's values (urlParams, serviceCode 55). The one exception is
+the urlParams type: LinkAja confirmed "partnerApplink" with isDeeplink "Y"
+(the spec's PAY_RETURN does not send the customer back).
 
 No test in this file performs a real network call.
 """
@@ -375,19 +377,25 @@ def test_notify_settings_are_read_from_the_environment():
     with patch.dict(os.environ, {"LINKAJA_NOTIFY_PUBLIC_KEY": " pem ",
                                  "LINKAJA_NOTIFY_PUBLIC_KEY_PATH": "/k.pem",
                                  "LINKAJA_NOTIFY_ENDPOINT_URL": "/bi/applink/v1.0/debit/notify",
-                                 "LINKAJA_URL_PARAM_IS_DEEPLINK": "Y"}):
+                                 "LINKAJA_URL_PARAM_TYPE": " PAY_RETURN ",
+                                 "LINKAJA_URL_PARAM_IS_DEEPLINK": "N"}):
         config = LinkAjaConfig.from_env()
     assert config.notify_public_key == "pem"
     assert config.notify_public_key_path == "/k.pem"
     assert config.notify_endpoint_url == "/bi/applink/v1.0/debit/notify"
-    assert config.url_param_is_deeplink == "Y"
+    assert config.url_param_type == "PAY_RETURN"
+    assert config.url_param_is_deeplink == "N"
 
 
-def test_is_deeplink_defaults_to_n():
+def test_url_param_defaults_to_partner_applink_and_deeplink_y():
+    """The format LinkAja confirmed: type partnerApplink, isDeeplink Y. Unset or blank = default."""
     with patch.dict(os.environ, {}, clear=True):
-        assert LinkAjaConfig.from_env().url_param_is_deeplink == "N"
-    with patch.dict(os.environ, {"LINKAJA_URL_PARAM_IS_DEEPLINK": "  "}):
-        assert LinkAjaConfig.from_env().url_param_is_deeplink == "N"
+        config = LinkAjaConfig.from_env()
+    assert (config.url_param_type, config.url_param_is_deeplink) == ("partnerApplink", "Y")
+    with patch.dict(os.environ, {"LINKAJA_URL_PARAM_TYPE": "  ", "LINKAJA_URL_PARAM_IS_DEEPLINK": "  "}):
+        config = LinkAjaConfig.from_env()
+    assert (config.url_param_type, config.url_param_is_deeplink) == ("partnerApplink", "Y")
+    assert (LinkAjaConfig().url_param_type, LinkAjaConfig().url_param_is_deeplink) == ("partnerApplink", "Y")
 
 
 def test_configuration_error_never_contains_secret_values():
@@ -1206,7 +1214,11 @@ async def test_duplicate_callback_does_not_provision_twice(callback_service):
 
     assert ack == LinkAjaNotifyAck(approval_code="D60232EF01", provisioning_scheduled=False)
     m["bundle_service"].buy_bundle.assert_not_called()
-    m["order_repo"].update_by.assert_not_called()
+    # The only write allowed is recording the approvalCode the order still lacks:
+    # bundle_data only, guarded on success - never payment state.
+    (write,) = m["order_repo"].update_by.call_args_list
+    assert write.kwargs["where"] == {"id": "order-1", "payment_status": OrderStatusEnum.SUCCESS}
+    assert set(write.kwargs["data"]) == {"bundle_data"}
     assert m["executor"].tasks == []
 
 
@@ -2145,12 +2157,13 @@ async def test_create_payment_without_rate_makes_no_http_call():
 # ---------------------------------------------------------------------------
 
 # Body of "Create Applink Payment", spec v1.1 §4.2 (p.11-12): `urlParams` (plural,
-# the v1.1 rename on p.2) with type PAY_RETURN. The Postman collection's
-# `urlParam` / `partnerApplink` are superseded. Values are our merchant's.
+# the v1.1 rename on p.2; the Postman collection's `urlParam` is superseded) with
+# the type LinkAja confirmed, "partnerApplink", and isDeeplink "Y" (the spec's
+# PAY_RETURN does not send the customer back). Values are our merchant's.
 _SPEC_CREATE_PAYMENT_BODY = {
     "partnerReferenceNo": "dsfhbvdf", "merchantId": "MERCHANT-TEST", "terminalId": "MERCHANT-TEST",
     "amount": {"value": "29880.00", "currency": "IDR"},
-    "urlParams": [{"url": _NOTIFY_URL + "?order_id=dsfhbvdf", "type": "PAY_RETURN", "isDeeplink": "N"}],
+    "urlParams": [{"url": _NOTIFY_URL + "?order_id=dsfhbvdf", "type": "partnerApplink", "isDeeplink": "Y"}],
     "additionalInfo": {"trxDate": "20260901135300", "terminalName": "TERMINAL-TEST",
                        "items": [{"id": "1", "name": "MERCHANT-TEST", "unitPrice": "29880.00", "qty": "1"}]},
 }
@@ -2187,20 +2200,21 @@ def test_create_payment_body_matches_the_spec():
         body = service._build_create_payment_body(request)
     assert body == _SPEC_CREATE_PAYMENT_BODY
     assert "urlParam" not in body                          # the pre-v1.1 name is gone
-    assert body["urlParams"][0]["type"] == "PAY_RETURN"    # not partnerApplink
+    assert body["urlParams"][0]["type"] == "partnerApplink"    # not the spec's PAY_RETURN
+    assert body["urlParams"][0]["isDeeplink"] == "Y"
 
 
 def test_url_params_carry_the_notify_url_not_the_success_url():
     """LinkAja confirmed: urlParams[0].url is our notify endpoint (LINKAJA_NOTIFY_URL)."""
     service = LinkAjaService(config=_full_config(success_url="https://www.google.com/"))
     body = service._build_create_payment_body(_payment_request())
-    assert body["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "PAY_RETURN", "isDeeplink": "N"}]
+    assert body["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "partnerApplink", "isDeeplink": "Y"}]
 
 
-def test_create_payment_is_deeplink_is_configurable():
-    service = LinkAjaService(config=_full_config(url_param_is_deeplink="Y"))
+def test_create_payment_url_param_type_and_deeplink_are_configurable():
+    service = LinkAjaService(config=_full_config(url_param_type="PAY_RETURN", url_param_is_deeplink="N"))
     body = service._build_create_payment_body(_payment_request())
-    assert body["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "PAY_RETURN", "isDeeplink": "Y"}]
+    assert body["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "PAY_RETURN", "isDeeplink": "N"}]
 
 
 @pytest.mark.asyncio
@@ -2237,7 +2251,7 @@ async def test_create_payment_end_to_end_request_shape_and_signatures():
     sent = _json.loads(content)
     assert sent["partnerReferenceNo"] == "order-1"
     assert sent["amount"] == {"value": "175840.00", "currency": "IDR"}
-    assert sent["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "PAY_RETURN", "isDeeplink": "N"}]
+    assert sent["urlParams"] == [{"url": _NOTIFY_URL + "?order_id=order-1", "type": "partnerApplink", "isDeeplink": "Y"}]
 
 
 @pytest.mark.parametrize("payload", [
@@ -2956,3 +2970,357 @@ async def test_reconciliation_skips_the_run_when_configuration_is_incomplete(lin
 
     assert await reconciler.reconcile_pending() == 0
     m["order_repo"].list.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# approvalCode storage (needed for refunds, §4.5) and the claim-owned columns
+# ---------------------------------------------------------------------------
+
+from app.services.integration.link_aja import CLAIM_OWNED_ORDER_FIELDS, with_approval_code
+from app.services.link_aja_reconciliation_service import is_reconciliation_enabled
+
+
+def _stored_approval_code(bundle_data):
+    return read_order_data(bundle_data).approval_code
+
+
+def _with_stored_code(m, code="STORED-CODE"):
+    m["order"].bundle_data = with_approval_code(m["order"].bundle_data, code)
+
+
+def test_embedding_a_quote_does_not_add_an_approval_code_key():
+    embedded = _json.loads(embed_order_data(get_bundle_mock().model_dump_json(), _stored_quote()))
+    assert "approval_code" not in embedded[ORDER_DATA_KEY]
+
+
+def test_with_approval_code_keeps_the_snapshot_and_the_quote():
+    original = embed_order_data(get_bundle_mock().model_dump_json(), _stored_quote())
+
+    updated = with_approval_code(original, "D60153DB03")
+
+    before, after = _json.loads(original), _json.loads(updated)
+    assert after[ORDER_DATA_KEY] == {**before[ORDER_DATA_KEY], "approval_code": "D60153DB03"}
+    assert {k: v for k, v in after.items() if k != ORDER_DATA_KEY} == \
+           {k: v for k, v in before.items() if k != ORDER_DATA_KEY}
+    assert read_order_data(updated).amount == "175840.00"
+
+
+def test_with_approval_code_refuses_an_order_without_a_quote():
+    with pytest.raises(ValueError):
+        with_approval_code(get_bundle_mock().model_dump_json(), "D60153DB03")
+
+
+@pytest.mark.asyncio
+async def test_notify_claim_stores_the_approval_code_in_the_same_update(callback_service):
+    service, m = callback_service
+
+    await service.process_verified_callback(_verified(approval_code="D60232EF01"))
+
+    (claim,) = m["order_repo"].update_by.call_args_list
+    assert claim.kwargs["where"] == {"id": "order-1", "payment_status": OrderStatusEnum.PENDING}
+    assert _stored_approval_code(claim.kwargs["data"]["bundle_data"]) == "D60232EF01"
+    assert read_order_data(claim.kwargs["data"]["bundle_data"]).amount == "175840.00"  # quote kept
+    # The in-memory order matches what was persisted.
+    assert m["order"].payment_status == OrderStatusEnum.SUCCESS
+    assert m["order"].payment_time == claim.kwargs["data"]["payment_time"]
+    assert m["order"].callback_time == claim.kwargs["data"]["callback_time"]
+    assert _stored_approval_code(m["order"].bundle_data) == "D60232EF01"
+
+
+@pytest.mark.asyncio
+async def test_claim_without_an_approval_code_does_not_rewrite_bundle_data(link_aja_enabled):
+    reconciler, m = _make_reconciler(status=LinkAjaStatusResult(
+        merchant_order_id="order-1", provider_reference="LA-TXN-9", status=LinkAjaPaymentStatus.SUCCESS,
+        provider_status="00", approval_code=""))
+
+    assert await reconciler.reconcile_pending() == 1
+
+    claim = m["order_repo"].update_by.call_args.kwargs
+    assert claim["data"]["payment_status"] == OrderStatusEnum.SUCCESS
+    assert "bundle_data" not in claim["data"]
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_claim_stores_the_inquiry_approval_code(link_aja_enabled):
+    reconciler, m = _make_reconciler()
+
+    assert await reconciler.reconcile_pending() == 1
+
+    claim = m["order_repo"].update_by.call_args.kwargs
+    assert claim["where"] == {"id": "order-1", "payment_status": OrderStatusEnum.PENDING}
+    assert _stored_approval_code(claim["data"]["bundle_data"]) == "D60153DB03"
+
+
+@pytest.mark.asyncio
+async def test_duplicate_notify_never_overwrites_a_stored_approval_code(callback_service):
+    service, m = callback_service
+    m["order"].payment_status = OrderStatusEnum.SUCCESS
+    _with_stored_code(m)
+
+    await service.process_verified_callback(_verified(approval_code="OTHER-CODE"))
+
+    m["order_repo"].update_by.assert_not_called()
+    assert _stored_approval_code(m["order"].bundle_data) == "STORED-CODE"
+
+
+@pytest.mark.asyncio
+async def test_notify_that_loses_the_claim_records_its_code_on_the_re_read_order(callback_service):
+    """The winner was an inquiry without an approval code; the losing notify has one."""
+    service, m = callback_service
+    claimed = m["order"].model_copy(update={"payment_status": OrderStatusEnum.SUCCESS})
+    m["order_repo"].get_by_id.side_effect = [m["order"], claimed]
+    m["order_repo"].update_by.side_effect = lambda where, data: (
+        [] if where.get("payment_status") == OrderStatusEnum.PENDING else [{"id": where["id"]}])
+
+    ack = await service.process_verified_callback(_verified(approval_code="D60232EF01"))
+
+    assert ack.provisioning_scheduled is False
+    record = m["order_repo"].update_by.call_args.kwargs
+    assert record["where"] == {"id": "order-1", "payment_status": OrderStatusEnum.SUCCESS}
+    assert set(record["data"]) == {"bundle_data"}
+    assert _stored_approval_code(claimed.bundle_data) == "D60232EF01"
+
+
+@pytest.mark.asyncio
+async def test_notify_that_loses_the_claim_keeps_a_code_the_winner_stored(callback_service):
+    service, m = callback_service
+    claimed = m["order"].model_copy(update={"payment_status": OrderStatusEnum.SUCCESS})
+    claimed.bundle_data = with_approval_code(claimed.bundle_data, "WINNER-CODE")
+    m["order_repo"].get_by_id.side_effect = [m["order"], claimed]
+    m["order_repo"].update_by.return_value = []  # lost the race
+
+    await service.process_verified_callback(_verified(approval_code="D60232EF01"))
+
+    # Only the failed claim was attempted; nothing was written over the winner's code.
+    (claim,) = m["order_repo"].update_by.call_args_list
+    assert claim.kwargs["where"]["payment_status"] == OrderStatusEnum.PENDING
+
+
+def _real_bundle_service(order_repo, esim_hub_order="default"):
+    """A real BundleService wired to mocks, to observe exactly what buy_bundle writes."""
+    from app.services.bundle_service import BundleService
+
+    if esim_hub_order == "default":
+        esim_hub_order = MagicMock(orderId="esim-1", iccid="ICCID-1", validityData="30", smdpAdress="smdp",
+                                   activationCode="AC", allowTopup=True)
+    hub = MagicMock()
+    hub.create_reseller_order = AsyncMock(return_value=esim_hub_order)
+    user = MagicMock(email="user@example.com", metadata={"msisdn": ""})
+    promotion = MagicMock()
+    promotion.update_promotion_usage = AsyncMock()
+    promotion.apply_promotion_code_after_purchase = AsyncMock()
+    collaborators = {
+        "esim_hub_service": hub,
+        "currency_service": MagicMock(**{"get_currency_rate.return_value": 1.0}),
+        "user_repo": MagicMock(**{"get_by_id.return_value": user}),
+        "user_order_repo": order_repo,
+        "user_profile_repo": MagicMock(**{"create.return_value": MagicMock(id="profile-1")}),
+        "user_profile_bundle_repo": MagicMock(),
+        "promotion_service": promotion,
+        "task_executor": MagicMock(),
+        "bundle_tag_repo": MagicMock(**{"list.return_value": []}),
+        "tag_repo": MagicMock(),
+    }
+    service = BundleService.__new__(BundleService)
+    for name, value in collaborators.items():
+        setattr(service, f"_BundleService__{name}", value)
+    return service
+
+
+def _writes_after_the_claim(order_repo):
+    calls = order_repo.update_by.call_args_list
+    assert calls[0].kwargs["where"]["payment_status"] == OrderStatusEnum.PENDING  # the claim
+    return [call.kwargs["data"] for call in calls[1:]]
+
+
+@pytest.mark.parametrize("esim_hub_order, order_status", [("default", OrderStatusEnum.SUCCESS),
+                                                         (None, OrderStatusEnum.FAILURE)])
+@pytest.mark.asyncio
+async def test_provisioning_never_writes_back_the_claim_owned_columns(callback_service, esim_hub_order,
+                                                                       order_status):
+    """BundleService.buy_bundle re-persists the in-memory order. For LinkAja it must
+    leave payment_status, payment_time, callback_time, payment_intent_code and
+    bundle_data (quote + approvalCode) exactly as the claim wrote them."""
+    service, m = callback_service
+    service._LinkAjaCallbackService__bundle_service = _real_bundle_service(m["order_repo"], esim_hub_order)
+
+    with patch("app.services.bundle_service.fcm_service"):
+        await service.process_verified_callback(_verified(approval_code="D60232EF01"))
+        m["executor"].run_all()
+
+    writes = _writes_after_the_claim(m["order_repo"])
+    assert writes, "buy_bundle wrote nothing"
+    for data in writes:
+        assert not CLAIM_OWNED_ORDER_FIELDS & set(data)
+    assert writes[-1]["order_status"] == order_status
+
+
+@pytest.mark.asyncio
+async def test_card_provisioning_still_writes_the_full_order():
+    """Unchanged for every other payment type: the whole order is written back."""
+    order_repo = MagicMock()
+    bundle_service = _real_bundle_service(order_repo)
+    order = UserOrderModel(id="order-9", user_id="user-1", amount=1099, modified_amount=1099, currency="USD",
+                           bundle_id="B123", order_type=UserOrderType.ASSIGN, payment_type=PaymentTypeEnum.CARD,
+                           payment_status=OrderStatusEnum.PENDING, payment_intent_code="pi_123",
+                           bundle_data=get_bundle_mock().model_dump_json())
+
+    with patch("app.services.bundle_service.fcm_service"):
+        await bundle_service.buy_bundle(user_order=order, bundle=get_bundle_mock(), user_id="user-1",
+                                        payment_status=OrderStatusEnum.SUCCESS, payment_type=PaymentTypeEnum.CARD)
+
+    data = order_repo.update_by.call_args.kwargs["data"]
+    assert data == order.model_dump(exclude={"id"})
+    assert CLAIM_OWNED_ORDER_FIELDS <= set(data)
+
+
+def _paid_order_reconciler(status=None, age=_td(hours=1), code=None):
+    reconciler, m = _make_reconciler(status=status, age=age)
+    m["order"].payment_status = OrderStatusEnum.SUCCESS
+    if code:
+        _with_stored_code(m, code)
+    return reconciler, m
+
+
+@pytest.mark.asyncio
+async def test_backfill_records_an_approval_code_returned_by_a_later_inquiry(link_aja_enabled):
+    reconciler, m = _paid_order_reconciler()
+
+    assert await reconciler.backfill_approval_codes() == 1
+
+    where = m["order_repo"].list.call_args.kwargs["where"]
+    assert where == {"payment_type": PaymentTypeEnum.LINK_AJA, "payment_status": OrderStatusEnum.SUCCESS}
+    (write,) = m["order_repo"].update_by.call_args_list
+    assert write.kwargs["where"] == {"id": "order-1", "payment_status": OrderStatusEnum.SUCCESS}
+    assert set(write.kwargs["data"]) == {"bundle_data"}
+    assert _stored_approval_code(write.kwargs["data"]["bundle_data"]) == "D60153DB03"
+    assert m["executor"].tasks == []  # never provisions
+
+
+@pytest.mark.asyncio
+async def test_backfill_skips_orders_that_already_have_a_code(link_aja_enabled):
+    reconciler, m = _paid_order_reconciler(code="STORED-CODE")
+
+    assert await reconciler.backfill_approval_codes() == 0
+    m["link_aja_mock"].get_payment_status.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_backfill_ignores_pending_orders_and_old_orders(link_aja_enabled):
+    pending, pm = _make_reconciler()
+    old, om = _paid_order_reconciler(age=_td(days=2))
+
+    assert await pending.backfill_approval_codes() == 0
+    assert await old.backfill_approval_codes() == 0
+    pm["link_aja_mock"].get_payment_status.assert_not_called()
+    om["link_aja_mock"].get_payment_status.assert_not_called()
+
+
+@pytest.mark.parametrize("status", [
+    LinkAjaStatusResult(merchant_order_id="order-1", provider_reference="LA-TXN-9",
+                        status=LinkAjaPaymentStatus.SUCCESS, provider_status="00", approval_code=""),
+    LinkAjaStatusResult(merchant_order_id="order-1", provider_reference="SOMEONE-ELSE",
+                        status=LinkAjaPaymentStatus.SUCCESS, provider_status="00", approval_code="X"),
+    LinkAjaStatusResult(merchant_order_id="order-1", provider_reference="LA-TXN-9",
+                        status=LinkAjaPaymentStatus.REFUNDED, provider_status="04", approval_code="X"),
+])
+@pytest.mark.asyncio
+async def test_backfill_writes_nothing_without_a_usable_code(link_aja_enabled, status):
+    reconciler, m = _paid_order_reconciler(status=status)
+
+    assert await reconciler.backfill_approval_codes() == 0
+    m["order_repo"].update_by.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_backfill_continues_after_a_failing_inquiry(link_aja_enabled):
+    reconciler, m = _paid_order_reconciler()
+    second = m["order"].model_copy(update={"id": "order-2"})
+    m["order_repo"].list.return_value = [m["order"], second]
+    m["link_aja_mock"].get_payment_status.side_effect = [RuntimeError("timeout"), _status()]
+
+    assert await reconciler.backfill_approval_codes() == 1
+
+
+@pytest.mark.asyncio
+async def test_backfill_does_nothing_when_link_aja_is_disabled():
+    reconciler, m = _paid_order_reconciler()
+    with patch.dict(os.environ, {"LINKAJA_ENABLED": "false"}):
+        assert await reconciler.backfill_approval_codes() == 0
+    m["order_repo"].list.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_a_job_run_reconciles_then_backfills(link_aja_enabled):
+    reconciler, _ = _make_reconciler()
+    with patch.object(reconciler, "reconcile_pending", AsyncMock()) as reconcile, \
+            patch.object(reconciler, "backfill_approval_codes", AsyncMock()) as backfill:
+        await reconciler.run_once()
+    reconcile.assert_awaited_once()
+    backfill.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_ensure_approval_code_returns_the_stored_code_without_asking(callback_service):
+    service, m = callback_service
+    m["order"].payment_status = OrderStatusEnum.SUCCESS
+    _with_stored_code(m)
+    m["link_aja"].get_payment_status = AsyncMock()
+
+    assert await service.ensure_approval_code(m["order"]) == "STORED-CODE"
+    m["link_aja"].get_payment_status.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_ensure_approval_code_asks_linkaja_and_records_it(callback_service):
+    service, m = callback_service
+    m["order"].payment_status = OrderStatusEnum.SUCCESS
+    m["order"].payment_intent_code = "LA-TXN-9"
+    m["link_aja"].get_payment_status = AsyncMock(return_value=_status())
+
+    assert await service.ensure_approval_code(m["order"]) == "D60153DB03"
+    assert _stored_approval_code(m["order_repo"].update_by.call_args.kwargs["data"]["bundle_data"]) == "D60153DB03"
+
+
+@pytest.mark.asyncio
+async def test_ensure_approval_code_refuses_when_linkaja_has_none(callback_service):
+    service, m = callback_service
+    m["order"].payment_status = OrderStatusEnum.SUCCESS
+    m["link_aja"].get_payment_status = AsyncMock(return_value=LinkAjaStatusResult(
+        merchant_order_id="order-1", provider_reference="LA-TXN-9", status=LinkAjaPaymentStatus.SUCCESS,
+        provider_status="00", approval_code=""))
+
+    with pytest.raises(LinkAjaProviderException):
+        await service.ensure_approval_code(m["order"])
+    m["order_repo"].update_by.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# LINKAJA_RECONCILE_ENABLED
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("value, enabled", [(None, True), ("", True), ("true", True), ("anything", True),
+                                            ("false", False), ("0", False), ("NO", False), (" off ", False)])
+def test_reconcile_flag_defaults_to_enabled(value, enabled):
+    env = {k: v for k, v in os.environ.items() if k != "LINKAJA_RECONCILE_ENABLED"}
+    if value is not None:
+        env["LINKAJA_RECONCILE_ENABLED"] = value
+    with patch.dict(os.environ, env, clear=True):
+        assert is_reconciliation_enabled() is enabled
+
+
+def test_reconciliation_job_is_not_started_when_the_reconcile_flag_is_off():
+    with patch.dict(os.environ, {"LINKAJA_ENABLED": "true", "LINKAJA_RECONCILE_ENABLED": "false"}), \
+            patch("app.services.link_aja_reconciliation_service.LinkAjaReconciliationService") as service:
+        assert start_link_aja_reconciliation() is None
+    service.assert_not_called()
+
+
+def test_reconciliation_job_starts_by_default_when_link_aja_is_enabled():
+    env = {k: v for k, v in os.environ.items() if k != "LINKAJA_RECONCILE_ENABLED"}
+    env["LINKAJA_ENABLED"] = "true"
+    with patch.dict(os.environ, env, clear=True), \
+            patch("app.services.link_aja_reconciliation_service.LinkAjaReconciliationService"), \
+            patch("app.services.link_aja_reconciliation_service.BackgroundScheduler") as scheduler:
+        assert start_link_aja_reconciliation() is scheduler.return_value
+    scheduler.return_value.start.assert_called_once()

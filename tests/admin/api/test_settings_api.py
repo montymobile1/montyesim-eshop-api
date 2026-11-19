@@ -364,7 +364,7 @@ def test_history_rows_have_changes_actor_and_redaction(api_client, as_super, rep
     body = response.json()["data"]
     assert body["total_count"] == 2
     first, legacy = body["data"]
-    assert first["changed_by"] == {"id": ACTOR, "email": "boss@example.com"}
+    assert first["changed_by"] == {"id": ACTOR, "email": "boss@example.com", "phone": None, "role": None}  # TEOS-341
     assert first["ip_address"] == "8.8.8.8" and first["client_reported"] is False
     assert first["changes"] == [
         {"key": "NEW_FLAG", "old_value": None, "new_value": "on", "redacted": False},

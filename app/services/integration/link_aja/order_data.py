@@ -18,6 +18,11 @@ never runs today (it builds the coroutine without awaiting it), but if it is
 ever fixed it must preserve this key, or `embed_order_data` must be reapplied.
 Reconciliation fails closed when the key is missing, so a lost quote can never
 cause a wrong provisioning - only a rejected notify.
+
+Once the order is paid, LinkAja's `approvalCode` is added under the same key.
+A refund (§4.5) cannot be requested without it, and LinkAja may return it only
+on a later inquiry, so it is written separately from the quote
+(`with_approval_code`) and never overwritten once set.
 """
 
 import json
@@ -28,6 +33,12 @@ from pydantic import BaseModel, ConfigDict
 #: Reserved key inside the order's `bundle_data` JSON object.
 ORDER_DATA_KEY = "linkaja_payment"
 
+#: `user_order` columns written by the atomic pending -> success claim of a LinkAja
+#: order. Provisioning must never write them back from an in-memory order, or a
+#: stale copy would undo the claim (and drop the stored quote / approvalCode).
+CLAIM_OWNED_ORDER_FIELDS = frozenset(
+    {"payment_status", "payment_time", "callback_time", "payment_intent_code", "bundle_data"})
+
 
 class LinkAjaOrderData(BaseModel):
     """The exact amount sent to LinkAja for an order, and how it was derived."""
@@ -37,6 +48,7 @@ class LinkAjaOrderData(BaseModel):
     usd_to_idr_rate: str           # LINKAJA_USD_TO_IDR_RATE at creation
     order_amount_minor_units: int  # the USD cents the amount was derived from
     quoted_at: str                 # ISO timestamp, for support/debugging
+    approval_code: Optional[str] = None  # LinkAja approvalCode, set once paid; required for refunds
 
     model_config = ConfigDict(extra="ignore")
 
@@ -62,7 +74,21 @@ def embed_order_data(bundle_data: Optional[str], data: LinkAjaOrderData) -> str:
     snapshot = _load_object(bundle_data)
     if snapshot is None:
         raise ValueError("order bundle_data is not a JSON object; cannot embed the LinkAja quote")
-    snapshot[ORDER_DATA_KEY] = data.model_dump()
+    snapshot[ORDER_DATA_KEY] = data.model_dump(exclude_none=True)
+    return json.dumps(snapshot)
+
+
+def with_approval_code(bundle_data: Optional[str], approval_code: str) -> str:
+    """Return `bundle_data` with `approval_code` set on the embedded quote.
+
+    Every other key, in the snapshot and in the quote, is kept as is. Raises
+    `ValueError` when no quote is embedded: an approval code is only ever
+    recorded for an order that was sent to LinkAja.
+    """
+    snapshot = _load_object(bundle_data)
+    if snapshot is None or not isinstance(snapshot.get(ORDER_DATA_KEY), dict):
+        raise ValueError("order bundle_data has no LinkAja quote; cannot record the approval code")
+    snapshot[ORDER_DATA_KEY] = {**snapshot[ORDER_DATA_KEY], "approval_code": approval_code}
     return json.dumps(snapshot)
 
 

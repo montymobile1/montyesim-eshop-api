@@ -3,11 +3,21 @@
 ``admin_user`` validates the bearer token with Supabase Auth on every request and reads the
 role from ``app_metadata.role``, so revoking a role or banning an admin takes effect on the
 next request instead of when the token expires. ``require_permission`` is the per-route check.
+
+TEOS-255 (trusted devices): the token's ``session_id`` claim must also belong to an active
+``admin_devices`` row (one indexed lookup per request), so a session opened directly against
+Supabase, or a revoked device, gets 401. The token must also not be newer than the last token the API
+handed to that device (``last_token_iat``): a token refreshed directly at Supabase gets 401.
 """
+import base64
 import ipaddress
+import json
 import os
+import threading
+import time
 from dataclasses import dataclass, field
-from typing import Callable, FrozenSet, Optional
+from datetime import datetime, timezone
+from typing import Any, Callable, Dict, FrozenSet, Optional
 
 import jwt
 from fastapi import Depends, Request, Security
@@ -17,7 +27,7 @@ from loguru import logger
 from app.config.admin_permissions import permissions_for
 from app.config.config import supabase_client
 from app.config.constants import ErrorMessages
-from app.exceptions.admin import AdminForbidden, AdminUnauthorized
+from app.exceptions.admin import AdminError, AdminForbidden, AdminUnauthorized, AdminUpstreamError, coded
 
 # auto_error=False: with True FastAPI raises HTTPException(403), which main.py rewrites to 401
 # with a generic body. A missing header is reported by admin_user as AdminUnauthorized instead.
@@ -31,6 +41,8 @@ class AdminUser:
     role: str
     permissions: FrozenSet[str] = field(default_factory=frozenset)
     token: str = field(default="", repr=False)
+    session_id: Optional[str] = None  # TEOS-255: Supabase session of the token (JWT claim)
+    device_id: Optional[str] = None   # TEOS-255: the admin_devices row of that session
 
     def has(self, permission: str) -> bool:
         return permission in self.permissions
@@ -45,34 +57,349 @@ def _verify_signature(token: str) -> None:
     jwt.decode(token, secret, algorithms=["HS256"], audience="authenticated")
 
 
-def resolve_admin(token: str) -> AdminUser:
+#: TEOS-307: sign-in methods of a session opened from an email link (password reset, magic link, email
+#: code). Such a session proves the inbox, not the password. ``POST /auth/reset-password`` accepts it only when it
+#: has no ``admin_devices`` row (TEOS-255: a verify-device portal session has one). On the other admin routes only
+#: ``recovery`` is refused outright; otp / magiclink sessions pass only through an active device row.
+EMAIL_LINK_METHODS: FrozenSet[str] = frozenset({"recovery", "otp", "magiclink"})
+
+
+def token_auth_methods(token: str) -> FrozenSet[str]:
+    """The ``amr`` methods of a Supabase access token (how its session was opened); empty when the token
+    cannot be read. The claims are read without checking the signature: callers still validate the token
+    with Supabase Auth, this only says what kind of session it is."""
+    amr = _unverified_claims(token).get("amr")
+    if not isinstance(amr, list):
+        return frozenset()
+    return frozenset(entry.get("method") for entry in amr
+                     if isinstance(entry, dict) and isinstance(entry.get("method"), str))
+
+
+def is_email_link_token(token: str) -> bool:
+    """True when the token's session was opened only from an email link (see ``EMAIL_LINK_METHODS``)."""
+    methods = token_auth_methods(token)
+    return bool(methods) and methods <= EMAIL_LINK_METHODS
+
+
+def is_recovery_session(token: str) -> bool:
+    """TEOS-255: True for a password reset link's session (amr contains ``recovery``): never a portal session,
+    even with a device row. Every other session (password, ``otp`` or ``magiclink``: GoTrue may label the
+    session of ``verify_otp(type="email")`` either way) is a portal session only through its active device
+    row, which only the API's sign-in creates; one opened directly against Supabase has none."""
+    return "recovery" in token_auth_methods(token)
+
+
+def _unverified_claims(token: str) -> Dict[str, Any]:
+    """The payload of a JWT (its middle segment), read without checking the signature; {} when unreadable.
+    Only for reading claims of a token that Supabase Auth validates (``resolve_admin``) or that Supabase
+    just returned (sign-in, refresh): never use it to decide that a token is genuine."""
+    parts = token.split(".") if isinstance(token, str) else []
+    if len(parts) != 3:
+        return {}
+    try:
+        payload = base64.urlsafe_b64decode(parts[1] + "=" * (-len(parts[1]) % 4))
+        claims = json.loads(payload)
+    except (ValueError, TypeError):  # bad base64, bad UTF-8 or bad JSON
+        return {}
+    return claims if isinstance(claims, dict) else {}
+
+
+def token_session_id(token: str) -> Optional[str]:
+    """The ``session_id`` claim of a Supabase access token (readable even once expired), else None. The
+    signature is not checked here: callers validate the token with Supabase Auth."""
+    value = _unverified_claims(token).get("session_id")
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def token_iat(token: str) -> Optional[int]:
+    """The ``iat`` claim (issued at, seconds) of a Supabase access token, else None. Not signature-checked."""
+    value = _unverified_claims(token).get("iat")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    return int(value)
+
+
+_device_service = None
+
+
+def _default_session_device(session_id: str) -> Optional[Dict[str, Any]]:
+    global _device_service
+    if _device_service is None:  # one instance (and one database client) for every request
+        from app.services.admin.trusted_device_service import TrustedDeviceService
+        _device_service = TrustedDeviceService()
+    return _device_service.session_device(session_id)
+
+
+#: TEOS-255: ``session_id`` -> the device row of that session (active, else the latest revoked, else None).
+#: Module level so tests can replace it (``monkeypatch.setattr(admin_security, "session_device_lookup", ...)``).
+session_device_lookup: Callable[[str], Optional[Dict[str, Any]]] = _default_session_device
+
+
+#: TEOS-321: why a session was refused (the audit row's ``reason``) -> the 401 code the caller gets.
+REFUSAL_CODES: Dict[str, str] = {
+    "no_device_row": "device_session_required",               # e.g. a session opened directly at Supabase
+    "other_account": "device_session_required",               # the row belongs to another admin
+    "device_revoked": "device_revoked",
+    "device_trust_expired": "device_trust_expired",
+    "token_refreshed_outside_api": "device_session_required",  # newer than the device's last_token_iat
+    "device_mismatch": "device_session_required",             # TEOS-320: refresh token sent by another browser
+    "access_revoked": "access_removed",                         # TEOS-340: revoked by the Admins page > Revoke access
+}
+
+#: ``trusted_device_service.REASON_ACCESS_REVOKED`` (not imported: that module imports this one). TEOS-340: a device
+#: row revoked for this reason answers 401 ``access_removed`` (the portal shows "Admin access was removed from this
+#: account."), not ``device_revoked``: Revoke access ends the sessions, so the request never reaches the role check.
+ACCESS_REVOKED_REASON = "access_revoked"
+
+
+def device_session_refusal(row: Optional[Dict[str, Any]], admin_id: str) -> Optional[str]:
+    """The refusal reason (a ``REFUSAL_CODES`` key) for a session whose device row is missing, belongs to
+    another account, is revoked or whose trust expired; None when the row is active."""
+    if not row:
+        return "no_device_row"
+    if str(row.get("admin_id") or "").lower() != str(admin_id).lower():
+        return "other_account"
+    if row.get("revoked_at"):
+        return "access_revoked" if row.get("revoke_reason") == ACCESS_REVOKED_REASON else "device_revoked"
+    trusted_until = _as_utc(row.get("trusted_until"))
+    if trusted_until is not None and trusted_until <= datetime.now(timezone.utc):
+        # TEOS-255: a trusted device's session ends with its trust (30 days); the next sign-in asks for a code.
+        # A device signed in without trust (trusted_until null) keeps its session as long as Supabase does.
+        return "device_trust_expired"
+    return None
+
+
+def refusal_error(reason: str) -> AdminError:
+    """The 401 of a refusal reason."""
+    code = REFUSAL_CODES[reason]
+    message = _REFUSAL_MESSAGES.get(code, ErrorMessages.ADMIN_DEVICE_SESSION_REQUIRED)
+    return coded(AdminUnauthorized, code, message)
+
+
+_REFUSAL_MESSAGES = {
+    "device_revoked": ErrorMessages.ADMIN_DEVICE_REVOKED,
+    "access_removed": ErrorMessages.ADMIN_ACCESS_REMOVED,
+}
+
+
+def device_session_error(row: Optional[Dict[str, Any]], admin_id: str) -> Optional[AdminError]:
+    """The 401 for a session whose device row is missing, belongs to another account, is revoked or whose
+    trust expired; None when the row is active."""
+    reason = device_session_refusal(row, admin_id)
+    return refusal_error(reason) if reason else None
+
+
+def _as_utc(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _default_refusal_audit(row: Optional[Dict[str, Any]], admin_id: str, ip: Optional[str], reason: str,
+                           **details: Any) -> None:
+    from app.repo.admin.base import AuditContext
+    from app.services.admin.audit_service import AuditService
+    device_id = str(row["id"]) if row and row.get("id") else None
+    # TEOS-321 reopen: the reason goes in the context. admin_write_audit writes operation_details.reason from it,
+    # last, over any "reason" detail (a detail named reason was always stored as null).
+    AuditService().log(AuditContext(actor_id=str(admin_id), ip=ip, reason=reason), "admin_devices", "UPDATE",
+                       record_id=device_id or details.get("session_id"), action="session_refused",
+                       admin_id=str(admin_id), device_id=device_id,
+                       revoke_reason=row.get("revoke_reason") if row else None, **details)
+
+
+#: TEOS-255 / TEOS-321 audit "session refused": ``(row, admin_id, ip, reason, **details)`` with details
+#: ``code``, ``path``, ``session_id``. Module level so tests can replace it.
+refusal_audit: Callable[..., None] = _default_refusal_audit
+
+
+def _refusal_window_seconds() -> float:
+    value = os.getenv("ADMIN_SESSION_REFUSED_AUDIT_WINDOW_SECONDS")
+    try:
+        return max(float(value), 0.0) if value is not None and value.strip() else 300.0
+    except ValueError:
+        logger.warning(f"invalid ADMIN_SESSION_REFUSED_AUDIT_WINDOW_SECONDS {value!r}, using 300")
+        return 300.0
+
+
+class RefusalDedupe:
+    """TEOS-321 rate cap: at most one ``session_refused`` row per (session, reason, route) per window (default
+    5 min), so a page that keeps polling with a refused session does not flood the audit log, while every route
+    the session tried still shows up (TEOS-321 reopen: with the route left out, a refusal on /users was hidden by
+    one on /auth/me). Per API process: with several processes, a few more rows, never fewer."""
+
+    MAX_KEYS = 5000
+
+    def __init__(self, window_seconds: Optional[float] = None, clock: Callable[[], float] = time.monotonic):
+        self._window = window_seconds
+        self._clock = clock
+        self._seen: Dict[Any, float] = {}
+        self._lock = threading.Lock()
+
+    def first(self, key: Any) -> bool:
+        """True when ``key`` was not audited within the window (and records it now)."""
+        window = _refusal_window_seconds() if self._window is None else self._window
+        if window <= 0:
+            return True
+        now = self._clock()
+        with self._lock:
+            if len(self._seen) >= self.MAX_KEYS:
+                self._seen = {k: t for k, t in self._seen.items() if now - t < window}
+                if len(self._seen) >= self.MAX_KEYS:
+                    self._seen.clear()
+            last = self._seen.get(key)
+            if last is not None and now - last < window:
+                return False
+            self._seen[key] = now
+            return True
+
+    def clear(self) -> None:
+        with self._lock:
+            self._seen.clear()
+
+
+refusal_dedupe = RefusalDedupe()
+
+
+def audit_refused_session(row: Optional[Dict[str, Any]], admin_id: str, ip: Optional[str] = None,
+                          reason: Optional[str] = None, *, path: Optional[str] = None,
+                          session_id: Optional[str] = None) -> None:
+    """TEOS-321: one ``session_refused`` audit row for a refused session (per request or on refresh), with the
+    reason, the 401 code, the admin, the device, the session, the IP and the route. Without ``reason`` it is
+    worked out from the row (nothing is written for an active row). Rate capped by ``refusal_dedupe`` per
+    session, reason and route. Best effort: the 401 is returned anyway."""
+    reason = reason or device_session_refusal(row, admin_id)
+    if not reason:
+        return
+    session_id = session_id or (row or {}).get("session_id")
+    if not refusal_dedupe.first((str(session_id or admin_id), reason, path)):
+        return
+    try:
+        refusal_audit(row, str(admin_id), ip, reason, code=REFUSAL_CODES.get(reason), path=path,
+                      session_id=session_id)
+    except Exception as exc:
+        logger.error(f"admin device: refused-session audit failed: {type(exc).__name__}")
+
+
+def _ended_session_refusal(token: str, ip: Optional[str], path: Optional[str]) -> Optional[str]:
+    """Supabase refused the token. Revoking a device ends its Supabase session, so its next request fails
+    there, before the device check. When the token's session belongs to a revoked device row of the same
+    admin, the refusal reason, else None: the caller then answers 401 ``device_revoked`` (TEOS-332: the portal
+    shows "This device was signed out." instead of "expired"), or ``access_removed`` when the row was revoked
+    by Revoke access (TEOS-340: "Admin access was removed from this account.").
+
+    With SUPABASE_JWT_SECRET the signature is checked locally (expiry ignored): a forged token gets the generic
+    401. TEOS-321: a genuine, unexpired token is also audited. Without the secret the claims are read unchecked,
+    only to pick the 401 code: nothing is audited (a forged token must never create audit rows); the most a
+    forged token learns is whether a session id it already knows was revoked."""
+    if not token:
+        return None
+    secret = os.getenv("SUPABASE_JWT_SECRET")
+    try:
+        if secret:
+            claims = jwt.decode(token, secret, algorithms=["HS256"], audience="authenticated",
+                                options={"verify_exp": False})
+        else:
+            claims = _unverified_claims(token)
+        session_id, admin_id = claims.get("session_id"), claims.get("sub")
+        if not isinstance(session_id, str) or not session_id or not isinstance(admin_id, str):
+            return None
+        row = session_device_lookup(session_id)
+    except Exception:  # forged, unreadable, lookup down: the generic 401
+        return None
+    if not (row and row.get("revoked_at") and str(row.get("admin_id") or "").lower() == admin_id.lower()):
+        return None
+    reason = device_session_refusal(row, admin_id)  # device_revoked or access_revoked
+    exp = claims.get("exp")
+    unexpired = isinstance(exp, (int, float)) and not isinstance(exp, bool) and exp > time.time()
+    if secret and unexpired:
+        audit_refused_session(row, admin_id, ip, reason, path=path, session_id=session_id)
+    return reason
+
+
+def token_newer_than_device(row: Dict[str, Any], token: str) -> bool:
+    """True when the token was issued after the last token the API handed to this device (``last_token_iat``):
+    it was refreshed outside the API. A row with no ``last_token_iat`` yet accepts any token."""
+    last = row.get("last_token_iat")
+    if last is None:
+        return False
+    iat = token_iat(token)
+    return iat is None or iat > int(last)
+
+
+def find_session_device(session_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    """``session_device_lookup`` with a store failure turned into 502 (fail closed)."""
+    if not session_id:
+        return None
+    try:
+        return session_device_lookup(session_id)
+    except AdminError:
+        raise
+    except Exception as exc:
+        logger.error(f"admin device lookup failed: {type(exc).__name__}")
+        raise AdminUpstreamError("DEVICE_LOOKUP_FAILED")
+
+
+def resolve_admin(token: str, request: Optional[Request] = None) -> AdminUser:
     """Validate ``token`` with Supabase Auth and return the admin it belongs to.
 
-    Raises AdminUnauthorized (401) for a missing, invalid, expired or revoked session and
-    AdminForbidden (403) when the account has no admin role.
+    Raises AdminUnauthorized (401) for a missing, invalid, expired or revoked session or a reset-link
+    session (TEOS-307), AdminForbidden (403) when the account has no admin role, and (TEOS-255) 401
+    ``device_session_required`` / ``device_revoked`` / ``device_trust_expired`` when the token's session has
+    no active device row or the token is newer than the last one the API handed to that device; 401
+    ``access_removed`` (TEOS-340) when that row was revoked by Revoke access.
+    TEOS-321: every device refusal writes a ``session_refused`` audit row (IP and route from ``request``).
     """
     if not token:
         raise AdminUnauthorized("BEARER_TOKEN_REQUIRED")
+    ip = client_ip(request) if request is not None else None
+    path = request.url.path if request is not None else None
     try:
         _verify_signature(token)
         response = supabase_client().auth.get_user(jwt=token)
     except Exception as exc:  # invalid signature, expired, revoked, banned, GoTrue error
         logger.info(f"admin token rejected: {type(exc).__name__}")
+        reason = _ended_session_refusal(token, ip, path)
+        if reason:
+            raise refusal_error(reason)
         raise AdminUnauthorized("INVALID_OR_EXPIRED_TOKEN")
     user = getattr(response, "user", None)
     if user is None:
         raise AdminUnauthorized("INVALID_OR_EXPIRED_TOKEN")
+    if is_recovery_session(token):
+        # TEOS-307: the session of a password reset link only sets the new password
+        logger.info("admin token rejected: email link session")
+        raise AdminUnauthorized("EMAIL_LINK_SESSION_NOT_ALLOWED")
     role = (user.app_metadata or {}).get("role")
     permissions = permissions_for(role)
     if not permissions:
         raise AdminForbidden(ErrorMessages.ADMIN_ROLE_REQUIRED.value, name=ErrorMessages.ADMIN_ROLE_REQUIRED)
-    return AdminUser(id=str(user.id), email=user.email, role=role, permissions=permissions, token=token)
+    # TEOS-255 (D5): only sessions registered by the sign-in (an active device row) are portal sessions
+    session_id = token_session_id(token)
+    row = find_session_device(session_id)
+    reason = device_session_refusal(row, str(user.id))
+    if reason is None and token_newer_than_device(row, token):
+        reason = "token_refreshed_outside_api"
+    if reason is not None:
+        logger.info(f"admin token rejected: {reason}")
+        audit_refused_session(row, str(user.id), ip, reason, path=path, session_id=session_id)
+        raise refusal_error(reason)
+    return AdminUser(id=str(user.id), email=user.email, role=role, permissions=permissions, token=token,
+                     session_id=session_id, device_id=str(row["id"]))
 
 
-def admin_user(credentials: Optional[HTTPAuthorizationCredentials] = Security(_bearer)) -> AdminUser:
+def admin_user(request: Request,
+               credentials: Optional[HTTPAuthorizationCredentials] = Security(_bearer)) -> AdminUser:
     """FastAPI dependency: the authenticated admin. Any admin role passes."""
     token = credentials.credentials if credentials and credentials.credentials else ""
-    return resolve_admin(token)
+    return resolve_admin(token, request)
 
 
 def require_permission(permission: str) -> Callable[..., AdminUser]:
