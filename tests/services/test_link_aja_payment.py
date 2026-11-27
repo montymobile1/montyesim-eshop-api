@@ -1743,20 +1743,150 @@ def test_get_return_without_a_configured_frontend_url_does_not_redirect():
     assert "location" not in response.headers
 
 
-def test_get_return_never_processes_or_provisions():
-    """The GET is not authenticated, so it must not touch orders at all: it
-    never builds the callback service, reads or updates an order, or schedules
-    provisioning - not even for a pending order with a valid id."""
+def _return_status(status=LinkAjaPaymentStatus.SUCCESS, reference="LA-TXN-9", approval_code="D60232EF01"):
+    from app.services.integration.link_aja import LinkAjaStatusResult
+    return LinkAjaStatusResult(merchant_order_id="order-1", provider_reference=reference, status=status,
+                               approval_code=approval_code)
+
+
+def _return_with_inquiry(inquiry, config=None, params=None):
+    """GET the return URL on an enabled deployment whose status inquiry is `inquiry`
+    (an AsyncMock). Returns (response, mocks, service getter)."""
+    app, m, get_service = _notify_app_with(config or _notify_config())
+    with patch.object(m["link_aja"], "get_payment_status", inquiry), \
+            patch.dict(os.environ, {"LINKAJA_ENABLED": "true"}):
+        response = _return_get(app, params={"order_id": _ORDER_UUID} if params is None else params)
+    return response, m, get_service
+
+
+def _assert_redirected(response):
+    assert response.status_code == 302
+    assert response.headers["location"] == f"https://esim-shop.invalid/plans?order_id={_ORDER_UUID}"
+
+
+def test_get_return_settles_a_paid_pending_order_before_redirecting():
+    """The customer is usually back before the reconciliation job runs: one inquiry
+    answering 00 claims the order (same atomic claim as the job) and schedules provisioning."""
+    inquiry = AsyncMock(return_value=_return_status())
+    response, m, _ = _return_with_inquiry(inquiry)
+
+    _assert_redirected(response)
+    inquiry.assert_awaited_once_with("order-1")
+    m["order_repo"].update_by.assert_called_once()
+    where = m["order_repo"].update_by.call_args.kwargs["where"]
+    assert where == {"id": "order-1", "payment_status": OrderStatusEnum.PENDING}
+    assert m["order"].payment_status == OrderStatusEnum.SUCCESS
+    assert len(m["executor"].tasks) == 1
+
+
+@pytest.mark.parametrize("status", [LinkAjaPaymentStatus.NOT_FOUND, LinkAjaPaymentStatus.PENDING,
+                                    LinkAjaPaymentStatus.UNKNOWN, LinkAjaPaymentStatus.FAILED,
+                                    LinkAjaPaymentStatus.EXPIRED, LinkAjaPaymentStatus.REFUNDED])
+def test_get_return_changes_nothing_unless_linkaja_says_success(status):
+    """Not even a failed / expired answer is recorded here: only 00 changes state."""
+    response, m, _ = _return_with_inquiry(AsyncMock(return_value=_return_status(status=status)))
+    _assert_redirected(response)
+    m["order_repo"].update_by.assert_not_called()
+    assert m["executor"].tasks == []
+    assert m["order"].payment_status == OrderStatusEnum.PENDING
+
+
+def test_get_return_redirects_when_the_inquiry_times_out():
+    async def slow(_order_id):
+        await asyncio.sleep(5)
+        return _return_status()
+
+    response, m, _ = _return_with_inquiry(AsyncMock(side_effect=slow),
+                                          config=_notify_config(return_inquiry_timeout=0.05))
+    _assert_redirected(response)
+    m["order_repo"].update_by.assert_not_called()
+    assert m["executor"].tasks == []
+
+
+@pytest.mark.parametrize("error", [LinkAjaProviderException(details="boom"), RuntimeError("boom")])
+def test_get_return_redirects_when_the_inquiry_fails(error):
+    response, m, _ = _return_with_inquiry(AsyncMock(side_effect=error))
+    _assert_redirected(response)
+    m["order_repo"].update_by.assert_not_called()
+    assert m["executor"].tasks == []
+
+
+def test_get_return_redirects_when_the_service_cannot_be_built():
     app, m, get_service = _notify_app_with(_notify_config())
-    for params in ({"order_id": "order-1"}, {"order_id": _ORDER_UUID}, None):
+    get_service.side_effect = RuntimeError("no db")
+    with patch.dict(os.environ, {"LINKAJA_ENABLED": "true"}):
+        _assert_redirected(_return_get(app, params={"order_id": _ORDER_UUID}))
+
+
+def test_get_return_does_not_provision_an_order_already_claimed():
+    """The job or a notify claimed it first: the conditional UPDATE matches no row."""
+    inquiry = AsyncMock(return_value=_return_status())
+    app, m, _ = _notify_app_with(_notify_config())
+    m["order_repo"].update_by.return_value = []
+    with patch.object(m["link_aja"], "get_payment_status", inquiry), \
+            patch.dict(os.environ, {"LINKAJA_ENABLED": "true"}):
+        _assert_redirected(_return_get(app, params={"order_id": _ORDER_UUID}))
+    inquiry.assert_awaited_once()
+    assert m["executor"].tasks == []
+
+
+@pytest.mark.parametrize("change", [
+    {"payment_status": OrderStatusEnum.SUCCESS},
+    {"payment_status": OrderStatusEnum.FAILURE},
+    {"payment_type": PaymentTypeEnum.CARD},
+    {"bundle_data": get_bundle_mock().model_dump_json()},  # never sent to LinkAja: no stored quote
+])
+def test_get_return_only_asks_about_pending_link_aja_orders(change):
+    inquiry = AsyncMock(return_value=_return_status())
+    app, m, _ = _notify_app_with(_notify_config())
+    for field, value in change.items():
+        setattr(m["order"], field, value)
+    with patch.object(m["link_aja"], "get_payment_status", inquiry), \
+            patch.dict(os.environ, {"LINKAJA_ENABLED": "true"}):
+        _assert_redirected(_return_get(app, params={"order_id": _ORDER_UUID}))
+    inquiry.assert_not_awaited()
+    m["order_repo"].update_by.assert_not_called()
+    assert m["executor"].tasks == []
+
+
+def test_get_return_unknown_order_is_only_redirected():
+    inquiry = AsyncMock(return_value=_return_status())
+    app, m, _ = _notify_app_with(_notify_config())
+    m["order_repo"].get_by_id.return_value = None
+    with patch.object(m["link_aja"], "get_payment_status", inquiry), \
+            patch.dict(os.environ, {"LINKAJA_ENABLED": "true"}):
+        _assert_redirected(_return_get(app, params={"order_id": _ORDER_UUID}))
+    inquiry.assert_not_awaited()
+
+
+@pytest.mark.parametrize("params", [None, {"order_id": "order-1"}, {"order_id": "1' OR '1'='1"}])
+def test_get_return_without_a_valid_order_id_never_builds_the_service(params):
+    app, m, get_service = _notify_app_with(_notify_config())
+    with patch.dict(os.environ, {"LINKAJA_ENABLED": "true"}):
         assert _return_get(app, params=params).status_code == 302
     get_service.assert_not_called()
     m["order_repo"].get_by_id.assert_not_called()
-    m["order_repo"].update_by.assert_not_called()
-    m["order_repo"].list.assert_not_called()
-    m["bundle_service"].buy_bundle.assert_not_called()
-    assert m["executor"].tasks == []
-    assert m["order"].payment_status == OrderStatusEnum.PENDING
+
+
+def test_get_return_inquiry_can_be_switched_off():
+    inquiry = AsyncMock(return_value=_return_status())
+    response, m, _ = _return_with_inquiry(inquiry, config=_notify_config(return_inquiry_enabled=False))
+    _assert_redirected(response)
+    inquiry.assert_not_awaited()
+    m["order_repo"].get_by_id.assert_not_called()
+
+
+@pytest.mark.parametrize("env, enabled, timeout", [
+    ({}, True, 5.0),
+    ({"LINKAJA_RETURN_INQUIRY_ENABLED": "false", "LINKAJA_RETURN_INQUIRY_TIMEOUT_SECONDS": "2.5"}, False, 2.5),
+    ({"LINKAJA_RETURN_INQUIRY_ENABLED": "yes", "LINKAJA_RETURN_INQUIRY_TIMEOUT_SECONDS": "abc"}, True, 5.0),
+    ({"LINKAJA_RETURN_INQUIRY_ENABLED": "0", "LINKAJA_RETURN_INQUIRY_TIMEOUT_SECONDS": "-1"}, False, 5.0),
+])
+def test_return_inquiry_settings_from_env(env, enabled, timeout):
+    with patch.dict(os.environ, env, clear=True):
+        config = LinkAjaConfig.from_env()
+    assert config.return_inquiry_enabled is enabled
+    assert config.return_inquiry_timeout == timeout
 
 
 def test_get_return_works_while_link_aja_is_disabled():
@@ -3324,3 +3454,139 @@ def test_reconciliation_job_starts_by_default_when_link_aja_is_enabled():
             patch("app.services.link_aja_reconciliation_service.BackgroundScheduler") as scheduler:
         assert start_link_aja_reconciliation() is scheduler.return_value
     scheduler.return_value.start.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation: one poller per host (flock leader)
+# ---------------------------------------------------------------------------
+
+from app.services.link_aja_reconciliation_service import HostLeaderLock
+
+
+def test_only_one_worker_holds_the_reconciliation_lock(tmp_path):
+    """Each lock opens its own descriptor, exactly like two uvicorn workers."""
+    path = str(tmp_path / "reconcile.lock")
+    first, second = HostLeaderLock(path), HostLeaderLock(path)
+    try:
+        assert first.acquire() is True
+        assert first.acquire() is True  # kept, not re-taken
+        assert second.acquire() is False
+        first.release()  # the leader exits
+        assert second.acquire() is True
+        assert first.acquire() is False
+    finally:
+        first.release()
+        second.release()
+
+
+def test_reconciliation_lock_path_comes_from_the_environment(tmp_path):
+    path = str(tmp_path / "custom.lock")
+    with patch.dict(os.environ, {"LINKAJA_RECONCILE_LOCK_FILE": path}):
+        lock = HostLeaderLock()
+    try:
+        assert lock.acquire() is True
+        assert os.path.exists(path)
+    finally:
+        lock.release()
+
+
+def test_an_unusable_reconciliation_lock_keeps_the_job_running(tmp_path):
+    """A job that never runs would leave paid orders unprovisioned; duplicates are safe."""
+    lock = HostLeaderLock(str(tmp_path / "missing-dir" / "reconcile.lock"))
+    assert lock.acquire() is True
+
+
+@pytest.mark.parametrize("leader", [True, False])
+def test_reconciliation_runs_only_in_the_leader_worker(leader):
+    lock = MagicMock()
+    lock.acquire.return_value = leader
+    reconciler = LinkAjaReconciliationService(link_aja_service=MagicMock(), callback_service=MagicMock(),
+                                              user_order_repo=MagicMock(), leader_lock=lock)
+    with patch.object(LinkAjaReconciliationService, "run_once", new=AsyncMock()) as run_once:
+        reconciler.run()
+    assert run_once.await_count == (1 if leader else 0)
+
+
+# ---------------------------------------------------------------------------
+# Reconciliation: unpaid orders expire
+# ---------------------------------------------------------------------------
+
+_NOT_FOUND = LinkAjaStatusResult(merchant_order_id="order-1", status=LinkAjaPaymentStatus.NOT_FOUND,
+                                 provider_status="07")
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_cancels_an_unpaid_order_past_the_expiry(link_aja_enabled):
+    reconciler, m = _make_reconciler(status=_NOT_FOUND, age=_td(minutes=31))
+
+    assert await reconciler.reconcile_pending() == 0
+
+    m["order_repo"].update_by.assert_called_once()
+    update = m["order_repo"].update_by.call_args.kwargs
+    assert update["where"] == {"id": "order-1", "payment_status": OrderStatusEnum.PENDING}
+    assert update["data"]["payment_status"] == OrderStatusEnum.CANCELED
+    assert update["data"]["order_status"] == OrderStatusEnum.CANCELED
+    assert m["executor"].tasks == []
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_keeps_a_recent_unpaid_order_pending(link_aja_enabled):
+    reconciler, m = _make_reconciler(status=_NOT_FOUND, age=_td(minutes=29))
+    await reconciler.reconcile_pending()
+    m["order_repo"].update_by.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_expiry_is_configurable(link_aja_enabled):
+    reconciler, m = _make_reconciler(status=_NOT_FOUND, age=_td(minutes=11))
+    with patch.dict(os.environ, {"LINKAJA_RECONCILE_EXPIRE_AFTER_SECONDS": "600"}):
+        await reconciler.reconcile_pending()
+    assert m["order_repo"].update_by.call_args.kwargs["data"]["payment_status"] == OrderStatusEnum.CANCELED
+
+
+@pytest.mark.parametrize("status", [LinkAjaPaymentStatus.PENDING, LinkAjaPaymentStatus.UNKNOWN])
+@pytest.mark.asyncio
+async def test_reconciliation_only_expires_on_an_explicit_not_found(link_aja_enabled, status):
+    reconciler, m = _make_reconciler(status=LinkAjaStatusResult(merchant_order_id="order-1", status=status),
+                                     age=_td(hours=2))
+    await reconciler.reconcile_pending()
+    m["order_repo"].update_by.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_does_not_expire_when_the_inquiry_fails(link_aja_enabled):
+    reconciler, m = _make_reconciler(age=_td(hours=2))
+    m["link_aja_mock"].get_payment_status = AsyncMock(side_effect=LinkAjaProviderException(details="down"))
+    await reconciler.reconcile_pending()
+    m["order_repo"].update_by.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_still_provisions_an_old_order_that_was_paid(link_aja_enabled):
+    reconciler, m = _make_reconciler(age=_td(hours=2))
+    assert await reconciler.reconcile_pending() == 1
+    assert m["order_repo"].update_by.call_args.kwargs["data"]["payment_status"] == OrderStatusEnum.SUCCESS
+    assert len(m["executor"].tasks) == 1
+
+
+def test_expiry_never_overwrites_an_order_claimed_meanwhile():
+    callback, m = _make_callback_service()
+    m["order_repo"].update_by.return_value = []  # no longer pending when the UPDATE ran
+    assert callback.expire_unpaid_from_status(m["order"], _NOT_FOUND) is False
+    m["order"].payment_status = OrderStatusEnum.SUCCESS
+    m["order_repo"].update_by.reset_mock()
+    assert callback.expire_unpaid_from_status(m["order"], _NOT_FOUND) is False
+    m["order_repo"].update_by.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_success_notify_for_a_canceled_order_is_flagged_and_not_provisioned(callback_service):
+    service, m = callback_service
+    canceled = m["order"].model_copy(update={"payment_status": OrderStatusEnum.CANCELED})
+    m["order_repo"].update_by.return_value = []  # claim needs pending
+    m["order_repo"].get_by_id.side_effect = [m["order"], canceled]
+    with patch("app.services.link_aja_callback_service.logger") as log:
+        ack = await service.process_verified_callback(_verified())
+    assert ack.provisioning_scheduled is False
+    assert m["executor"].tasks == []
+    assert any("needs manual review" in str(c) for c in log.error.call_args_list)

@@ -202,7 +202,12 @@ class LinkAjaCallbackService:
             # The winner may have been an inquiry without an approval code; re-read so a
             # code it did store is never overwritten.
             claimed_order = self.__user_order_repo.get_by_id(order.id)
-            if claimed_order:
+            if claimed_order and claimed_order.payment_status != OrderStatusEnum.SUCCESS:
+                # Not a duplicate: e.g. the order was canceled as expired and the
+                # customer paid anyway. Paid but not provisioned.
+                logger.error(f"[LinkAja] success notify for order {order.id} whose payment_status is "
+                             f"{claimed_order.payment_status}: paid but not provisioned, needs manual review")
+            elif claimed_order:
                 self.record_approval_code(claimed_order, approval_code)
             return LinkAjaNotifyAck(approval_code=approval_code)
 
@@ -258,6 +263,91 @@ class LinkAjaCallbackService:
         logger.info(f"[LinkAja] reconciliation: order {order.id} paid per status inquiry; provisioning")
         self.__schedule_provisioning(order=order)
         return True
+
+    def expire_unpaid_from_status(self, order: UserOrderModel, status: LinkAjaStatusResult) -> bool:
+        """Cancel a pending LinkAja order that LinkAja explicitly reports as not found (07).
+
+        For the reconciliation job, once the order is well past the payment URL's lifetime:
+        the customer never paid, and without this the order would be polled until it
+        leaves the job's age window and then stay pending forever. Only NOT_FOUND
+        qualifies; pending, unknown or a failed inquiry keep the order pending. Guarded on
+        `payment_status = pending`, so a success claimed in the meantime is never
+        overwritten. Returns True when the order was canceled.
+        """
+        if order.payment_type != PaymentTypeEnum.LINK_AJA or order.payment_status != OrderStatusEnum.PENDING:
+            return False
+        if status.status != LinkAjaPaymentStatus.NOT_FOUND:
+            return False
+        updated = self.__user_order_repo.update_by(
+            where={"id": order.id, "payment_status": OrderStatusEnum.PENDING},
+            data={"payment_status": OrderStatusEnum.CANCELED,
+                  "order_status": OrderStatusEnum.CANCELED,
+                  "callback_time": self.__now()})
+        if updated:
+            logger.info(f"[LinkAja] reconciliation: order {order.id} was never paid and its payment has "
+                        f"expired; canceled")
+        return bool(updated)
+
+    async def settle_on_return(self, order_id: str) -> bool:
+        """One bounded Inquiry Status for a pending LinkAja order whose customer just came back.
+
+        The customer usually returns before the reconciliation job's next run, and the
+        frontend then sees the order unpaid. So the GET return asks LinkAja once, with
+        `LINKAJA_RETURN_INQUIRY_TIMEOUT_SECONDS` (default 5) as the limit, before redirecting.
+
+        Only an explicit success (00) does anything, and it goes through
+        `reconcile_from_status`: the same atomic pending -> success claim as the notify and
+        the job, so the three can never provision the same order twice. Any other answer,
+        a timeout or an error changes nothing; the job still covers the order later.
+        Never raises: the caller redirects whatever happens.
+
+        Returns True when this call claimed the order and scheduled provisioning.
+        """
+        config = self.__link_aja_service.config
+        if not config.enabled or not config.return_inquiry_enabled:
+            return False
+        try:
+            order = self.__user_order_repo.get_by_id(order_id)
+        except Exception as exc:
+            logger.warning(f"[LinkAja] return inquiry: order {order_id} could not be read ({type(exc).__name__})")
+            return False
+        if not order:
+            return False
+        return await self.settle_by_inquiry(order, timeout=config.return_inquiry_timeout, source="return inquiry")
+
+    async def settle_by_inquiry(self, order: UserOrderModel, timeout: float, source: str) -> bool:
+        """One Inquiry Status, at most `timeout` seconds, for a pending LinkAja order.
+
+        Only an explicit success (00) changes anything, through `reconcile_from_status` (the
+        reconciliation job's atomic claim + async provisioning). Any other answer, a timeout or
+        an error leaves the order as it is. Never raises. True when this call claimed the order.
+        """
+        order_id = order.id
+        if (order.payment_type != PaymentTypeEnum.LINK_AJA or order.payment_status != OrderStatusEnum.PENDING
+                or read_order_data(order.bundle_data) is None):
+            return False
+        try:
+            status = await asyncio.wait_for(self.__link_aja_service.get_payment_status(order_id), timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.warning(f"[LinkAja] {source} for order {order_id} timed out after {timeout}s; "
+                           f"reconciliation will retry")
+            return False
+        except Exception as exc:
+            logger.warning(f"[LinkAja] {source} for order {order_id} failed ({type(exc).__name__}); "
+                           f"reconciliation will retry")
+            return False
+
+        if not is_provisioning_status(status.status):
+            logger.info(f"[LinkAja] {source}: order {order_id} is {status.status}; leaving it pending")
+            return False
+        try:
+            claimed = await self.reconcile_from_status(order, status)
+        except Exception as exc:
+            logger.error(f"[LinkAja] {source}: settling order {order_id} failed ({type(exc).__name__})")
+            return False
+        if claimed:
+            logger.info(f"[LinkAja] {source}: order {order_id} paid; provisioning scheduled")
+        return claimed
 
     def record_approval_code(self, order: UserOrderModel, approval_code: Optional[str]) -> bool:
         """Store LinkAja's approvalCode on an already-successful order that has none yet.
